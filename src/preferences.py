@@ -1,8 +1,10 @@
 import bpy
 from bpy.props import BoolProperty
+import os
 
 class Rig2AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = __package__
+    # Get the root package name (e.g., 'rig2_addons_remake')
+    bl_idname = __package__.split('.')[0]
 
     show_n_panel: BoolProperty(
         name="Show N-Panel",
@@ -16,7 +18,8 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
         column.prop(self, "show_n_panel")
 
 def get_preferences():
-    return bpy.context.preferences.addons[__package__].preferences
+    addon_name = __package__.split('.')[0]
+    return bpy.context.preferences.addons[addon_name].preferences
 
 def register():
     bpy.utils.register_class(Rig2AddonPreferences)

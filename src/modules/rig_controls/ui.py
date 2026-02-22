@@ -1,38 +1,14 @@
 import bpy
-from .properties import PROPERTY_MAP, FRIENDLY_NAMES
-
-def get_context_object(context):
-    """
-    稳健地获取当前属性面板应当显示的物体。
-    支持图钉锁定、数据标签页等多种上下文。
-    """
-    # 优先从属性空间的 id_data 获取被锁定的 ID
-    if context.area and context.area.type == 'PROPERTIES':
-        id_data = context.space_data.id_data
-        if id_data:
-            # 如果是物体，直接返回
-            if isinstance(id_data, bpy.types.Object):
-                return id_data
-            # 如果是骨架数据（Data 标签页），找到使用该数据的物体
-            if isinstance(id_data, bpy.types.Armature):
-                # 优先检查当前激活物体，看它是否使用这个数据（最快）
-                if context.active_object and context.active_object.data == id_data:
-                    return context.active_object
-                # 否则搜索（仅在锁定状态下可能需要）
-                for obj in bpy.data.objects:
-                    if obj.data == id_data:
-                        return obj
-    
-    # 降级方案：常规上下文物体
-    return context.object or context.active_object
+from .props import FRIENDLY_NAMES
+from ...core.utils import get_context_object, is_rig2_armature
+from ...preferences import get_preferences
 
 class Rig2UIDrawer:
-    """公共绘图类：Properties 面板和 N 键侧边栏都调用这个方法"""
+    """Shared drawing methods for Rig2 controls"""
     
     @staticmethod
     def draw_prop(layout, bone, prop_name, text="", slider=True, toggle=False):
         if prop_name in bone:
-            # 获取友好名称
             display_text = text or FRIENDLY_NAMES.get(prop_name, prop_name)
             if toggle:
                 layout.prop(bone, f'["{prop_name}"]', text=display_text, toggle=True)
@@ -54,7 +30,7 @@ class Rig2UIDrawer:
     @staticmethod
     def draw_limbs(layout, context):
         obj = get_context_object(context)
-        if not obj or obj.type != 'ARMATURE': return
+        if not obj: return
         pose_bones = obj.pose.bones
         handled = set()
         if "prop.limbs" in pose_bones:
@@ -74,7 +50,7 @@ class Rig2UIDrawer:
     @staticmethod
     def draw_head(layout, context):
         obj = get_context_object(context)
-        if not obj or obj.type != 'ARMATURE': return
+        if not obj: return
         pose_bones = obj.pose.bones
         rig_props = obj.rig2_props
         handled = set()
@@ -97,7 +73,7 @@ class Rig2UIDrawer:
     @staticmethod
     def draw_misc(layout, context):
         obj = get_context_object(context)
-        if not obj or obj.type != 'ARMATURE': return
+        if not obj: return
         pose_bones = obj.pose.bones
         rig_props = obj.rig2_props
         handled = set()
@@ -113,7 +89,7 @@ class Rig2UIDrawer:
     @staticmethod
     def draw_perf(layout, context):
         obj = get_context_object(context)
-        if not obj or obj.type != 'ARMATURE': return
+        if not obj: return
         pose_bones = obj.pose.bones
         handled = set()
         if "prop.prop" in pose_bones:
@@ -126,9 +102,9 @@ class Rig2UIDrawer:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
 
-# --- Properties Panel Classes ---
+# --- Properties Panel ---
 
-class RIG2_PT_BasePanel:
+class RIG2_PT_PropBase:
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "data"
@@ -136,61 +112,88 @@ class RIG2_PT_BasePanel:
     
     @classmethod
     def poll(cls, context):
-        obj = get_context_object(context)
-        if obj and obj.type == 'ARMATURE':
-            if obj.pose and "logic" in obj.pose.bones:
-                bone = obj.pose.bones["logic"]
-                return bone.get("is_rig2") == 1
-        return False
+        return is_rig2_armature(get_context_object(context))
 
-class RIG2_PT_MainPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_MainPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Rig/2 Control Center"
     bl_idname = "RIG2_PT_main_panel"
+    def draw(self, context): pass
 
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
-
-class RIG2_PT_LimbsPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Limbs & IK-FK Switch"
     bl_idname = "RIG2_PT_limbs_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    def draw(self, context): Rig2UIDrawer.draw_limbs(self.layout, context)
 
-    def draw(self, context):
-        Rig2UIDrawer.draw_limbs(self.layout, context)
-
-class RIG2_PT_HeadPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_HeadPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Face & Head Details"
     bl_idname = "RIG2_PT_head_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    def draw(self, context): Rig2UIDrawer.draw_head(self.layout, context)
 
-    def draw(self, context):
-        Rig2UIDrawer.draw_head(self.layout, context)
-
-class RIG2_PT_AdvancedPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Performance & Settings"
     bl_idname = "RIG2_PT_advanced_panel"
     bl_parent_id = "RIG2_PT_main_panel"
     bl_options = {'DEFAULT_CLOSED'}
+    def draw(self, context): pass
 
-    def draw(self, context):
-        pass
-
-class RIG2_PT_MiscPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_MiscPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Character Style"
     bl_idname = "RIG2_PT_misc_panel"
     bl_parent_id = "RIG2_PT_advanced_panel"
+    def draw(self, context): Rig2UIDrawer.draw_misc(self.layout, context)
 
-    def draw(self, context):
-        Rig2UIDrawer.draw_misc(self.layout, context)
-
-class RIG2_PT_PerfPanel(RIG2_PT_BasePanel, bpy.types.Panel):
+class RIG2_PT_PerfPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Optimization"
     bl_idname = "RIG2_PT_perf_panel"
     bl_parent_id = "RIG2_PT_advanced_panel"
+    def draw(self, context): Rig2UIDrawer.draw_perf(self.layout, context)
 
+class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
+    bl_label = "Danger Zone"
+    bl_idname = "RIG2_PT_danger_panel"
+    bl_parent_id = "RIG2_PT_main_panel"
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
-        Rig2UIDrawer.draw_perf(self.layout, context)
+        layout = self.layout
+        layout.label(text="Caution: Resetting defaults!", icon='ERROR')
+        col = layout.column()
+        col.alert = True
+        col.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
+
+# --- Sidebar (N) Panel ---
+
+class RIG2_PT_SideBase:
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Rig/2'
+
+    @classmethod
+    def poll(cls, context):
+        prefs = get_preferences()
+        if not prefs or not prefs.show_n_panel:
+            return False
+        return is_rig2_armature(context.active_object)
+
+class RIG2_PT_SideMain(RIG2_PT_SideBase, bpy.types.Panel):
+    bl_label = "Rig Control"
+    bl_idname = "RIG2_PT_side_main"
+    def draw(self, context): 
+        self.layout.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
+
+class RIG2_PT_SideLimbs(RIG2_PT_SideBase, bpy.types.Panel):
+    bl_label = "Limbs"
+    bl_idname = "RIG2_PT_side_limbs"
+    bl_parent_id = "RIG2_PT_side_main"
+    def draw(self, context): Rig2UIDrawer.draw_limbs(self.layout, context)
+
+class RIG2_PT_SideHead(RIG2_PT_SideBase, bpy.types.Panel):
+    bl_label = "Face"
+    bl_idname = "RIG2_PT_side_head"
+    bl_parent_id = "RIG2_PT_side_main"
+    def draw(self, context): Rig2UIDrawer.draw_head(self.layout, context)
+
 
 classes = (
     RIG2_PT_MainPanel,
@@ -199,6 +202,10 @@ classes = (
     RIG2_PT_AdvancedPanel,
     RIG2_PT_MiscPanel,
     RIG2_PT_PerfPanel,
+    RIG2_PT_DangerPanel,
+    RIG2_PT_SideMain,
+    RIG2_PT_SideLimbs,
+    RIG2_PT_SideHead,
 )
 
 def register():

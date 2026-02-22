@@ -1,32 +1,22 @@
 bl_info = {
     "name": "Rig2 Binding Tool",
     "author": "Antigravity",
-    "version": (1, 0),
-    "blender": (3, 0, 0),
+    "version": (1, 1),
+    "blender": (4, 5, 0),
     "location": "Properties > Data, 3D View > Side Panel",
-    "description": "A customized binding tool for Rig2 Armatures with dynamic UI mapping",
+    "description": "A modular binding tool for Rig2 Armatures with Face/MoCap support ready",
     "category": "Rigging",
 }
 
 import bpy
-from . import properties, ui, controller, preferences, n_panel, ops
-
-modules = (
-    properties,
-    preferences,
-    controller,
-    ui,
-    n_panel,
-    ops,
-)
+from .src import register as src_register
+from .src import unregister as src_unregister
 
 def register():
-    for mod in modules:
-        mod.register()
+    src_register()
 
 def unregister():
-    for mod in reversed(modules):
-        mod.unregister()
+    src_unregister()
 
 if __name__ == "__main__":
     register()

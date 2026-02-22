@@ -9,9 +9,12 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        # Determine the path to the blend file
-        addon_dir = os.path.dirname(os.path.realpath(__file__))
-        filepath = os.path.join(addon_dir, "assets", "rig2-remake.blend")
+        # The asset is in the root assets folder
+        # We need to find the root directory of the addon
+        # This file is in src/modules/binding/
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        addon_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
+        filepath = os.path.join(addon_root, "assets", "rig2-remake.blend")
         
         if not os.path.exists(filepath):
             self.report({'ERROR'}, f"Asset file not found: {filepath}")
@@ -20,7 +23,6 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
         collection_name = "Rig2"
         
         try:
-            # Append the collection
             with bpy.data.libraries.load(filepath, link=False) as (data_from, data_to):
                 if collection_name in data_from.collections:
                     data_to.collections = [collection_name]
@@ -28,12 +30,9 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
                     self.report({'ERROR'}, f"Collection '{collection_name}' not found in asset file")
                     return {'CANCELLED'}
 
-            # Link the collection to the current scene
             for coll in data_to.collections:
                 if coll is not None:
                     context.scene.collection.children.link(coll)
-                    
-                    # Make the armature (if any) active and selected
                     for obj in coll.objects:
                         obj.select_set(True)
                         if obj.type == 'ARMATURE':
@@ -47,7 +46,6 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
         return {'FINISHED'}
 
 def menu_func(self, context):
-    # Add to the Shift+A menu
     self.layout.separator()
     self.layout.operator(RIG2_OT_AppendRig.bl_idname, text="Rig/2", icon='ARMATURE_DATA')
 
