@@ -32,16 +32,26 @@ class Rig2UIDrawer:
         obj = get_context_object(context)
         if not obj: return
         pose_bones = obj.pose.bones
+        rig_props = obj.rig2_props
         handled = set()
+        
         if "prop.limbs" in pose_bones:
             bone = pose_bones["prop.limbs"]
+            
+            l_props = ["arm-L-fk-ik", "arm-L-wrist-ik", "leg-L-fk-ik"]
+            r_props = ["arm-R-fk-ik", "arm-R-wrist-ik", "leg-R-fk-ik"]
+            
+            if rig_props.mirror_display:
+                l_props, r_props = r_props, l_props
+
             row = layout.row()
             col = row.column(align=True)
-            for p in ["arm-L-fk-ik", "arm-L-wrist-ik", "leg-L-fk-ik"]:
+            for p in l_props:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             col = row.column(align=True)
-            for p in ["arm-R-fk-ik", "arm-R-wrist-ik", "leg-R-fk-ik"]:
+            for p in r_props:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
+                
             row = layout.row(align=True)
             for p in ["arm-world-ik", "ik-stretch.arm", "ik-stretch.leg"]:
                 if Rig2UIDrawer.draw_prop(row, bone, p): handled.add(p)
@@ -91,11 +101,17 @@ class Rig2UIDrawer:
         obj = get_context_object(context)
         if not obj: return
         pose_bones = obj.pose.bones
+        rig_props = obj.rig2_props
         handled = set()
         if "prop.prop" in pose_bones:
             bone = pose_bones["prop.prop"]
+            
+            props = ["enable_left_eye", "enable_right_eye", "enable_left_mouth", "enable_right_mouth"]
+            if rig_props.mirror_display:
+                props = ["enable_right_eye", "enable_left_eye", "enable_right_mouth", "enable_left_mouth"]
+                
             grid = layout.grid_flow(columns=2, align=True)
-            for p in ["enable_left_eye", "enable_right_eye", "enable_left_mouth", "enable_right_mouth"]:
+            for p in props:
                 if Rig2UIDrawer.draw_prop(grid, bone, p): handled.add(p)
             col = layout.column(align=True)
             for p in ["view_body_boolen", "render_body_boolen", "view_face_boolen", "render_face_boolen", "view-subdivision", "render-subdivision"]:
@@ -117,7 +133,11 @@ class RIG2_PT_PropBase:
 class RIG2_PT_MainPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Rig/2 Control Center"
     bl_idname = "RIG2_PT_main_panel"
-    def draw(self, context): pass
+    def draw(self, context):
+        obj = get_context_object(context)
+        if obj:
+            layout = self.layout
+            layout.prop(obj.rig2_props, "mirror_display", text="Mirror L/R", icon='MOD_MIRROR', toggle=True)
 
 class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Limbs & IK-FK Switch"
@@ -179,8 +199,11 @@ class RIG2_PT_SideBase:
 class RIG2_PT_SideMain(RIG2_PT_SideBase, bpy.types.Panel):
     bl_label = "Rig Control"
     bl_idname = "RIG2_PT_side_main"
-    def draw(self, context): 
-        self.layout.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
+    def draw(self, context):
+        obj = get_context_object(context)
+        if obj:
+            layout = self.layout
+            layout.prop(obj.rig2_props, "mirror_display", text="Mirror L/R", icon='MOD_MIRROR', toggle=True)
 
 class RIG2_PT_SideLimbs(RIG2_PT_SideBase, bpy.types.Panel):
     bl_label = "Limbs"

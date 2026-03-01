@@ -58,12 +58,12 @@ FRIENDLY_NAMES = {
     "enable_right_eye": "Right Eye",
     "enable_left_mouth": "Left Mouth",
     "enable_right_mouth": "Right Mouth",
-    "view_body_boolen": "Viewport Body",
-    "render_body_boolen": "Render Body",
-    "view_face_boolen": "Viewport Face",
-    "render_face_boolen": "Render Face",
-    "view-subdivision": "Viewport Subdiv",
-    "render-subdivision": "Render Subdiv",
+    "view_body_boolen": "Viewport Body Boolean",
+    "render_body_boolen": "Render Body Boolean",
+    "view_face_boolen": "Viewport Face Boolean",
+    "render_face_boolen": "Render Face Boolean",
+    "view-subdivision": "Viewport Subdivision",
+    "render-subdivision": "Render Subdivision",
 }
 
 def get_bone_val(bone_name, prop_name, default=0):
@@ -104,6 +104,12 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
             ('-1', "None", ""), ('0', "Standard", ""), ('1', "Fancy Feet", ""),
         ],
         get=get_feet, set=set_feet
+    )
+
+    mirror_display: bpy.props.BoolProperty(
+        name="Mirror",
+        description="Mirror L/R property display order",
+        default=False
     )
 
 def register():
