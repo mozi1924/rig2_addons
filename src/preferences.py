@@ -12,10 +12,17 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    show_logic_props: BoolProperty(
+        name="Show all logic properties",
+        description="Show all custom properties for the 'logic' bone in the Danger Zone",
+        default=False,
+    )
+
     def draw(self, context):
         layout = self.layout
         column = layout.column()
         column.prop(self, "show_n_panel")
+        column.prop(self, "show_logic_props")
 
 def get_preferences():
     addon_name = __package__.split('.')[0]

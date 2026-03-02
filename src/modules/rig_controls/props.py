@@ -16,7 +16,7 @@ PROPERTY_MAP = {
         "alex", "hands", "feet_style"
     ],
     "performance": [
-        "enable_left_eye", "enable_left_mouth", "enable_right_eye", "enable_right_mouth",
+        "enable_left_eye", "enable_right_eye", "enable_mouth",
         "render_body_boolen", "render_face_boolen", "view_body_boolen", "view_face_boolen",
         "render-subdivision", "view-subdivision"
     ]
@@ -56,8 +56,7 @@ FRIENDLY_NAMES = {
     # Performance
     "enable_left_eye": "Left Eye",
     "enable_right_eye": "Right Eye",
-    "enable_left_mouth": "Left Mouth",
-    "enable_right_mouth": "Right Mouth",
+    "enable_mouth": "Mouth",
     "view_body_boolen": "Viewport Body Boolean",
     "render_body_boolen": "Render Body Boolean",
     "view_face_boolen": "Viewport Face Boolean",

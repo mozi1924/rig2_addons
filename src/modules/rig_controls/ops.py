@@ -28,6 +28,19 @@ class Rig2Controller:
                             bone[p] = default_val
                         except:
                             pass
+        
+        # Also reset 'logic' bone if it exists
+        if "logic" in pose_bones:
+            bone = pose_bones["logic"]
+            internal_keys = {'_RNA_UI', 'is_rig2'}
+            for p in bone.keys():
+                if p not in internal_keys:
+                    try:
+                        ui_data = bone.id_properties_ui(p).as_dict()
+                        default_val = ui_data.get('default', bone[p])
+                        bone[p] = default_val
+                    except:
+                        pass
 
 class RIG2_OT_ResetProperties(bpy.types.Operator):
     bl_idname = "rig2.reset_props"

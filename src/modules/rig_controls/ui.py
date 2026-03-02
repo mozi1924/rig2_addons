@@ -106,17 +106,50 @@ class Rig2UIDrawer:
         if "prop.prop" in pose_bones:
             bone = pose_bones["prop.prop"]
             
-            props = ["enable_left_eye", "enable_right_eye", "enable_left_mouth", "enable_right_mouth"]
+            eye_props = ["enable_left_eye", "enable_right_eye"]
             if rig_props.mirror_display:
-                props = ["enable_right_eye", "enable_left_eye", "enable_right_mouth", "enable_left_mouth"]
+                eye_props = ["enable_right_eye", "enable_left_eye"]
                 
             grid = layout.grid_flow(columns=2, align=True)
-            for p in props:
+            for p in eye_props:
                 if Rig2UIDrawer.draw_prop(grid, bone, p): handled.add(p)
+            
+            # Mouth is no longer mirrored and is a single property
+            if Rig2UIDrawer.draw_prop(layout, bone, "enable_mouth"): handled.add("enable_mouth")
+
             col = layout.column(align=True)
             for p in ["view_body_boolen", "render_body_boolen", "view_face_boolen", "render_face_boolen", "view-subdivision", "render-subdivision"]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
+
+    @staticmethod
+    def draw_logic_props(layout, context):
+        obj = get_context_object(context)
+        if not obj: return
+        pose_bones = obj.pose.bones
+        if "logic" in pose_bones:
+            bone = pose_bones["logic"]
+            internal_keys = {'_RNA_UI', 'is_rig2'}
+            logic_props = [k for k in bone.keys() if k not in internal_keys]
+            if logic_props:
+                col = layout.column(align=True)
+                for k in sorted(logic_props):
+                    # Detect if it's likely a boolean (type check + min/max check)
+                    is_bool = False
+                    try:
+                        ui_data = bone.id_properties_ui(k).as_dict()
+                        if ui_data.get('min') == 0 and ui_data.get('max') == 1 and isinstance(bone[k], (int, bool)):
+                            is_bool = True
+                    except:
+                        if isinstance(bone[k], bool):
+                            is_bool = True
+                    
+                    if is_bool:
+                        col.prop(bone, f'["{k}"]', text=k, toggle=True)
+                    else:
+                        col.prop(bone, f'["{k}"]', text=k, slider=True)
+            else:
+                layout.label(text="No logic properties found.")
 
 # --- Properties Panel ---
 
@@ -182,6 +215,22 @@ class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
         col.alert = True
         col.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
 
+class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
+    bl_label = "logic"
+    bl_idname = "RIG2_PT_logic_panel"
+    bl_parent_id = "RIG2_PT_danger_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        prefs = get_preferences()
+        if not (prefs and prefs.show_logic_props):
+            return False
+        return super().poll(context)
+
+    def draw(self, context):
+        Rig2UIDrawer.draw_logic_props(self.layout, context)
+
 # --- Sidebar (N) Panel ---
 
 class RIG2_PT_SideBase:
@@ -226,6 +275,7 @@ classes = (
     RIG2_PT_MiscPanel,
     RIG2_PT_PerfPanel,
     RIG2_PT_DangerPanel,
+    RIG2_PT_LogicPanel,
     RIG2_PT_SideMain,
     RIG2_PT_SideLimbs,
     RIG2_PT_SideHead,
