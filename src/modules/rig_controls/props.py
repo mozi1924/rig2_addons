@@ -127,6 +127,19 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
         description="Select MI frame mapping template"
     )
 
+    mi_start_frame: bpy.props.IntProperty(
+        name="Start Frame",
+        description="Frame at which to start inserting the animation",
+        default=1,
+        min=0
+    )
+
+    mi_adjust_end_frame: bpy.props.BoolProperty(
+        name="Adjust End Frame",
+        description="Automatically adjust scene end frame to match animation length",
+        default=True
+    )
+
 def register():
     try:
         bpy.utils.register_class(Rig2ControlProperties)

@@ -53,11 +53,14 @@ class MI_OT_ImportAction(bpy.types.Operator):
         # Conversion ratio from MI (tempo) to Blender (scene fps)
         fps_scale = fps_current / tempo
 
+        start_frame = arm.rig2_props.mi_start_frame
+        adjust_end = arm.rig2_props.mi_adjust_end_frame
+
         # Handle frame_end conversion
         length = data.get("length", 0)
-        # Assuming length is in deciframes, similar to position
-        blender_end_frame = (length * 0.1) * fps_scale
-        context.scene.frame_end = int(blender_end_frame)
+        if adjust_end:
+            blender_end_frame = start_frame + (length * fps_scale)
+            context.scene.frame_end = int(blender_end_frame)
 
         kf_trans_map = {}
         def _add_trans(b_name, _time, _t_info):
@@ -66,8 +69,8 @@ class MI_OT_ImportAction(bpy.types.Operator):
             kf_trans_map[b_name].append((_time, _t_info))
 
         for kf in data.get("keyframes", []):
-            # Mine-imator deciframes (10x frames) -> Blender frames
-            time = (kf.get("position", 0) * 0.1) * fps_scale
+            # Mine-imator frames -> Blender frames
+            time = start_frame + (kf.get("position", 0) * fps_scale)
             part_name = kf.get("part_name", "").strip().lower()
             if not part_name: part_name = "root"
             values = kf.get("values", {})

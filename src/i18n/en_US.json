@@ -75,5 +75,11 @@
   "MI Template": "MI Template",
   "MI Mapping Mode": "MI Mapping Mode",
   "Import .miframes": "Import .miframes",
-  "Load .miframes": "Load .miframes"
+  "Load .miframes": "Load .miframes",
+  "Start At": "Start At",
+  "Auto End": "Auto End",
+  "Start Frame": "Start Frame",
+  "Adjust End Frame": "Adjust End Frame",
+  "Frame at which to start inserting the animation": "Frame at which to start inserting the animation",
+  "Automatically adjust scene end frame to match animation length": "Automatically adjust scene end frame to match animation length"
 }

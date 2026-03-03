@@ -256,6 +256,11 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         # Action Importer
         col = box.column(align=True)
         col.prop(obj.rig2_props, "mi_selected_model", text="Template")
+        
+        row = col.row(align=True)
+        row.prop(obj.rig2_props, "mi_start_frame", text="Start At")
+        row.prop(obj.rig2_props, "mi_adjust_end_frame", text="Auto End", toggle=True)
+        
         col.operator("mi.import_action", text="Load .miframes", icon='ANIM_DATA')
 
 class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
