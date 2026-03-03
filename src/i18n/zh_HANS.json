@@ -45,7 +45,7 @@
   "Show Tongue": "显示舌头",
   "Enable Neck": "启用脖子",
   "Show Eyebrow": "显示眉毛",
-  "Inherit Rotation": "继承旋转",
+  "Head Inherit Rotation": "头部继承旋转",
   "Layout Mode": "布局模式",
   "Panel to Face": "面板贴面",
   "Slim Arm (Alex)": "纤细手臂 (Alex)",
@@ -69,5 +69,11 @@
   "Style 5": "风格 5",
   "Style 6": "风格 6",
   "Standard": "标准",
-  "Fancy Feet": "花式脚"
+  "Fancy Feet": "花式脚",
+  "Utilities": "实用工具",
+  "miframes(Mine-Imator) Tools": "miframes(Mine-Imator) 工具",
+  "MI Template": "MI 模板",
+  "MI Mapping Mode": "MI 映射模式",
+  "Import .miframes": "导入 .miframes",
+  "Load .miframes": "加载 .miframes"
 }

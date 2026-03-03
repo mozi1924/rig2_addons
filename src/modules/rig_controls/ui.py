@@ -76,7 +76,7 @@ class Rig2UIDrawer:
             for p in ["neck_length", "eye_tracker", "brow_auto_rotation"]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             grid = layout.grid_flow(columns=2, align=True)
-            for p in ["Tongue", "enable_neck", "eyebrow", "inherit_rotation", "layout_mode", "panel_to_face"]:
+            for p in ["Tongue", "enable_neck", "eyebrow", "head_inherit_rotation", "layout_mode", "panel_to_face"]:
                 if Rig2UIDrawer.draw_prop(grid, bone, p, toggle=True): handled.add(p)
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
 
@@ -215,6 +215,49 @@ class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
         col.alert = True
         col.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
 
+class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
+    bl_label = "Utilities"
+    bl_idname = "RIG2_PT_utility_panel"
+    bl_parent_id = "RIG2_PT_main_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        obj = get_context_object(context)
+        if not obj: return
+        layout = self.layout
+        
+        # Mine-Imator Hub Box
+        box = layout.box()
+        row = box.row()
+        row.label(text="miframes(Mine-Imator) Tools", icon='IMPORT')
+
+        # MI Mapping Mode (Inside Box, Auto-detecting style)
+        if "logic" in obj.pose.bones:
+            bone = obj.pose.bones["logic"]
+            if "mi_mapping_mode" in bone:
+                col = box.column(align=True)
+                # Auto-detect boolean toggle vs slider logic (Synced with draw_logic_props logic)
+                is_bool = False
+                try:
+                    ui_data = bone.id_properties_ui("mi_mapping_mode").as_dict()
+                    # Logic: if min/max is 0-1 and it's an int/bool, use toggle
+                    if ui_data.get('min') == 0 and ui_data.get('max') == 1 and isinstance(bone["mi_mapping_mode"], (int, bool)):
+                        is_bool = True
+                except:
+                    pass
+                
+                display_name = FRIENDLY_NAMES.get("mi_mapping_mode", "MI Mapping Mode")
+                if is_bool:
+                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, toggle=True)
+                else:
+                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, slider=True)
+                box.separator()
+
+        # Action Importer
+        col = box.column(align=True)
+        col.prop(obj.rig2_props, "mi_selected_model", text="Template")
+        col.operator("mi.import_action", text="Load .miframes", icon='ANIM_DATA')
+
 class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "logic"
     bl_idname = "RIG2_PT_logic_panel"
@@ -274,6 +317,7 @@ classes = (
     RIG2_PT_AdvancedPanel,
     RIG2_PT_MiscPanel,
     RIG2_PT_PerfPanel,
+    RIG2_PT_UtilityPanel,
     RIG2_PT_DangerPanel,
     RIG2_PT_LogicPanel,
     RIG2_PT_SideMain,
@@ -283,8 +327,14 @@ classes = (
 
 def register():
     for cls in classes:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except Exception as e:
+            print(f"Rig2 Error registering {cls}: {e}")
 
 def unregister():
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            pass

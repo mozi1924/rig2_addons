@@ -10,7 +10,7 @@ PROPERTY_MAP = {
     "head": [
         "lash", "jaw", "eyebrow_width", "brow_auto_rotation", "mouth_shape",
         "neck_length", "eye_tracker", "Tongue", "enable_neck", "eyebrow",
-        "inherit_rotation", "layout_mode", "panel_to_face"
+        "head_inherit_rotation", "layout_mode", "panel_to_face"
     ],
     "misc": [
         "alex", "hands", "feet_style"
@@ -44,7 +44,7 @@ FRIENDLY_NAMES = {
     "Tongue": "Show Tongue",
     "enable_neck": "Enable Neck",
     "eyebrow": "Show Eyebrow",
-    "inherit_rotation": "Inherit Rotation",
+    "head_inherit_rotation": "Head Inherit Rotation",
     "layout_mode": "Layout Mode",
     "panel_to_face": "Panel to Face",
 
@@ -63,6 +63,7 @@ FRIENDLY_NAMES = {
     "render_face_boolen": "Render Face Boolean",
     "view-subdivision": "Viewport Subdivision",
     "render-subdivision": "Render Subdivision",
+    "mi_mapping_mode": "MI Mapping Mode",
 }
 
 def get_bone_val(bone_name, prop_name, default=0):
@@ -111,10 +112,37 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
         default=False
     )
 
+    def get_model_items(self, context):
+        from .miframes.configs import MODELS
+        items = []
+        for key, cfg in MODELS.items():
+            items.append((key, cfg.get("name", key), ""))
+        if not items:
+            items.append(("steve", "Steve (Internal Default)", ""))
+        return items
+
+    mi_selected_model: EnumProperty(
+        name="MI Template",
+        items=get_model_items,
+        description="Select MI frame mapping template"
+    )
+
 def register():
-    bpy.utils.register_class(Rig2ControlProperties)
-    bpy.types.Object.rig2_props = PointerProperty(type=Rig2ControlProperties)
+    try:
+        bpy.utils.register_class(Rig2ControlProperties)
+    except Exception as e:
+        print(f"Rig2 Error registering Rig2ControlProperties: {e}")
+    try:
+        bpy.types.Object.rig2_props = PointerProperty(type=Rig2ControlProperties)
+    except Exception as e:
+        print(f"Rig2 Error registering rig2_props pointer: {e}")
 
 def unregister():
-    bpy.utils.unregister_class(Rig2ControlProperties)
-    del bpy.types.Object.rig2_props
+    try:
+        del bpy.types.Object.rig2_props
+    except:
+        pass
+    try:
+        bpy.utils.unregister_class(Rig2ControlProperties)
+    except:
+        pass

@@ -45,7 +45,7 @@
   "Show Tongue": "Show Tongue",
   "Enable Neck": "Enable Neck",
   "Show Eyebrow": "Show Eyebrow",
-  "Inherit Rotation": "Inherit Rotation",
+  "Head Inherit Rotation": "Head Inherit Rotation",
   "Layout Mode": "Layout Mode",
   "Panel to Face": "Panel to Face",
   "Slim Arm (Alex)": "Slim Arm (Alex)",
@@ -69,5 +69,11 @@
   "Style 5": "Style 5",
   "Style 6": "Style 6",
   "Standard": "Standard",
-  "Fancy Feet": "Fancy Feet"
+  "Fancy Feet": "Fancy Feet",
+  "Utilities": "Utilities",
+  "miframes(Mine-Imator) Tools": "miframes(Mine-Imator) Tools",
+  "MI Template": "MI Template",
+  "MI Mapping Mode": "MI Mapping Mode",
+  "Import .miframes": "Import .miframes",
+  "Load .miframes": "Load .miframes"
 }

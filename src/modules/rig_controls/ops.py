@@ -1,5 +1,6 @@
 import bpy
 from .props import PROPERTY_MAP
+from .miframes.importer import MI_OT_ImportAction
 
 class Rig2Controller:
     @staticmethod
@@ -56,8 +57,21 @@ class RIG2_OT_ResetProperties(bpy.types.Operator):
         self.report({'INFO'}, "All properties reset to defaults")
         return {'FINISHED'}
 
+classes = (
+    RIG2_OT_ResetProperties,
+    MI_OT_ImportAction,
+)
+
 def register():
-    bpy.utils.register_class(RIG2_OT_ResetProperties)
+    for cls in classes:
+        try:
+            bpy.utils.register_class(cls)
+        except Exception as e:
+            print(f"Rig2 Error registering {cls}: {e}")
 
 def unregister():
-    bpy.utils.unregister_class(RIG2_OT_ResetProperties)
+    for cls in reversed(classes):
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception as e:
+            pass # Silently fail if not registered or already unregistered
