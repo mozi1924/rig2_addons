@@ -81,5 +81,7 @@
   "Start Frame": "起始帧",
   "Adjust End Frame": "调整结束帧",
   "Frame at which to start inserting the animation": "插入动画的起始帧位置",
-  "Automatically adjust scene end frame to match animation length": "根据动画长度自动调整场景结束帧"
+  "Automatically adjust scene end frame to match animation length": "根据动画长度自动调整场景结束帧",
+  "Keyframe Current State": "保存当前状态到当前关键帧",
+  "Insert a keyframe for all Rig2 properties at the current frame. Useful for smooth transitions when splicing multiple animation clips.": "在当前帧为所有Rig2属性插入关键帧。适用于拼接多个动画片段时实现平滑过渡。"
 }

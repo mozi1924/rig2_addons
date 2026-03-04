@@ -44,14 +44,26 @@ class Rig2UIDrawer:
             if rig_props.mirror_display:
                 l_props, r_props = r_props, l_props
 
+            layout.label(text="Arms", icon='CON_ARMATURE')
             row = layout.row()
             col = row.column(align=True)
-            for p in l_props:
+            for p in l_props[:2]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             col = row.column(align=True)
-            for p in r_props:
+            for p in r_props[:2]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
                 
+            layout.separator()
+            layout.label(text="Legs", icon='CON_ARMATURE')
+            row = layout.row()
+            col = row.column(align=True)
+            for p in l_props[2:]:
+                if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
+            col = row.column(align=True)
+            for p in r_props[2:]:
+                if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
+                
+            layout.separator()
             row = layout.row(align=True)
             for p in ["arm-world-ik", "ik-stretch.arm", "ik-stretch.leg"]:
                 if Rig2UIDrawer.draw_prop(row, bone, p): handled.add(p)
@@ -66,17 +78,29 @@ class Rig2UIDrawer:
         handled = set()
         if "prop.head" in pose_bones:
             bone = pose_bones["prop.head"]
-            layout.prop(rig_props, "lash_enum", icon='STRANDS')
-            handled.add("lash")
             row = layout.row()
             col = row.column(align=True)
-            for p in ["jaw", "eyebrow_width", "mouth_shape"]:
+            for p in ["jaw", "eyebrow_width"]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
             col = row.column(align=True)
-            for p in ["neck_length", "eye_tracker", "brow_auto_rotation"]:
+            for p in ["mouth_shape", "eye_tracker"]:
                 if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
+                
+            layout.separator()
             grid = layout.grid_flow(columns=2, align=True)
-            for p in ["Tongue", "enable_neck", "eyebrow", "head_inherit_rotation", "layout_mode", "panel_to_face"]:
+            for p in ["Tongue", "enable_neck", "eyebrow"]:
+                if Rig2UIDrawer.draw_prop(grid, bone, p, toggle=True): handled.add(p)
+            layout.prop(rig_props, "lash_enum", icon='STRANDS')
+            handled.add("lash")
+            
+            layout.separator()
+            col = layout.column(align=True)
+            for p in ["brow_auto_rotation", "neck_length", "head_inherit_rotation"]:
+                if Rig2UIDrawer.draw_prop(col, bone, p, toggle=(p=="head_inherit_rotation")): handled.add(p)
+                
+            layout.separator()
+            grid = layout.grid_flow(columns=2, align=True)
+            for p in ["layout_mode", "panel_to_face"]:
                 if Rig2UIDrawer.draw_prop(grid, bone, p, toggle=True): handled.add(p)
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
 
@@ -117,9 +141,21 @@ class Rig2UIDrawer:
             # Mouth is no longer mirrored and is a single property
             if Rig2UIDrawer.draw_prop(layout, bone, "enable_mouth"): handled.add("enable_mouth")
 
-            col = layout.column(align=True)
-            for p in ["view_body_boolen", "render_body_boolen", "view_face_boolen", "render_face_boolen", "view-subdivision", "render-subdivision"]:
-                if Rig2UIDrawer.draw_prop(col, bone, p): handled.add(p)
+            layout.separator()
+            layout.label(text="Body", icon='USER')
+            row = layout.row(align=True)
+            for p in ["view_body_boolen", "render_body_boolen"]:
+                if Rig2UIDrawer.draw_prop(row, bone, p): handled.add(p)
+                
+            layout.label(text="Face", icon='MONKEY')
+            row = layout.row(align=True)
+            for p in ["view_face_boolen", "render_face_boolen"]:
+                if Rig2UIDrawer.draw_prop(row, bone, p): handled.add(p)
+                
+            layout.label(text="Subdivision", icon='MOD_SUBSURF')
+            row = layout.row(align=True)
+            for p in ["view-subdivision", "render-subdivision"]:
+                if Rig2UIDrawer.draw_prop(row, bone, p): handled.add(p)
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
 
     @staticmethod
@@ -129,7 +165,7 @@ class Rig2UIDrawer:
         pose_bones = obj.pose.bones
         if "logic" in pose_bones:
             bone = pose_bones["logic"]
-            internal_keys = {'_RNA_UI', 'is_rig2'}
+            internal_keys = {'_RNA_UI', 'is_rig2', 'mi_mapping_mode'}
             logic_props = [k for k in bone.keys() if k not in internal_keys]
             if logic_props:
                 col = layout.column(align=True)
@@ -171,6 +207,8 @@ class RIG2_PT_MainPanel(RIG2_PT_PropBase, bpy.types.Panel):
         if obj:
             layout = self.layout
             layout.prop(obj.rig2_props, "mirror_display", text="Mirror L/R", icon='MOD_MIRROR', toggle=True)
+            layout.separator()
+            layout.operator("rig2.keyframe_state", text="Keyframe Current State", icon='DECORATE_KEYFRAME')
 
 class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Limbs & IK-FK Switch"
@@ -185,7 +223,7 @@ class RIG2_PT_HeadPanel(RIG2_PT_PropBase, bpy.types.Panel):
     def draw(self, context): Rig2UIDrawer.draw_head(self.layout, context)
 
 class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
-    bl_label = "Performance & Settings"
+    bl_label = "Performance & Optimization"
     bl_idname = "RIG2_PT_advanced_panel"
     bl_parent_id = "RIG2_PT_main_panel"
     bl_options = {'DEFAULT_CLOSED'}
@@ -194,7 +232,7 @@ class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
 class RIG2_PT_MiscPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Character Style"
     bl_idname = "RIG2_PT_misc_panel"
-    bl_parent_id = "RIG2_PT_advanced_panel"
+    bl_parent_id = "RIG2_PT_main_panel"
     def draw(self, context): Rig2UIDrawer.draw_misc(self.layout, context)
 
 class RIG2_PT_PerfPanel(RIG2_PT_PropBase, bpy.types.Panel):
@@ -216,7 +254,7 @@ class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
         col.operator("rig2.reset_props", text="Reset All Defaults", icon='LOOP_BACK')
 
 class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
-    bl_label = "Utilities"
+    bl_label = "Mine-Imator Tools"
     bl_idname = "RIG2_PT_utility_panel"
     bl_parent_id = "RIG2_PT_main_panel"
     bl_options = {'DEFAULT_CLOSED'}
@@ -226,34 +264,10 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         if not obj: return
         layout = self.layout
         
-        # Mine-Imator Hub Box
+        # Settings Region
+        layout.label(text="Settings", icon='PREFERENCES')
         box = layout.box()
-        row = box.row()
-        row.label(text="miframes(Mine-Imator) Tools", icon='IMPORT')
-
-        # MI Mapping Mode (Inside Box, Auto-detecting style)
-        if "logic" in obj.pose.bones:
-            bone = obj.pose.bones["logic"]
-            if "mi_mapping_mode" in bone:
-                col = box.column(align=True)
-                # Auto-detect boolean toggle vs slider logic (Synced with draw_logic_props logic)
-                is_bool = False
-                try:
-                    ui_data = bone.id_properties_ui("mi_mapping_mode").as_dict()
-                    # Logic: if min/max is 0-1 and it's an int/bool, use toggle
-                    if ui_data.get('min') == 0 and ui_data.get('max') == 1 and isinstance(bone["mi_mapping_mode"], (int, bool)):
-                        is_bool = True
-                except:
-                    pass
-                
-                display_name = FRIENDLY_NAMES.get("mi_mapping_mode", "MI Mapping Mode")
-                if is_bool:
-                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, toggle=True)
-                else:
-                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, slider=True)
-                box.separator()
-
-        # Action Importer
+        
         col = box.column(align=True)
         col.prop(obj.rig2_props, "mi_selected_model", text="Template")
         
@@ -261,7 +275,31 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         row.prop(obj.rig2_props, "mi_start_frame", text="Start At")
         row.prop(obj.rig2_props, "mi_adjust_end_frame", text="Auto End", toggle=True)
         
-        col.operator("mi.import_action", text="Load .miframes", icon='ANIM_DATA')
+        if "logic" in obj.pose.bones:
+            bone = obj.pose.bones["logic"]
+            if "mi_mapping_mode" in bone:
+                box.separator()
+                col = box.column(align=True)
+                is_bool = False
+                try:
+                    ui_data = bone.id_properties_ui("mi_mapping_mode").as_dict()
+                    if ui_data.get('min') == 0 and ui_data.get('max') == 1 and isinstance(bone["mi_mapping_mode"], (int, bool)):
+                        is_bool = True
+                except:
+                    pass
+                
+                display_name = FRIENDLY_NAMES.get("mi_mapping_mode", "Mapping Mode")
+                if is_bool:
+                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, toggle=True)
+                else:
+                    col.prop(bone, '["mi_mapping_mode"]', text=display_name, slider=True)
+
+        layout.separator()
+        
+        # Action Region
+        layout.label(text="Action", icon='ACTION_TWEAK')
+        layout.operator("mi.import_action", text="Load .miframes", icon='IMPORT')
+
 
 class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "logic"
