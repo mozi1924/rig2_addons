@@ -61,6 +61,75 @@ def apply_mi_transition(keyframe_point, mi_transition_str):
     else:
         keyframe_point.interpolation = 'LINEAR'
 
+
+# ─── Shared Importer Logic ──────────────────────────────────────────────────
+
+class MIBaseImporter:
+    """Mixin for shared Mine-Imator import logic"""
+
+    def check_file(self, filepath, ignore_defaults=False):
+        if not filepath:
+            return None, "File path is empty"
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext not in ('.miframes', '.miobject'):
+            return None, "Unsupported format. Only .miframes and .miobject are allowed."
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+                return configs.parse_mi_file_data(raw_data, ignore_defaults=ignore_defaults), None
+        except Exception as e:
+            return None, f"JSON Load Failed: {str(e)}"
+
+    def setup_scene(self, context, data, start_frame, adjust_end):
+        tempo = data.get("tempo", 24)
+        fps_current = context.scene.render.fps
+        fps_scale = fps_current / tempo
+        length = data.get("length", 0)
+        if adjust_end and length > 0:
+            blender_end_frame = start_frame + (length * fps_scale)
+            context.scene.frame_end = int(blender_end_frame)
+        return tempo, fps_current, fps_scale
+
+    @staticmethod
+    def apply_bezier_handles(kf0, kf1, t_info):
+        kf0.interpolation = 'BEZIER'
+        dt = kf1.co.x - kf0.co.x
+        dv = kf1.co.y - kf0.co.y
+        x1, y1 = t_info["ease_in"]
+        x2, y2 = t_info["ease_out"]
+        kf0.handle_right_type = 'FREE'
+        kf1.handle_left_type = 'FREE'
+        kf0.handle_right = (kf0.co.x + (x1 * dt), kf0.co.y + (y1 * dv))
+        kf1.handle_left = (kf0.co.x + (x2 * dt), kf0.co.y + (y2 * dv))
+
+    def apply_interpolation(self, fcurve, trans_list):
+        for i in range(1, len(fcurve.keyframe_points)):
+            kf0 = fcurve.keyframe_points[i - 1]
+            kf1 = fcurve.keyframe_points[i]
+            target_time = kf0.co.x
+
+            best_t_info = None
+            min_dist = 0.05
+            for t, info in trans_list:
+                dist = abs(t - target_time)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_t_info = info
+
+            if not best_t_info:
+                continue
+
+            t_type = best_t_info["type"]
+            if t_type == "instant":
+                kf0.interpolation = 'CONSTANT'
+            elif t_type == "linear":
+                kf0.interpolation = 'LINEAR'
+            elif t_type == "bezier":
+                self.apply_bezier_handles(kf0, kf1, best_t_info)
+            else:
+                apply_mi_transition(kf0, t_type)
+        fcurve.update()
+
 # In a Blender package, we use relative imports.
 # If we're run standalone (for dev), we fallback.
 try:
@@ -68,22 +137,42 @@ try:
 except (ImportError, ValueError):
     import configs
 
-class MI_OT_ImportAction(bpy.types.Operator):
+class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
     """Import .miframes using a selected model configuration"""
     bl_idname = "mi.import_action"
     bl_label = "Load .miframes"
     bl_options = {'REGISTER', 'UNDO'}
     
+    confirmed: bpy.props.BoolProperty(default=False)
+    
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(
+        default="*.miframes;*.miobject",
+        options={'HIDDEN'},
+        maxlen=255
+    )
 
     def execute(self, context):
-        if not self.filepath: return {'CANCELLED'}
-            
-        try:
-            with open(self.filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception as e:
-            self.report({'ERROR'}, f"JSON Load Failed: {str(e)}")
+        arm = context.active_object
+        if not arm or arm.type != 'ARMATURE':
+            self.report({'ERROR'}, "Please select the Rig2 Armature")
+            return {'CANCELLED'}
+
+        # Get selected model from rig2_props
+        if not hasattr(arm, "rig2_props"):
+            self.report({'ERROR'}, "Rig2 properties missing.")
+            return {'CANCELLED'}
+
+        ignore_defaults = arm.rig2_props.mi_ignore_defaults
+        data, err = self.check_file(self.filepath, ignore_defaults=ignore_defaults)
+        if err:
+            self.report({'ERROR'}, err)
+            return {'CANCELLED'}
+
+        # Strictly block non-model files in character importer
+        is_model = data.get("is_model", True)
+        if not is_model:
+            self.report({'ERROR'}, "This file is not a character model. Use the object importer instead.")
             return {'CANCELLED'}
 
         arm = context.active_object
@@ -99,22 +188,15 @@ class MI_OT_ImportAction(bpy.types.Operator):
         model_key = arm.rig2_props.mi_selected_model
         config = configs.MODELS.get(model_key)
         if not config:
-            self.report({'ERROR'}, f"Model config '{model_key}' not found.")
+            self.report({'ERROR'}, "Model config not found.")
             return {'CANCELLED'}
 
-        tempo = data.get("tempo", 24)
-        fps_current = context.scene.render.fps
-        # Conversion ratio from MI (tempo) to Blender (scene fps)
-        fps_scale = fps_current / tempo
-
+        tempo, fps_current, fps_scale = self.setup_scene(
+            context, data, 
+            arm.rig2_props.mi_start_frame, 
+            arm.rig2_props.mi_adjust_end_frame
+        )
         start_frame = arm.rig2_props.mi_start_frame
-        adjust_end = arm.rig2_props.mi_adjust_end_frame
-
-        # Handle frame_end conversion
-        length = data.get("length", 0)
-        if adjust_end:
-            blender_end_frame = start_frame + (length * fps_scale)
-            context.scene.frame_end = int(blender_end_frame)
 
         kf_trans_map = {}
         def _add_trans(b_name, _time, _t_info):
@@ -184,8 +266,8 @@ class MI_OT_ImportAction(bpy.types.Operator):
                 
                 if bone_lower:
                     bx = math.radians(values.get("BEND_ANGLE_X", 0))
-                    by = math.radians(values.get("BEND_ANGLE_Z", 0))
-                    bz = math.radians(values.get("BEND_ANGLE_Y", 0))
+                    by = math.radians(values.get("BEND_ANGLE_Y", 0))
+                    bz = math.radians(values.get("BEND_ANGLE_Z", 0))
                     
                     q_bend = Euler((bx, by, bz), 'XYZ').to_quaternion()
                     bone_lower.rotation_mode = 'QUATERNION'
@@ -200,52 +282,8 @@ class MI_OT_ImportAction(bpy.types.Operator):
                 if not m:
                     continue
                 bone_name = m.group(1)
-                if bone_name not in kf_trans_map:
-                    continue
-                    
-                trans_list = kf_trans_map[bone_name]
-                
-                for i in range(1, len(fcurve.keyframe_points)):
-                    kf0 = fcurve.keyframe_points[i - 1]
-                    kf1 = fcurve.keyframe_points[i]
-                    
-                    target_time = kf0.co.x
-                    
-                    best_t_info = None
-                    min_dist = 0.05
-                    for t, info in trans_list:
-                        dist = abs(t - target_time)
-                        if dist < min_dist:
-                            min_dist = dist
-                            best_t_info = info
-                            
-                    if not best_t_info:
-                        continue
-                        
-                    t_type = best_t_info["type"]
-                    
-                    if t_type == "instant":
-                        kf0.interpolation = 'CONSTANT'
-                    elif t_type == "linear":
-                        kf0.interpolation = 'LINEAR'
-                    elif t_type == "bezier":
-                        kf0.interpolation = 'BEZIER'
-                        dt = kf1.co.x - kf0.co.x
-                        dv = kf1.co.y - kf0.co.y
-                        
-                        x1, y1 = best_t_info["ease_in"]
-                        x2, y2 = best_t_info["ease_out"]
-                        
-                        kf0.handle_right_type = 'FREE'
-                        kf1.handle_left_type = 'FREE'
-                        
-                        kf0.handle_right = (kf0.co.x + (x1 * dt), kf0.co.y + (y1 * dv))
-                        kf1.handle_left = (kf0.co.x + (x2 * dt), kf0.co.y + (y2 * dv))
-                    else:
-                        # Try easing map (sine, quad, cubic, etc.)
-                        apply_mi_transition(kf0, t_type)
-                
-                fcurve.update()
+                if bone_name in kf_trans_map:
+                    self.apply_interpolation(fcurve, kf_trans_map[bone_name])
 
         # --- Auto setting mapping mode ---
         if "logic" in arm.pose.bones:
@@ -270,10 +308,41 @@ class MI_OT_ImportAction(bpy.types.Operator):
                 default=0.0
             )
 
-        self.report({'INFO'}, f"Imported '{config['name']}' animation successfully (tempo: {tempo}, scene FPS: {fps_current})")
+        self.report({'INFO'}, "Imported successfully")
         return {'FINISHED'}
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
+
+class MI_OT_ImportConfirmDialog(bpy.types.Operator):
+    """Warning dialog for non-character animations"""
+    bl_idname = "mi.import_confirm_dialog"
+    bl_label = "Import Warning"
+    bl_options = {'INTERNAL'}
+
+    filepath: bpy.props.StringProperty()
+    op_type: bpy.props.StringProperty() # "OBJECT" or "CHARACTER"
+
+    def execute(self, context):
+        if self.op_type == "OBJECT":
+            bpy.ops.mi.import_object_action(filepath=self.filepath, confirmed=True)
+        else:
+            bpy.ops.mi.import_action(filepath=self.filepath, confirmed=True)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=450)
+
+    def draw(self, context):
+        layout = self.layout
+        box = layout.box()
+        col = box.column(align=True)
+        col.label(text="We don't fully understand how non-model miframes work yet.", icon='ERROR')
+        col.label(text="It will be imported in compatibility mode. Clicking OK means you accept")
+        col.label(text="potential issues including but not limited to keyframe misalignment/loss.")
+
+
+
 

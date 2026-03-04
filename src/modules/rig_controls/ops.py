@@ -1,6 +1,7 @@
 import bpy
 from .props import PROPERTY_MAP
-from .miframes.importer import MI_OT_ImportAction
+from .miframes.importer import MI_OT_ImportAction, MI_OT_ImportConfirmDialog
+from .miframes.object_importer import MI_OT_ImportObjectAction
 
 # Bone name key -> actual pose bone name mapping
 BONE_NAME_MAP = {
@@ -132,6 +133,8 @@ classes = (
     RIG2_OT_ResetProperties,
     RIG2_OT_KeyframeState,
     MI_OT_ImportAction,
+    MI_OT_ImportObjectAction,
+    MI_OT_ImportConfirmDialog,
 )
 
 def register():
