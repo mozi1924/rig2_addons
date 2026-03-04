@@ -7,6 +7,60 @@ import importlib
 import re
 from mathutils import Euler, Vector
 
+# Mine-Imator to Blender easing interpolation mapping
+MI_TO_BLENDER_EASING_MAP = {
+    # Sine
+    "easeinsine": {"interpolation": "SINE", "easing": "EASE_IN"},
+    "easeoutsine": {"interpolation": "SINE", "easing": "EASE_OUT"},
+    "easeinoutsine": {"interpolation": "SINE", "easing": "EASE_IN_OUT"},
+    # Quad
+    "easeinquad": {"interpolation": "QUAD", "easing": "EASE_IN"},
+    "easeoutquad": {"interpolation": "QUAD", "easing": "EASE_OUT"},
+    "easeinoutquad": {"interpolation": "QUAD", "easing": "EASE_IN_OUT"},
+    # Cubic
+    "easeincubic": {"interpolation": "CUBIC", "easing": "EASE_IN"},
+    "easeoutcubic": {"interpolation": "CUBIC", "easing": "EASE_OUT"},
+    "easeinoutcubic": {"interpolation": "CUBIC", "easing": "EASE_IN_OUT"},
+    # Quart
+    "easeinquart": {"interpolation": "QUART", "easing": "EASE_IN"},
+    "easeoutquart": {"interpolation": "QUART", "easing": "EASE_OUT"},
+    "easeinoutquart": {"interpolation": "QUART", "easing": "EASE_IN_OUT"},
+    # Quint
+    "easeinquint": {"interpolation": "QUINT", "easing": "EASE_IN"},
+    "easeoutquint": {"interpolation": "QUINT", "easing": "EASE_OUT"},
+    "easeinoutquint": {"interpolation": "QUINT", "easing": "EASE_IN_OUT"},
+    # Expo
+    "easeinexpo": {"interpolation": "EXPO", "easing": "EASE_IN"},
+    "easeoutexpo": {"interpolation": "EXPO", "easing": "EASE_OUT"},
+    "easeinoutexpo": {"interpolation": "EXPO", "easing": "EASE_IN_OUT"},
+    # Circ
+    "easeincirc": {"interpolation": "CIRC", "easing": "EASE_IN"},
+    "easeoutcirc": {"interpolation": "CIRC", "easing": "EASE_OUT"},
+    "easeinoutcirc": {"interpolation": "CIRC", "easing": "EASE_IN_OUT"},
+    # Back
+    "easeinback": {"interpolation": "BACK", "easing": "EASE_IN"},
+    "easeoutback": {"interpolation": "BACK", "easing": "EASE_OUT"},
+    "easeinoutback": {"interpolation": "BACK", "easing": "EASE_IN_OUT"},
+    # Bounce
+    "easeinbounce": {"interpolation": "BOUNCE", "easing": "EASE_IN"},
+    "easeoutbounce": {"interpolation": "BOUNCE", "easing": "EASE_OUT"},
+    "easeinoutbounce": {"interpolation": "BOUNCE", "easing": "EASE_IN_OUT"},
+    # Elastic
+    "easeinelastic": {"interpolation": "ELASTIC", "easing": "EASE_IN"},
+    "easeoutelastic": {"interpolation": "ELASTIC", "easing": "EASE_OUT"},
+    "easeinoutelastic": {"interpolation": "ELASTIC", "easing": "EASE_IN_OUT"},
+}
+
+def apply_mi_transition(keyframe_point, mi_transition_str):
+    """Apply a Mine-Imator easing transition to a Blender keyframe point.
+    Falls back to LINEAR if the type is unknown."""
+    mapped = MI_TO_BLENDER_EASING_MAP.get(mi_transition_str.lower())
+    if mapped:
+        keyframe_point.interpolation = mapped["interpolation"]
+        keyframe_point.easing = mapped["easing"]
+    else:
+        keyframe_point.interpolation = 'LINEAR'
+
 # In a Blender package, we use relative imports.
 # If we're run standalone (for dev), we fallback.
 try:
@@ -155,7 +209,7 @@ class MI_OT_ImportAction(bpy.types.Operator):
                     kf0 = fcurve.keyframe_points[i - 1]
                     kf1 = fcurve.keyframe_points[i]
                     
-                    target_time = kf1.co.x
+                    target_time = kf0.co.x
                     
                     best_t_info = None
                     min_dist = 0.05
@@ -188,7 +242,8 @@ class MI_OT_ImportAction(bpy.types.Operator):
                         kf0.handle_right = (kf0.co.x + (x1 * dt), kf0.co.y + (y1 * dv))
                         kf1.handle_left = (kf0.co.x + (x2 * dt), kf0.co.y + (y2 * dv))
                     else:
-                        kf0.interpolation = 'LINEAR'
+                        # Try easing map (sine, quad, cubic, etc.)
+                        apply_mi_transition(kf0, t_type)
                 
                 fcurve.update()
 
