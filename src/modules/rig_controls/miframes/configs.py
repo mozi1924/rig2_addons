@@ -175,9 +175,19 @@ def parse_mi_file_data(data):
             
     keyframes_list.sort(key=lambda x: x["position"])
     
-    # Calculate length from the last keyframe if not provided
-    calc_length = keyframes_list[-1]["position"] if len(keyframes_list) > 0 else 0
-    final_length = data.get("length", calc_length)
+    if len(keyframes_list) > 0:
+        # .miobject saves ABSOLUTE timeline positions (e.g. frame 60, 73, 400...)
+        # We need to normalize them to relative positions starting from 0,
+        # just like .miframes does during its export process (pos - firstpos).
+        firstpos = keyframes_list[0]["position"]
+        lastpos = keyframes_list[-1]["position"]
+        
+        for kf in keyframes_list:
+            kf["position"] -= firstpos
+        
+        final_length = lastpos - firstpos
+    else:
+        final_length = 0
     
     return {
         "format": data.get("format", 34),
