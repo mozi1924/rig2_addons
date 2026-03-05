@@ -100,5 +100,13 @@
   "Please select the Rig2 Armature": "Please select the Rig2 Armature",
   "Rig2 properties missing.": "Rig2 properties missing.",
   "Model config not found.": "Model config not found.",
-  "This file is not a character model. Use the object importer instead.": "This file is not a character model. Use the object importer instead."
+  "This file is not a character model. Use the object importer instead.": "This file is not a character model. Use the object importer instead.",
+  "Bake MI → FK?": "Bake MI → FK?",
+  "Bake MI → FK": "Bake MI → FK",
+  "Bake world-space transforms from MI bones to FK bones, remove MI keyframes, and switch all limbs to FK mode": "Bake world-space transforms from MI bones to FK bones, remove MI keyframes, and switch all limbs to FK mode",
+  "Convert": "Convert",
+  "No armature selected": "No armature selected",
+  "No animation data / action on the armature": "No animation data / action on the armature",
+  "No matching MI/FK bone pairs found in the armature": "No matching MI/FK bone pairs found in the armature",
+  "No keyframes found on MI bones": "No keyframes found on MI bones"
 }

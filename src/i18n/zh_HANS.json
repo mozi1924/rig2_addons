@@ -100,5 +100,13 @@
   "Please select the Rig2 Armature": "请选择 Rig2 骨架",
   "Rig2 properties missing.": "Rig2 属性缺失。",
   "Model config not found.": "未找到模型配置。",
-  "This file is not a character model. Use the object importer instead.": "此文件不是人物模型，请使用物体导入器。"
+  "This file is not a character model. Use the object importer instead.": "此文件不是人物模型，请使用物体导入器。",
+  "Bake MI → FK?": "烘焙 MI → FK？",
+  "Bake MI → FK": "烘焙 MI → FK",
+  "Bake world-space transforms from MI bones to FK bones, remove MI keyframes, and switch all limbs to FK mode": "将MI骨骼的世界空间变换烘焙到FK骨骼，删除MI关键帧，并将所有四肢切换到FK模式",
+  "Convert": "转换",
+  "No armature selected": "未选中骨架",
+  "No animation data / action on the armature": "骨架上没有动画数据/动作",
+  "No matching MI/FK bone pairs found in the armature": "在骨架中未找到匹配的MI/FK骨骼对",
+  "No keyframes found on MI bones": "MI骨骼上未找到关键帧"
 }

@@ -299,6 +299,18 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         # Action Region
         layout.label(text="Action", icon='ACTION_TWEAK')
         layout.operator("mi.import_action", text="Load Anim (.mi*)", icon='IMPORT')
+        
+        # Show Bake MI → FK button when MI mapping is active
+        mi_active = False
+        if "logic" in obj.pose.bones:
+            mi_active = obj.pose.bones["logic"].get("mi_mapping_mode", 0) > 0
+        
+        if mi_active:
+            layout.separator()
+            layout.label(text="Convert", icon='ANIM_DATA')
+            row = layout.row()
+            row.scale_y = 1.4
+            row.operator("mi.bake_to_fk", text="Bake MI → FK", icon='EXPORT')
 
 
 class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
