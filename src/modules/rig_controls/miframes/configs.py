@@ -78,45 +78,82 @@ def fix_mi_yz_swap(values):
             fixed[k] = v
     return fixed
 
-def parse_mi_file_data(data, ignore_defaults=False):
+def _fill_defaults(values):
+    """
+    Fill in missing POS/ROT/SCA keys with their default values.
+    MI only saves keys that differ from defaults, so missing keys
+    must be treated as: POS=0, ROT=0, SCA=1.
+    """
+    for k in ("POS_X", "POS_Y", "POS_Z", "ROT_X", "ROT_Y", "ROT_Z"):
+        values.setdefault(k, 0.0)
+    for k in ("SCA_X", "SCA_Y", "SCA_Z"):
+        values.setdefault(k, 1.0)
+    values.setdefault("TRANSITION", "linear")
+    return values
+
+def parse_mi_file_data(data):
     """
     Normalizes both .miframes and .miobject JSON data into a uniform .miframes structure.
-    Also handles the Y/Z swap bug and default value merging.
+    Also handles the Y/Z swap bug and default value filling.
+    
+    NOTE: default_values in .miobject is the MI scene placement coordinates 
+    and is NOT merged into keyframe values. Keyframe values already represent
+    the exact values shown in the MI UI (offsets from origin).
     """
     if "keyframes" in data and isinstance(data["keyframes"], list):
         # Already a .miframes format
         for kf in data["keyframes"]:
             raw_vals = kf.get("values", {})
-            if not raw_vals:
-                raw_vals = {
-                    "POS_X": 0.0, "POS_Y": 0.0, "POS_Z": 0.0,
-                    "ROT_X": 0.0, "ROT_Y": 0.0, "ROT_Z": 0.0,
-                    "SCA_X": 1.0, "SCA_Y": 1.0, "SCA_Z": 1.0,
-                    "TRANSITION": "linear"
-                }
+            raw_vals = _fill_defaults(raw_vals)
             kf["values"] = fix_mi_yz_swap(raw_vals)
         return data
 
     # Convert .miobject to .miframes format
     timelines = data.get("timelines", [])
-    is_model = any(t.get("type", "") == "char" for t in timelines)
+    
+    # Identify the primary target ID (the first character or the first root object)
+    primary_id = None
+    is_model = False
+    for t in timelines:
+        if t.get("type") == "char":
+            primary_id = t.get("id")
+            is_model = True
+            break
+            
+    if not is_model:
+        # If no character, look for the first root object
+        for t in timelines:
+            parent = t.get("parent")
+            # In MI, parent can be "root" or null if it's a top-level object
+            if not parent or parent == "root":
+                primary_id = t.get("id")
+                break
+
     keyframes_list = []
     
     for tl in timelines:
+        tl_id = tl.get("id")
         tl_type = tl.get("type", "")
-        if tl_type == "char":
-            part_name = "root"
-        elif "model_part_name" in tl:
-            part_name = tl["model_part_name"]
-        else:
-            # Auxiliary objects (surfaces, particles, sub-folders) shouldn't overwrite the character's root.
-            # If we don't skip/rename them, their rogue scales apply to the character's root bone!
-            # Since this importer targets character/object bounds, we ignore auxiliary cosmetic timelines.
-            if is_model:
+        part_of = tl.get("part_of")
+        
+        # --- Strict Filtering Logic ---
+        if is_model:
+            # For characters:
+            if tl_id == primary_id:
+                part_name = "root"
+            elif part_of == primary_id and "model_part_name" in tl:
+                part_name = tl["model_part_name"]
+            else:
+                # Ignore extraneous characters, folders, surfaces, etc.
                 continue
-            part_name = "root"
+        else:
+            # For non-model objects:
+            if tl_id == primary_id:
+                part_name = "root"
+            else:
+                # We only want the primary transformation for single-object imports
+                continue
             
-        defaults = tl.get("default_values", {})
         kf_dict = tl.get("keyframes", {})
         
         if not kf_dict:
@@ -124,24 +161,10 @@ def parse_mi_file_data(data, ignore_defaults=False):
             
         for frame_str, kf_vals in kf_dict.items():
             frame_num = int(frame_str)
-            combined = {}
             
-            for k in ["POS_X", "POS_Y", "POS_Z", "ROT_X", "ROT_Y", "ROT_Z"]:
-                d = 0.0 if ignore_defaults else defaults.get(k, 0.0)
-                v = kf_vals.get(k, 0.0)
-                combined[k] = d + v
-                
-            for k in ["SCA_X", "SCA_Y", "SCA_Z"]:
-                d = 1.0 if ignore_defaults else defaults.get(k, 1.0)
-                v = kf_vals.get(k, 1.0)
-                combined[k] = d * v
-                
-            for k, v in kf_vals.items():
-                if not (k.startswith("POS_") or k.startswith("ROT_") or k.startswith("SCA_")):
-                    combined[k] = v
-                    
-            if "TRANSITION" not in combined:
-                combined["TRANSITION"] = "linear"
+            # Copy only the kf values (NOT default_values), then fill missing with defaults
+            combined = dict(kf_vals)
+            _fill_defaults(combined)
 
             fixed_combined = fix_mi_yz_swap(combined)
             keyframes_list.append({

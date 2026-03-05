@@ -38,8 +38,7 @@ class MI_OT_ImportObjectAction(bpy.types.Operator, MIBaseImporter):
             self.report({'ERROR'}, "No active object selected")
             return {'CANCELLED'}
 
-        ignore_defaults = getattr(obj.mi_object_props, "ignore_defaults", False)
-        data, err = self.check_file(self.filepath, ignore_defaults=ignore_defaults)
+        data, err = self.check_file(self.filepath)
         if err:
             self.report({'ERROR'}, err)
             return {'CANCELLED'}

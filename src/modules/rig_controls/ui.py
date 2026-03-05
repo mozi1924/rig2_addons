@@ -274,7 +274,6 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         row = col.row(align=True)
         row.prop(obj.rig2_props, "mi_start_frame", text="Start At")
         row.prop(obj.rig2_props, "mi_adjust_end_frame", text="Auto End", toggle=True)
-        col.prop(obj.rig2_props, "mi_ignore_defaults", text="Ignore Base Values", toggle=True)
         
         if "logic" in obj.pose.bones:
             bone = obj.pose.bones["logic"]

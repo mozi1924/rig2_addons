@@ -64,7 +64,6 @@ FRIENDLY_NAMES = {
     "view-subdivision": "Viewport Subdivision",
     "render-subdivision": "Render Subdivision",
     "mi_mapping_mode": "MI Mapping Mode",
-    "mi_ignore_defaults": "Ignore Default Values",
 }
 
 def get_bone_val(bone_name, prop_name, default=0):
@@ -138,12 +137,6 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
     mi_adjust_end_frame: bpy.props.BoolProperty(
         name="Adjust End Frame",
         description="Automatically adjust scene end frame to match animation length",
-        default=True
-    )
-
-    mi_ignore_defaults: bpy.props.BoolProperty(
-        name="Ignore Default Values",
-        description="Ignore base values defined in the Mine-Imator file (miobject only)",
         default=True
     )
 

@@ -100,6 +100,5 @@
   "Please select the Rig2 Armature": "请选择 Rig2 骨架",
   "Rig2 properties missing.": "Rig2 属性缺失。",
   "Model config not found.": "未找到模型配置。",
-  "Ignore Base Values": "忽略默认值",
   "This file is not a character model. Use the object importer instead.": "此文件不是人物模型，请使用物体导入器。"
 }

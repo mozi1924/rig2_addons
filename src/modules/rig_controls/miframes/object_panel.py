@@ -18,12 +18,6 @@ class MIObjectProperties(bpy.types.PropertyGroup):
         default=True
     )
 
-    ignore_defaults: BoolProperty(
-        name="Ignore Default Values",
-        description="Ignore base values defined in the Mine-Imator file (miobject only)",
-        default=True
-    )
-
 
 # ─── N-Panel: Mine-Imator Object Animation ───────────────────────────────────
 
@@ -61,7 +55,6 @@ class MI_PT_ObjectAnimPanel(MI_PT_ObjectAnimBase, bpy.types.Panel):
         row = col.row(align=True)
         row.prop(mi_props, "start_frame", text="Start At")
         row.prop(mi_props, "adjust_end_frame", text="Auto End", toggle=True)
-        col.prop(mi_props, "ignore_defaults", text="Ignore Base Values", toggle=True)
 
         layout.separator()
 

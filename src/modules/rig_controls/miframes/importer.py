@@ -67,7 +67,7 @@ def apply_mi_transition(keyframe_point, mi_transition_str):
 class MIBaseImporter:
     """Mixin for shared Mine-Imator import logic"""
 
-    def check_file(self, filepath, ignore_defaults=False):
+    def check_file(self, filepath):
         if not filepath:
             return None, "File path is empty"
         ext = os.path.splitext(filepath)[1].lower()
@@ -76,7 +76,7 @@ class MIBaseImporter:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 raw_data = json.load(f)
-                return configs.parse_mi_file_data(raw_data, ignore_defaults=ignore_defaults), None
+                return configs.parse_mi_file_data(raw_data), None
         except Exception as e:
             return None, f"JSON Load Failed: {str(e)}"
 
@@ -163,8 +163,7 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
             self.report({'ERROR'}, "Rig2 properties missing.")
             return {'CANCELLED'}
 
-        ignore_defaults = arm.rig2_props.mi_ignore_defaults
-        data, err = self.check_file(self.filepath, ignore_defaults=ignore_defaults)
+        data, err = self.check_file(self.filepath)
         if err:
             self.report({'ERROR'}, err)
             return {'CANCELLED'}
