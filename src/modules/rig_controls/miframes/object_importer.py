@@ -101,7 +101,7 @@ class MI_OT_ImportObjectAction(bpy.types.Operator, MIBaseImporter):
                 loc[0] = values["POS_X"] * MI_SCALE
                 has_pos = True
             if "POS_Z" in values:
-                loc[1] = values["POS_Z"] * MI_SCALE     # UI Z (Depth) -> Blender Y
+                loc[1] = -values["POS_Z"] * MI_SCALE     # UI Z (Depth) -> Blender -Y
                 has_pos = True
             if "POS_Y" in values:
                 loc[2] = values["POS_Y"] * MI_SCALE     # UI Y (Up) -> Blender Z
@@ -118,7 +118,7 @@ class MI_OT_ImportObjectAction(bpy.types.Operator, MIBaseImporter):
                 rot_vals[0] = math.radians(values["ROT_X"])
                 has_rot = True
             if "ROT_Z" in values:
-                rot_vals[1] = math.radians(values["ROT_Z"])  # UI Z (Roll) -> Blender Y
+                rot_vals[1] = math.radians(-values["ROT_Z"])  # UI Z (Roll) -> Blender -Y
                 has_rot = True
             if "ROT_Y" in values:
                 rot_vals[2] = math.radians(values["ROT_Y"])  # UI Y (Yaw) -> Blender Z
