@@ -11,7 +11,7 @@ from mathutils import Euler, Vector
 # This fulfills the "Rig2 needs mi2bl" requirement and merges duplicate code.
 try:
     # In Blender, we can try to reach the mi2bl package
-    from mi2bl.src import core
+    from mi2bl.src.utils import core
     MIBaseImporter = core.MIBaseImporter
     apply_mi_transition = core.apply_mi_transition
 except (ImportError, ModuleNotFoundError):
@@ -20,7 +20,7 @@ except (ImportError, ModuleNotFoundError):
         # Try local fallback if developing in the same workspace
         # (This is just for survival during refactoring)
         sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../mi2bl"))
-        from src import core
+        from src.utils import core
         MIBaseImporter = core.MIBaseImporter
         apply_mi_transition = core.apply_mi_transition
     except:

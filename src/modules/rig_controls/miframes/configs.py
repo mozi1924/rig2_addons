@@ -3,7 +3,7 @@ from mathutils import Euler, Vector
 
 # Rig2 depends on mi2bl for the core MI constants and parsing logic.
 try:
-    from mi2bl.src.core import MI_SCALE, fix_mi_yz_swap, parse_mi_file_data
+    from mi2bl.src.utils.core import MI_SCALE, fix_mi_yz_swap, parse_mi_file_data
 except (ImportError, ModuleNotFoundError):
     # Survive during loading if mi2bl is missing
     MI_SCALE = 1.0 / 16.0
