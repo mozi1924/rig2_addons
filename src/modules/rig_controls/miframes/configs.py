@@ -1,10 +1,16 @@
 import math
 from mathutils import Euler, Vector
 
-# --- Constants ---
-MI_SCALE = 1.0 / 16.0
+# Rig2 depends on mi2bl for the core MI constants and parsing logic.
+try:
+    from mi2bl.src.core import MI_SCALE, fix_mi_yz_swap, parse_mi_file_data
+except (ImportError, ModuleNotFoundError):
+    # Survive during loading if mi2bl is missing
+    MI_SCALE = 1.0 / 16.0
+    def fix_mi_yz_swap(v): return v
+    def parse_mi_file_data(d): return d
 
-# --- Specialized Bone Handlers ---
+# --- Specialized Bone Handlers (Rig2 Specific) ---
 
 def handler_standard(bone, values, config, time):
     """Standard bone rotation using axis mapping and optional offsets."""
@@ -62,143 +68,7 @@ HANDLERS = {
     "pos_scl": handler_pos_scl,
 }
 
-def fix_mi_yz_swap(values):
-    """
-    Mine-Imator has a bug where UI Y (Up) and UI Z (Depth) 
-    are swapped in the saved JSON file for all transform properties.
-    This wipes the bug's ass and restores them to the True UI Values.
-    """
-    fixed = {}
-    for k, v in values.items():
-        if k.endswith("_Y") and not k.startswith("EASE_"):
-            fixed[k[:-2] + "_Z"] = v
-        elif k.endswith("_Z") and not k.startswith("EASE_"):
-            fixed[k[:-2] + "_Y"] = v
-        else:
-            fixed[k] = v
-    return fixed
-
-def _fill_defaults(values):
-    """
-    Fill in missing POS/ROT/SCA keys with their default values.
-    MI only saves keys that differ from defaults, so missing keys
-    must be treated as: POS=0, ROT=0, SCA=1.
-    """
-    for k in ("POS_X", "POS_Y", "POS_Z", "ROT_X", "ROT_Y", "ROT_Z"):
-        values.setdefault(k, 0.0)
-    for k in ("SCA_X", "SCA_Y", "SCA_Z"):
-        values.setdefault(k, 1.0)
-    values.setdefault("TRANSITION", "linear")
-    return values
-
-def parse_mi_file_data(data):
-    """
-    Normalizes both .miframes and .miobject JSON data into a uniform .miframes structure.
-    Also handles the Y/Z swap bug and default value filling.
-    
-    NOTE: default_values in .miobject is the MI scene placement coordinates 
-    and is NOT merged into keyframe values. Keyframe values already represent
-    the exact values shown in the MI UI (offsets from origin).
-    """
-    if "keyframes" in data and isinstance(data["keyframes"], list):
-        # Already a .miframes format
-        for kf in data["keyframes"]:
-            raw_vals = kf.get("values", {})
-            raw_vals = _fill_defaults(raw_vals)
-            kf["values"] = fix_mi_yz_swap(raw_vals)
-        return data
-
-    # Convert .miobject to .miframes format
-    timelines = data.get("timelines", [])
-    
-    # Identify the primary target ID (the first character or the first root object)
-    primary_id = None
-    is_model = False
-    for t in timelines:
-        if t.get("type") == "char":
-            primary_id = t.get("id")
-            is_model = True
-            break
-            
-    if not is_model:
-        # If no character, look for the first root object
-        for t in timelines:
-            parent = t.get("parent")
-            # In MI, parent can be "root" or null if it's a top-level object
-            if not parent or parent == "root":
-                primary_id = t.get("id")
-                break
-
-    keyframes_list = []
-    
-    for tl in timelines:
-        tl_id = tl.get("id")
-        tl_type = tl.get("type", "")
-        part_of = tl.get("part_of")
-        
-        # --- Strict Filtering Logic ---
-        if is_model:
-            # For characters:
-            if tl_id == primary_id:
-                part_name = "root"
-            elif part_of == primary_id and "model_part_name" in tl:
-                part_name = tl["model_part_name"]
-            else:
-                # Ignore extraneous characters, folders, surfaces, etc.
-                continue
-        else:
-            # For non-model objects:
-            if tl_id == primary_id:
-                part_name = "root"
-            else:
-                # We only want the primary transformation for single-object imports
-                continue
-            
-        kf_dict = tl.get("keyframes", {})
-        
-        if not kf_dict:
-            kf_dict["0"] = {}
-            
-        for frame_str, kf_vals in kf_dict.items():
-            frame_num = int(frame_str)
-            
-            # Copy only the kf values (NOT default_values), then fill missing with defaults
-            combined = dict(kf_vals)
-            _fill_defaults(combined)
-
-            fixed_combined = fix_mi_yz_swap(combined)
-            keyframes_list.append({
-                "position": frame_num,
-                "part_name": part_name,
-                "values": fixed_combined
-            })
-            
-    keyframes_list.sort(key=lambda x: x["position"])
-    
-    if len(keyframes_list) > 0:
-        # .miobject saves ABSOLUTE timeline positions (e.g. frame 60, 73, 400...)
-        # We need to normalize them to relative positions starting from 0,
-        # just like .miframes does during its export process (pos - firstpos).
-        firstpos = keyframes_list[0]["position"]
-        lastpos = keyframes_list[-1]["position"]
-        
-        for kf in keyframes_list:
-            kf["position"] -= firstpos
-        
-        final_length = lastpos - firstpos
-    else:
-        final_length = 0
-    
-    return {
-        "format": data.get("format", 34),
-        "created_in": data.get("created_in", ""),
-        "is_model": is_model,
-        "tempo": data.get("tempo", 24),
-        "length": final_length,
-        "keyframes": keyframes_list
-    }
-
-# --- Model Registry ---
+# --- Model Registry (Character Specifics) ---
 
 RIG2_STEVE = {
     "name": "Rig2 Steve (MI Direct)",
