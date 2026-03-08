@@ -61,7 +61,8 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
             self.report({'ERROR'}, "Rig2 properties missing.")
             return {'CANCELLED'}
 
-        data, err = self.check_file(self.filepath)
+        char_index = getattr(arm.rig2_props, "mi_char_index", 0)
+        data, err = self.check_file(self.filepath, char_index=char_index)
         if err:
             self.report({'ERROR'}, err)
             return {'CANCELLED'}

@@ -140,6 +140,13 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
         default=True
     )
 
+    mi_char_index: bpy.props.IntProperty(
+        name="Character Index",
+        description="Which character timeline to import (0 = first)",
+        default=0,
+        min=0
+    )
+
 def register():
     try:
         bpy.utils.register_class(Rig2ControlProperties)
