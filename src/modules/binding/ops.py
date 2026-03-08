@@ -32,7 +32,7 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
 
             for coll in data_to.collections:
                 if coll is not None:
-                    context.scene.collection.children.link(coll)
+                    context.collection.children.link(coll)
                     for obj in coll.objects:
                         obj.select_set(True)
                         if obj.type == 'ARMATURE':
