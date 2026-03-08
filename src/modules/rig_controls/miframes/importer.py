@@ -159,6 +159,12 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
         if "logic" in arm.pose.bones:
             arm.pose.bones["logic"]["mi_mapping_mode"] = 1.0
 
+        # --- Auto-detect Alex (slim) mode ---
+        model_info = data.get("model", {})
+        state = model_info.get("state", {})
+        if state.get("type") == "slim" and "prop.misc" in arm.pose.bones:
+            arm.pose.bones["prop.misc"]["alex"] = 1
+
         self.report({'INFO'}, "Imported successfully via Rig2 + mi2bl core")
         return {'FINISHED'}
 

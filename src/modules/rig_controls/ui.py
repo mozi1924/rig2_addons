@@ -263,18 +263,18 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
         obj = get_context_object(context)
         if not obj: return
         layout = self.layout
-        
+
+        has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
+
         # Settings Region
         layout.label(text="Settings", icon='PREFERENCES')
         box = layout.box()
-        
+
         col = box.column(align=True)
-        col.prop(obj.rig2_props, "mi_selected_model", text="Template")
-        
         row = col.row(align=True)
         row.prop(obj.rig2_props, "mi_start_frame", text="Start At")
         row.prop(obj.rig2_props, "mi_adjust_end_frame", text="Auto End", toggle=True)
-        
+
         if "logic" in obj.pose.bones:
             bone = obj.pose.bones["logic"]
             if "mi_mapping_mode" in bone:
@@ -287,7 +287,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
                         is_bool = True
                 except:
                     pass
-                
+
                 display_name = FRIENDLY_NAMES.get("mi_mapping_mode", "Mapping Mode")
                 if is_bool:
                     col.prop(bone, '["mi_mapping_mode"]', text=display_name, toggle=True)
@@ -295,16 +295,20 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
                     col.prop(bone, '["mi_mapping_mode"]', text=display_name, slider=True)
 
         layout.separator()
-        
+
         # Action Region
         layout.label(text="Action", icon='ACTION_TWEAK')
-        layout.operator("mi.import_action", text="Load Anim (.mi*)", icon='IMPORT')
-        
+        row = layout.row()
+        row.enabled = has_mi2bl
+        row.operator("mi.import_action", text="Load Anim (.mi*)", icon='IMPORT')
+        if not has_mi2bl:
+            layout.label(text="Requires mi2bl addon", icon='INFO')
+
         # Show Bake MI → FK button when MI mapping is active
         mi_active = False
         if "logic" in obj.pose.bones:
             mi_active = obj.pose.bones["logic"].get("mi_mapping_mode", 0) > 0
-        
+
         if mi_active:
             layout.separator()
             layout.label(text="Convert", icon='ANIM_DATA')
