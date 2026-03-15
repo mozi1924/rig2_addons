@@ -108,5 +108,8 @@
   "No armature selected": "No armature selected",
   "No animation data / action on the armature": "No animation data / action on the armature",
   "No matching MI/FK bone pairs found in the armature": "No matching MI/FK bone pairs found in the armature",
-  "No keyframes found on MI bones": "No keyframes found on MI bones"
+  "No keyframes found on MI bones": "No keyframes found on MI bones",
+  "MI IK Control": "MI IK Control",
+  "Arm IK": "Arm IK",
+  "Leg IK": "Leg IK"
 }

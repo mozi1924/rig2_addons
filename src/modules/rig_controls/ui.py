@@ -317,6 +317,71 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
             row.operator("mi.bake_to_fk", text="Bake MI → FK", icon='EXPORT')
 
 
+class RIG2_PT_MIIKPanel(RIG2_PT_PropBase, bpy.types.Panel):
+    """MI IK switches — manually control which limbs use MI IK vs FK."""
+    bl_label = "MI IK Control"
+    bl_idname = "RIG2_PT_mi_ik_panel"
+    bl_parent_id = "RIG2_PT_utility_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        if not super().poll(context):
+            return False
+        obj = get_context_object(context)
+        if not obj:
+            return False
+        if "logic" not in obj.pose.bones:
+            return False
+        logic_bone = obj.pose.bones["logic"]
+        ik_props = ("mi_ik_arm.L", "mi_ik_arm.R", "mi_ik_leg.L", "mi_ik_leg.R")
+        return any(p in logic_bone for p in ik_props)
+
+    def draw(self, context):
+        obj = get_context_object(context)
+        if not obj:
+            return
+        layout = self.layout
+        pose_bones = obj.pose.bones
+        rig_props = obj.rig2_props
+
+        if "logic" not in pose_bones:
+            return
+        logic_bone = pose_bones["logic"]
+
+        arm_props_l = ["mi_ik_arm.L"]
+        arm_props_r = ["mi_ik_arm.R"]
+        leg_props_l = ["mi_ik_leg.L"]
+        leg_props_r = ["mi_ik_leg.R"]
+
+        if rig_props.mirror_display:
+            arm_props_l, arm_props_r = arm_props_r, arm_props_l
+            leg_props_l, leg_props_r = leg_props_r, leg_props_l
+
+        layout.label(text="Arm IK", icon='CON_KINEMATIC')
+        row = layout.row()
+        col_l = row.column(align=True)
+        col_r = row.column(align=True)
+        for p in arm_props_l:
+            if p in logic_bone:
+                col_l.prop(logic_bone, f'["{p}"]', text=p, slider=True)
+        for p in arm_props_r:
+            if p in logic_bone:
+                col_r.prop(logic_bone, f'["{p}"]', text=p, slider=True)
+
+        layout.separator()
+        layout.label(text="Leg IK", icon='CON_KINEMATIC')
+        row = layout.row()
+        col_l = row.column(align=True)
+        col_r = row.column(align=True)
+        for p in leg_props_l:
+            if p in logic_bone:
+                col_l.prop(logic_bone, f'["{p}"]', text=p, slider=True)
+        for p in leg_props_r:
+            if p in logic_bone:
+                col_r.prop(logic_bone, f'["{p}"]', text=p, slider=True)
+
+
 class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "logic"
     bl_idname = "RIG2_PT_logic_panel"
@@ -377,6 +442,7 @@ classes = (
     RIG2_PT_MiscPanel,
     RIG2_PT_PerfPanel,
     RIG2_PT_UtilityPanel,
+    RIG2_PT_MIIKPanel,
     RIG2_PT_DangerPanel,
     RIG2_PT_LogicPanel,
     RIG2_PT_SideMain,

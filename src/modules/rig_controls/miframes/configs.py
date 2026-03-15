@@ -131,7 +131,35 @@ RIG2_STEVE = {
         "left_leg": "MI_leg.lower.L",
         "right_leg": "MI_leg.lower.R",
         "body": "MI_Body Upper"
-    }
+    },
+
+    # IK target / pole target bone mapping.
+    # Keys are MI model_part_name (lowercase); values specify:
+    #   ik_target_bone : Rig2 IK目标骨骼名 (receives IK_TARGET position)
+    #   ik_pole_bone   : Rig2 IK极点骨骼名 (receives IK_TARGET_ANGLE position)
+    #   logic_ik_prop  : logic骨骼上控制该肢体IK开关的属性名
+    "ik_targets": {
+        "left_arm": {
+            "ik_target_bone": "MI_arm.ik.target.L",
+            "ik_pole_bone":   "MI_arm.ik.pt.L",
+            "logic_ik_prop":  "mi_ik_arm.L",
+        },
+        "right_arm": {
+            "ik_target_bone": "MI_arm.ik.target.R",
+            "ik_pole_bone":   "MI_arm.ik.pt.R",
+            "logic_ik_prop":  "mi_ik_arm.R",
+        },
+        "left_leg": {
+            "ik_target_bone": "MI_leg.ik.target.L",
+            "ik_pole_bone":   "MI_leg.ik.pt.L",
+            "logic_ik_prop":  "mi_ik_leg.L",
+        },
+        "right_leg": {
+            "ik_target_bone": "MI_leg.ik.target.R",
+            "ik_pole_bone":   "MI_leg.ik.pt.R",
+            "logic_ik_prop":  "mi_ik_leg.R",
+        },
+    },
 }
 
 MODELS = {

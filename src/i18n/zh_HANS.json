@@ -108,5 +108,8 @@
   "No armature selected": "未选中骨架",
   "No animation data / action on the armature": "骨架上没有动画数据/动作",
   "No matching MI/FK bone pairs found in the armature": "在骨架中未找到匹配的MI/FK骨骼对",
-  "No keyframes found on MI bones": "MI骨骼上未找到关键帧"
+  "No keyframes found on MI bones": "MI骨骼上未找到关键帧",
+  "MI IK Control": "MI IK 控制",
+  "Arm IK": "手臂 IK",
+  "Leg IK": "腿部 IK"
 }
