@@ -214,18 +214,21 @@ class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Limbs & IK-FK Switch"
     bl_idname = "RIG2_PT_limbs_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 10
     def draw(self, context): Rig2UIDrawer.draw_limbs(self.layout, context)
 
 class RIG2_PT_HeadPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Face & Head Details"
     bl_idname = "RIG2_PT_head_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 20
     def draw(self, context): Rig2UIDrawer.draw_head(self.layout, context)
 
 class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Performance & Optimization"
     bl_idname = "RIG2_PT_advanced_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 40
     bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context): pass
 
@@ -233,6 +236,7 @@ class RIG2_PT_MiscPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Character Style"
     bl_idname = "RIG2_PT_misc_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 30
     def draw(self, context): Rig2UIDrawer.draw_misc(self.layout, context)
 
 class RIG2_PT_PerfPanel(RIG2_PT_PropBase, bpy.types.Panel):
@@ -245,6 +249,7 @@ class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Danger Zone"
     bl_idname = "RIG2_PT_danger_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 100
     bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout = self.layout
@@ -257,6 +262,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
     bl_label = "Mine-Imator Anim Tools"
     bl_idname = "RIG2_PT_utility_panel"
     bl_parent_id = "RIG2_PT_main_panel"
+    bl_order = 50
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):

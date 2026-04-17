@@ -1,7 +1,5 @@
 import bpy
 import re
-from collections import defaultdict
-from mathutils import Matrix
 
 # ─── MI → FK Bone Mapping ───────────────────────────────────────────────────
 # Maps MI bone names to their corresponding FK bone names.
@@ -86,18 +84,75 @@ def _get_mi_fcurves(action):
     return results
 
 
+def _remove_fcurves_by_path_prefixes(action, prefixes):
+    """Remove fcurves whose data_path starts with any of the provided prefixes."""
+    prefixes = tuple(prefixes)
+    to_remove = [fc for fc in action.fcurves if fc.data_path.startswith(prefixes)]
+    for fc in to_remove:
+        action.fcurves.remove(fc)
+
+
+def _remove_fcurves_by_exact_paths(action, data_paths):
+    """Remove fcurves whose data_path exactly matches one of the provided paths."""
+    paths = set(data_paths)
+    to_remove = [fc for fc in action.fcurves if fc.data_path in paths]
+    for fc in to_remove:
+        action.fcurves.remove(fc)
+
+
+def _set_constraints_muted(constraints, mute):
+    """Mute or unmute a constraint list in-place."""
+    for constraint in constraints:
+        constraint.mute = mute
+
+
+def _solve_fk_pose_matrix(context, fk_bone, target_matrix, max_passes=3):
+    """
+    Solve a target armature-space matrix for an FK control under its final FK constraints.
+
+    Blender's pose-bone matrix setter computes channels against the parent/rest
+    relationship, but it does not automatically compensate for other active FK
+    constraints that still run after MI mapping is disabled. For bones like
+    Body Upper and Head root, a one-shot matrix assignment leaves those
+    constraints double-applying motion. To counter that, we:
+    1. Temporarily mute the always-on constraints.
+    2. Solve a provisional matrix.
+    3. Re-enable the constraints and measure the residual error.
+    4. Pre-compensate the provisional matrix by that measured constraint delta.
+
+    A couple of passes is enough for the Rig2 control rig and keeps the bake
+    deterministic and frame-accurate.
+    """
+    active_constraints = [
+        constraint for constraint in fk_bone.constraints
+        if not constraint.mute and getattr(constraint, "influence", 0.0) > 1e-6
+    ]
+    desired_matrix = target_matrix.copy()
+
+    for _ in range(max_passes):
+        _set_constraints_muted(active_constraints, True)
+        context.view_layer.update()
+
+        fk_bone.matrix = desired_matrix
+        context.view_layer.update()
+
+        _set_constraints_muted(active_constraints, False)
+        context.view_layer.update()
+
+        solved_matrix = fk_bone.matrix.copy()
+        error_angle = solved_matrix.to_quaternion().rotation_difference(target_matrix.to_quaternion()).angle
+        error_loc = (solved_matrix.to_translation() - target_matrix.to_translation()).length
+        if error_angle < 1e-6 and error_loc < 1e-6:
+            break
+
+        correction = solved_matrix @ target_matrix.inverted()
+        desired_matrix = correction.inverted() @ desired_matrix
+
+
 def bake_mi_to_fk(context):
     """
     Bake world-space transforms from MI bones onto FK bones,
     then clean up MI keyframes and switch all limbs to FK mode.
-    
-    The bake correctly handles differing parent-child hierarchies by:
-    1. Sampling MI bone world (armature-space) matrices while MI mode is active
-    2. Switching to FK mode
-    3. Applying sampled matrices to FK bones using Blender's built-in
-       bone.matrix setter, which handles parent chain & rest pose conversion
-    4. Processing bones in parent-first order with depsgraph updates
-       between hierarchy levels so child bones see correct parent transforms
     
     Returns (success: bool, message: str)
     """
@@ -128,41 +183,32 @@ def bake_mi_to_fk(context):
         return False, "No keyframes found on MI bones"
 
     # --- 3. Group FK bones by hierarchy depth for correct parent-first processing ---
-    depth_groups = defaultdict(list)
+    depth_groups = {}
     for item in valid_pairs:
         fk_bone = item[3]
         depth = _get_bone_depth(fk_bone)
-        depth_groups[depth].append(item)
-    
+        depth_groups.setdefault(depth, []).append(item)
+
     sorted_depths = sorted(depth_groups.keys())
 
-    # --- 4. Sample MI bone world-space matrices WHILE MI MODE IS STILL ACTIVE ---
-    # This is critical: MI bones may depend on mi_mapping_mode for their evaluated pose
-    mi_world_samples = {}  # {frame: {mi_name: matrix}}
-
+    # --- 4. Sample MI matrices while MI mapping is still active ---
     scene = context.scene
     original_frame = scene.frame_current
+    mi_world_samples = {}
 
     for frame in frames:
         scene.frame_set(frame)
         context.view_layer.update()
         mi_world_samples[frame] = {}
         for mi_name, fk_name, mi_bone, fk_bone in valid_pairs:
-            # bone.matrix is the armature-space (object-space) pose matrix
             mi_world_samples[frame][mi_name] = mi_bone.matrix.copy()
 
-    # --- 5. Switch to FK mode BEFORE baking ---
+    # --- 5. Switch to the final FK rig state before solving FK keys ---
     if "prop.limbs" in pose_bones:
         limbs_bone = pose_bones["prop.limbs"]
         for prop_name in IK_FK_PROPS:
             if prop_name in limbs_bone:
                 limbs_bone[prop_name] = 0.0
-
-    # Turn off MI mapping mode
-    if "logic" in pose_bones:
-        logic_bone = pose_bones["logic"]
-        if "mi_mapping_mode" in logic_bone:
-            logic_bone["mi_mapping_mode"] = 0.0
 
     # Turn on head_inherit_rotation for accurate head transformation
     if "prop.head" in pose_bones:
@@ -170,42 +216,36 @@ def bake_mi_to_fk(context):
         if "head_inherit_rotation" in head_bone:
             head_bone["head_inherit_rotation"] = 1.0
 
-    # Ensure all FK bones are operating in QUATERNION mode before setting their matrices.
-    # If we set .matrix while they are in Euler mode, Blender only updates Euler channels,
-    # and our quaternion keyframes later would just save the un-updated/default values!
+    if "logic" in pose_bones:
+        logic_bone = pose_bones["logic"]
+        if "mi_mapping_mode" in logic_bone:
+            logic_bone["mi_mapping_mode"] = 0.0
+
+    # Ensure all FK bones are operating in QUATERNION mode before solving their channels.
     for mi_name, fk_name, mi_bone, fk_bone in valid_pairs:
         fk_bone.rotation_mode = 'QUATERNION'
 
-    # Force depsgraph update so FK chain is now active
+    # Force depsgraph update so we are solving against the real FK constraint stack.
     context.view_layer.update()
 
-    # --- 6. Bake world-space transforms onto FK bones ---
-    # Process frame by frame. Within each frame, process bones in
-    # parent-first order (by depth), updating the depsgraph between
-    # depth levels so child bones see correct parent transforms.
+    # --- 6. Remove old FK keys on the target controls, then solve frame by frame ---
+    fk_bones = [fk_bone for _, _, _, fk_bone in valid_pairs]
+    _remove_fcurves_by_path_prefixes(
+        action,
+        [f'pose.bones["{fk_bone.name}"].' for fk_bone in fk_bones],
+    )
     previous_quats = {}
-    
+
     for frame in frames:
         scene.frame_set(frame)
         context.view_layer.update()
 
-        # Apply MI world matrices to FK bones, depth level by depth level
         for depth in sorted_depths:
             for mi_name, fk_name, mi_bone, fk_bone in depth_groups[depth]:
                 target_matrix = mi_world_samples[frame][mi_name]
-                
-                # Use Blender's built-in matrix setter.
-                # This correctly computes matrix_basis by accounting for
-                # the FK bone's parent chain and rest pose automatically.
-                fk_bone.matrix = target_matrix
-            
-            # Update depsgraph after each depth level so that child bones
-            # in the next level see the correct parent transforms
-            context.view_layer.update()
+                _solve_fk_pose_matrix(context, fk_bone, target_matrix)
 
-        # Now keyframe all FK bones (order doesn't matter for keyframing)
         for mi_name, fk_name, mi_bone, fk_bone in valid_pairs:
-            # Enforce quaternion continuity to prevent flips or lost spins (e.g., 360-degree jumps)
             current_quat = fk_bone.rotation_quaternion.copy()
             if fk_name in previous_quats:
                 current_quat.make_compatible(previous_quats[fk_name])
@@ -215,6 +255,8 @@ def bake_mi_to_fk(context):
             fk_bone.keyframe_insert("rotation_quaternion", frame=frame)
             fk_bone.keyframe_insert("location", frame=frame)
             fk_bone.keyframe_insert("scale", frame=frame)
+
+    context.view_layer.update()
 
     # --- 7. Remove ALL keyframes from MI bones ---
     mi_fcurves = _get_mi_fcurves(action)
@@ -228,11 +270,16 @@ def bake_mi_to_fk(context):
         mi_bone.location = (0, 0, 0)
         mi_bone.scale = (1, 1, 1)
 
-    # --- 9. Keyframe the IK/FK switch and Head Inherit Rotation at the first frame ---
+    # --- 9. Keyframe the bake-state props at the first frame ---
     if frames:
         first_frame = frames[0]
+
         if "prop.limbs" in pose_bones:
             limbs_bone = pose_bones["prop.limbs"]
+            _remove_fcurves_by_exact_paths(
+                action,
+                [f'pose.bones["prop.limbs"]["{prop_name}"]' for prop_name in IK_FK_PROPS],
+            )
             for prop_name in IK_FK_PROPS:
                 if prop_name in limbs_bone:
                     limbs_bone[prop_name] = 0.0
@@ -244,9 +291,26 @@ def bake_mi_to_fk(context):
         if "prop.head" in pose_bones:
             head_bone = pose_bones["prop.head"]
             if "head_inherit_rotation" in head_bone:
+                _remove_fcurves_by_exact_paths(
+                    action,
+                    ['pose.bones["prop.head"]["head_inherit_rotation"]'],
+                )
                 head_bone["head_inherit_rotation"] = 1.0
                 head_bone.keyframe_insert(
                     data_path='["head_inherit_rotation"]',
+                    frame=first_frame
+                )
+
+        if "logic" in pose_bones:
+            logic_bone = pose_bones["logic"]
+            if "mi_mapping_mode" in logic_bone:
+                _remove_fcurves_by_exact_paths(
+                    action,
+                    ['pose.bones["logic"]["mi_mapping_mode"]'],
+                )
+                logic_bone["mi_mapping_mode"] = 0.0
+                logic_bone.keyframe_insert(
+                    data_path='["mi_mapping_mode"]',
                     frame=first_frame
                 )
 
