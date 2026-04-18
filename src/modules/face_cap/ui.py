@@ -1,3 +1,5 @@
+import os
+
 import bpy
 
 from ...core.utils import get_context_object, is_rig2_armature
@@ -51,24 +53,65 @@ class RIG2_PT_FaceCapPanel(bpy.types.Panel):
             )
 
         layout.separator()
+        layout.label(text="Target", icon="ARMATURE_DATA")
+        target_box = layout.box()
+        if settings:
+            target_box.prop(settings, "target_rig", text="Rig")
+        target_row = target_box.row(align=True)
+        target_row.operator("rig2.face_cap_pin_current_rig", icon="PINNED")
+        target_row.operator("rig2.face_cap_clear_target", icon="X")
+        target_box.label(text=f"Current Context: {obj.name}")
+        if status["target_name"]:
+            target_box.label(text=f"Pinned Target: {status['target_name']}")
+        else:
+            target_box.label(text="Pinned Target: None", icon="INFO")
+
+        layout.separator()
         layout.label(text="Receiver", icon="URL")
         box = layout.box()
         col = box.column(align=True)
         if settings:
             col.prop(settings, "listen_host")
             col.prop(settings, "listen_port")
-        col.operator("rig2.face_cap_restart_server", icon="FILE_REFRESH")
+        row = col.row(align=True)
+        row.operator("rig2.face_cap_start_server", icon="PLAY")
+        row.operator("rig2.face_cap_stop_server", icon="PAUSE")
+
+        layout.separator()
+        layout.label(text="WebTransport", icon="NETWORK_DRIVE")
+        wt_box = layout.box()
+        wt_col = wt_box.column(align=True)
+        if settings:
+            wt_col.prop(settings, "webtransport_enabled")
+            wt_col.prop(settings, "webtransport_host")
+            wt_col.prop(settings, "webtransport_port")
+        wt_box.label(text=f"WT Status: {status['webtransport_status']}")
+        wt_box.label(text=f"WT Mode: {status['transport_mode']}")
+        wt_box.label(text=f"WT Dependency: {'Ready' if status['webtransport_dependency_ready'] else 'Missing'}")
+        wt_box.label(text=f"WT Cert: {'Bundled' if status['webtransport_cert_ready'] else 'Missing'}")
+        if status["webtransport_url"]:
+            wt_box.label(text=f"WT URL: {status['webtransport_url']}")
+        if status["webtransport_ca_cert_der_path"]:
+            wt_box.label(text=f"CA File: {os.path.basename(status['webtransport_ca_cert_der_path'])}")
+        if not status["webtransport_dependency_ready"]:
+            wt_box.label(text="Install WT dependency in Add-on Preferences.", icon="INFO")
+        if status["webtransport_last_error"]:
+            wt_box.label(text=status["webtransport_last_error"], icon="ERROR")
 
         info = layout.box()
         info.label(text=status["status_message"], icon="INFO" if not status["last_error"] else "ERROR")
         info.label(text=f"Enabled rigs: {enabled_rigs}", icon="ARMATURE_DATA")
         info.label(text=f"Packets: {status['packet_count']}")
+        info.label(text=f"Dropped: {status['dropped_packet_count']}")
+        info.label(text=f"Applied: {status['applied_packet_count']}")
         info.label(text=f"Faces: {status['face_count']}", icon="USER")
         info.label(text=f"Last packet: {_format_packet_age(status['last_packet_age'])}", icon="TIME")
         if status["client_address"]:
             info.label(text=f"Client: {status['client_address']}")
         if status["last_error"]:
             info.label(text=status["last_error"], icon="ERROR")
+        if not status["target_name"]:
+            info.label(text="No pinned target rig selected.", icon="ERROR")
         if status["packet_count"] > 0 and enabled_rigs <= 0:
             info.label(text="No enabled rig. Set Face Capture to 1.00 on prop.head.", icon="ERROR")
 
@@ -118,19 +161,45 @@ class RIG2_PT_SideFaceCapPanel(bpy.types.Panel):
                 slider=True,
             )
 
+        target_box = layout.box()
+        if settings:
+            target_box.prop(settings, "target_rig", text="Rig")
+        target_row = target_box.row(align=True)
+        target_row.operator("rig2.face_cap_pin_current_rig", icon="PINNED")
+        target_row.operator("rig2.face_cap_clear_target", icon="X")
+
         col = layout.column(align=True)
         if settings:
             col.prop(settings, "listen_host", text="Host")
             col.prop(settings, "listen_port", text="Port")
-        col.operator("rig2.face_cap_restart_server", icon="FILE_REFRESH")
+        row = col.row(align=True)
+        row.operator("rig2.face_cap_start_server", icon="PLAY")
+        row.operator("rig2.face_cap_stop_server", icon="PAUSE")
+
+        wt_col = layout.column(align=True)
+        if settings:
+            wt_col.prop(settings, "webtransport_enabled", text="Use WT")
+            wt_col.prop(settings, "webtransport_host", text="WT Host")
+            wt_col.prop(settings, "webtransport_port", text="WT Port")
 
         box = layout.box()
         box.label(text=status["status_message"], icon="INFO" if not status["last_error"] else "ERROR")
         box.label(text=f"Packets: {status['packet_count']}")
+        box.label(text=f"Dropped: {status['dropped_packet_count']}")
+        box.label(text=f"Applied: {status['applied_packet_count']}")
         box.label(text=f"Faces: {status['face_count']}")
         box.label(text=f"Enabled rigs: {enabled_rigs}")
+        box.label(text=f"WT: {status['webtransport_status']}")
+        box.label(text=f"Mode: {status['transport_mode']}")
+        box.label(text=f"WT Dependency: {'Ready' if status['webtransport_dependency_ready'] else 'Missing'}")
+        if status["target_name"]:
+            box.label(text=f"Target: {status['target_name']}")
         if status["client_address"]:
             box.label(text=f"Client: {status['client_address']}")
+        if status["webtransport_last_error"]:
+            box.label(text=status["webtransport_last_error"], icon="ERROR")
+        if not status["target_name"]:
+            box.label(text="No pinned target rig.", icon="ERROR")
         if status["packet_count"] > 0 and enabled_rigs <= 0:
             box.label(text="Set Face Capture to 1.00 first.", icon="ERROR")
 
