@@ -124,6 +124,8 @@
   "Port": "Port",
   "Local interface used by the face capture WebSocket receiver": "Local interface used by the face capture WebSocket receiver",
   "Local port used by the face capture WebSocket receiver": "Local port used by the face capture WebSocket receiver",
+  "Include Head Rotation": "Include Head Rotation",
+  "Apply incoming head-pose quaternion to the Head root bone": "Apply incoming head-pose quaternion to the Head root bone",
   "Target Rig": "Target Rig",
   "Rig2 armature that should receive incoming face capture data": "Rig2 armature that should receive incoming face capture data",
   "Face Capture": "Face Capture",

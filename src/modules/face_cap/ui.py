@@ -59,6 +59,7 @@ class FaceCapUIDrawer:
         if settings:
             box.prop(settings, "listen_host")
             box.prop(settings, "listen_port")
+            box.prop(settings, "include_head_rotation")
 
         row = box.row(align=True)
         row.operator("rig2.face_cap_start_server", icon="PLAY")

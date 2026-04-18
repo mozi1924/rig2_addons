@@ -7,6 +7,15 @@ def _target_rig_poll(_self, obj):
     return is_rig2_armature(obj)
 
 
+def _update_face_cap_runtime(_self, _context):
+    try:
+        from .runtime import get_runtime_service
+
+        get_runtime_service().request_reapply()
+    except Exception:
+        pass
+
+
 class Rig2FaceCapSettings(bpy.types.PropertyGroup):
     listen_host: bpy.props.StringProperty(
         name="Host",
@@ -27,6 +36,13 @@ class Rig2FaceCapSettings(bpy.types.PropertyGroup):
         description="Rig2 armature that should receive incoming face capture data",
         type=bpy.types.Object,
         poll=_target_rig_poll,
+    )
+
+    include_head_rotation: bpy.props.BoolProperty(
+        name="Include Head Rotation",
+        description="Apply incoming head-pose quaternion to the Head root bone",
+        default=True,
+        update=_update_face_cap_runtime,
     )
 
 

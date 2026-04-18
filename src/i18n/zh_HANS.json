@@ -124,6 +124,8 @@
   "Port": "端口",
   "Local interface used by the face capture WebSocket receiver": "面捕 WebSocket 接收器使用的本地网卡地址",
   "Local port used by the face capture WebSocket receiver": "面捕 WebSocket 接收器使用的本地端口",
+  "Include Head Rotation": "包含头部旋转",
+  "Apply incoming head-pose quaternion to the Head root bone": "将接收到的头部姿态四元数应用到 Head root 骨骼",
   "Target Rig": "目标 Rig",
   "Rig2 armature that should receive incoming face capture data": "接收面捕数据的 Rig2 骨架",
   "Face Capture": "面部捕捉",
