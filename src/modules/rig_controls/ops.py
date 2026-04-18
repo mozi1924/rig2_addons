@@ -57,6 +57,11 @@ class Rig2Controller:
                         bone[p] = default_val
                     except:
                         pass
+        
+        try:
+            obj.update_tag(refresh={'OBJECT', 'DATA'})
+        except Exception:
+            pass
 
     @staticmethod
     def keyframe_all_props(context):

@@ -10,7 +10,7 @@ PROPERTY_MAP = {
     "head": [
         "lash", "jaw", "eyebrow_width", "brow_auto_rotation", "mouth_shape",
         "neck_length", "eye_tracker", "Tongue", "enable_neck", "eyebrow",
-        "head_inherit_rotation", "layout_mode", "panel_to_face"
+        "head_inherit_rotation", "layout_mode", "panel_to_face", "face_cap"
     ],
     "misc": [
         "alex", "hands", "feet_style"
@@ -47,6 +47,7 @@ FRIENDLY_NAMES = {
     "head_inherit_rotation": "Head Inherit Rotation",
     "layout_mode": "Layout Mode",
     "panel_to_face": "Panel to Face",
+    "face_cap": "Face Capture",
 
     # Misc
     "alex": "Slim Arm (Alex)",
@@ -75,7 +76,12 @@ def get_bone_val(bone_name, prop_name, default=0):
 def set_bone_val(bone_name, prop_name, val):
     obj = bpy.context.active_object
     if obj and bone_name in obj.pose.bones:
-        obj.pose.bones[bone_name][prop_name] = val
+        if obj.pose.bones[bone_name].get(prop_name) != val:
+            obj.pose.bones[bone_name][prop_name] = val
+            try:
+                obj.update_tag(refresh={'OBJECT', 'DATA'})
+            except Exception:
+                pass
 
 class Rig2ControlProperties(bpy.types.PropertyGroup):
     def get_lash(self): return int(get_bone_val("prop.head", "lash", 0))

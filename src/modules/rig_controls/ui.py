@@ -102,6 +102,8 @@ class Rig2UIDrawer:
             grid = layout.grid_flow(columns=2, align=True)
             for p in ["layout_mode", "panel_to_face"]:
                 if Rig2UIDrawer.draw_prop(grid, bone, p, toggle=True): handled.add(p)
+            if Rig2UIDrawer.draw_prop(layout, bone, "face_cap"):
+                handled.add("face_cap")
             Rig2UIDrawer.draw_remaining_props(layout, bone, handled)
 
     @staticmethod

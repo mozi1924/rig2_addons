@@ -26,10 +26,21 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
 
 def get_preferences():
     addon_name = __package__.split('.')[0]
-    return bpy.context.preferences.addons[addon_name].preferences
+    addon = bpy.context.preferences.addons.get(addon_name)
+    return addon.preferences if addon else None
 
 def register():
-    bpy.utils.register_class(Rig2AddonPreferences)
+    try:
+        bpy.utils.register_class(Rig2AddonPreferences)
+    except ValueError:
+        try:
+            bpy.utils.unregister_class(Rig2AddonPreferences)
+        except Exception:
+            pass
+        bpy.utils.register_class(Rig2AddonPreferences)
 
 def unregister():
-    bpy.utils.unregister_class(Rig2AddonPreferences)
+    try:
+        bpy.utils.unregister_class(Rig2AddonPreferences)
+    except Exception:
+        pass
