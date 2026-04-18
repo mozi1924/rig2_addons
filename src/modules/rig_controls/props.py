@@ -10,7 +10,7 @@ PROPERTY_MAP = {
     "head": [
         "lash", "jaw", "eyebrow_width", "brow_auto_rotation", "mouth_shape",
         "neck_length", "eye_tracker", "Tongue", "enable_neck", "eyebrow",
-        "head_inherit_rotation", "layout_mode", "panel_to_face", "face_cap"
+        "head_inherit_rotation", "layout_mode", "panel_to_face"
     ],
     "misc": [
         "alex", "hands", "feet_style"

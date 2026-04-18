@@ -4,6 +4,20 @@ import json
 
 translations_dict = {}
 
+
+def iface(message):
+    try:
+        return bpy.app.translations.pgettext_iface(message)
+    except Exception:
+        return message
+
+
+def format_text(message, **kwargs):
+    try:
+        return iface(message).format(**kwargs)
+    except Exception:
+        return message.format(**kwargs)
+
 def load_translations():
     global translations_dict
     translations_dict.clear()

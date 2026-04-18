@@ -1,5 +1,6 @@
 import bpy
 from .props import PROPERTY_MAP
+from ...i18n import format_text as _f
 
 # miframes imports are handled in the miframes module subdirectory
 
@@ -129,9 +130,12 @@ class RIG2_OT_KeyframeState(bpy.types.Operator):
         count = Rig2Controller.keyframe_all_props(context)
         if count > 0:
             frame = context.scene.frame_current
-            self.report({'INFO'}, f"Keyframed {count} properties at frame {frame}")
+            self.report(
+                {'INFO'},
+                _f("Keyframed {count} properties at frame {frame}", count=count, frame=frame),
+            )
         else:
-            self.report({'WARNING'}, "No properties found to keyframe")
+            self.report({'WARNING'}, _f("No properties found to keyframe"))
         return {'FINISHED'}
 
 classes = (

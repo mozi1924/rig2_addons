@@ -149,12 +149,12 @@ def _is_face_cap_enabled(obj):
     if not pose:
         return False
 
-    head_bone = pose.bones.get("prop.head")
+    logic_bone = pose.bones.get("logic")
     face_bone = pose.bones.get("Face_BlendShapes")
-    if not head_bone or not face_bone:
+    if not logic_bone or not face_bone:
         return False
 
-    return float(head_bone.get("face_cap", 0.0)) >= 0.999
+    return float(logic_bone.get("face_cap", 0.0)) >= 0.999
 
 
 def _get_scene_settings():

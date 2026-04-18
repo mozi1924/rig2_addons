@@ -1,6 +1,7 @@
 import bpy
 
 from ...core.utils import get_context_object, is_rig2_armature
+from ...i18n import format_text as _f
 from .runtime import get_runtime_service
 
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
@@ -36,16 +37,16 @@ class RIG2_OT_FaceCapPinCurrentRig(bpy.types.Operator):
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings is None:
-            self.report({"ERROR"}, "Face Capture settings are not registered")
+            self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
         obj = get_context_object(context)
         if not is_rig2_armature(obj):
-            self.report({"ERROR"}, "Current object is not a Rig2 armature")
+            self.report({"ERROR"}, _f("Current object is not a Rig2 armature"))
             return {"CANCELLED"}
 
         settings.target_rig = obj
-        self.report({"INFO"}, f"Face Capture target pinned to {obj.name}")
+        self.report({"INFO"}, _f("Face Capture target pinned to {name}", name=obj.name))
         return {"FINISHED"}
 
 
@@ -57,11 +58,11 @@ class RIG2_OT_FaceCapClearTarget(bpy.types.Operator):
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings is None:
-            self.report({"ERROR"}, "Face Capture settings are not registered")
+            self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
         settings.target_rig = None
-        self.report({"INFO"}, "Face Capture target cleared")
+        self.report({"INFO"}, _f("Face Capture target cleared"))
         return {"FINISHED"}
 
 
@@ -73,7 +74,7 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings is None:
-            self.report({"ERROR"}, "Face Capture settings are not registered")
+            self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
         obj = get_context_object(context)
@@ -87,10 +88,24 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
         if service.is_webtransport_running():
             self.report(
                 {"INFO"},
-                f"Face Capture receiver started on ws://{settings.listen_host}:{settings.listen_port} with WebTransport {status['webtransport_status']} for {target_name}",
+                _f(
+                    "Face Capture receiver started on ws://{host}:{port} with WebTransport {transport} for {target}",
+                    host=settings.listen_host,
+                    port=settings.listen_port,
+                    transport=status["webtransport_status"],
+                    target=target_name,
+                ),
             )
         else:
-            self.report({"INFO"}, f"Face Capture receiver started on ws://{settings.listen_host}:{settings.listen_port} for {target_name}")
+            self.report(
+                {"INFO"},
+                _f(
+                    "Face Capture receiver started on ws://{host}:{port} for {target}",
+                    host=settings.listen_host,
+                    port=settings.listen_port,
+                    target=target_name,
+                ),
+            )
         return {"FINISHED"}
 
 
@@ -102,7 +117,7 @@ class RIG2_OT_FaceCapStopServer(bpy.types.Operator):
     def execute(self, context):
         service = get_runtime_service()
         service.stop()
-        self.report({"INFO"}, "Face Capture receiver stopped")
+        self.report({"INFO"}, _f("Face Capture receiver stopped"))
         return {"FINISHED"}
 
 
@@ -114,7 +129,13 @@ class RIG2_OT_FaceCapApplyNow(bpy.types.Operator):
     def execute(self, context):
         service = get_runtime_service()
         service.apply_latest_data()
-        self.report({"INFO"}, f"Applied cached face packet to {service.count_enabled_rigs()} enabled rig(s)")
+        self.report(
+            {"INFO"},
+            _f(
+                "Applied cached face packet to {count} enabled rig(s)",
+                count=service.count_enabled_rigs(),
+            ),
+        )
         return {"FINISHED"}
 
 
@@ -137,7 +158,7 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
         obj = get_context_object(context)
         face_bone = obj.pose.bones.get("Face_BlendShapes")
         if not face_bone:
-            self.report({"ERROR"}, "Face_BlendShapes bone not found")
+            self.report({"ERROR"}, _f("Face_BlendShapes bone not found"))
             return {"CANCELLED"}
 
         prop_names = [key for key in face_bone.keys() if key not in INTERNAL_KEYS]
@@ -162,7 +183,14 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
         if context.view_layer:
             context.view_layer.update()
 
-        self.report({"INFO"}, f"Cleared {removed_curves} face capture f-curves and reset {len(prop_names)} blendshape values")
+        self.report(
+            {"INFO"},
+            _f(
+                "Cleared {curve_count} face capture f-curves and reset {blendshape_count} blendshape values",
+                curve_count=removed_curves,
+                blendshape_count=len(prop_names),
+            ),
+        )
         return {"FINISHED"}
 
 
@@ -179,13 +207,16 @@ class RIG2_OT_FaceCapInstallWebTransportDependency(bpy.types.Operator):
         try:
             dependency_dir = service.install_webtransport_dependency()
         except Exception as exc:
-            self.report({"ERROR"}, f"Failed to install WebTransport dependency: {exc}")
+            self.report(
+                {"ERROR"},
+                _f("Failed to install WebTransport dependency: {error}", error=exc),
+            )
             return {"CANCELLED"}
 
         if was_running:
             service.start(settings=settings)
 
-        self.report({"INFO"}, f"WebTransport dependency ready: {dependency_dir}")
+        self.report({"INFO"}, _f("WebTransport dependency ready: {path}", path=dependency_dir))
         return {"FINISHED"}
 
 
@@ -203,13 +234,19 @@ class RIG2_OT_FaceCapUninstallWebTransportDependency(bpy.types.Operator):
         try:
             dependency_dir = service.uninstall_webtransport_dependency()
         except Exception as exc:
-            self.report({"ERROR"}, f"Failed to uninstall WebTransport dependency: {exc}")
+            self.report(
+                {"ERROR"},
+                _f("Failed to uninstall WebTransport dependency: {error}", error=exc),
+            )
             return {"CANCELLED"}
 
         if was_running:
             service.start(settings=settings)
 
-        self.report({"INFO"}, f"Removed addon-managed WT dependency from {dependency_dir}")
+        self.report(
+            {"INFO"},
+            _f("Removed addon-managed WT dependency from {path}", path=dependency_dir),
+        )
         return {"FINISHED"}
 
 

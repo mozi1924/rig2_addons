@@ -1,6 +1,8 @@
 import bpy
 import os
 
+from ...i18n import format_text as _f
+
 class RIG2_OT_AppendRig(bpy.types.Operator):
     """Append the Rig2 collection from the addon assets"""
     bl_idname = "rig2.append_rig"
@@ -17,7 +19,7 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
         filepath = os.path.join(addon_root, "assets", "rig2-remake.blend")
         
         if not os.path.exists(filepath):
-            self.report({'ERROR'}, f"Asset file not found: {filepath}")
+            self.report({'ERROR'}, _f("Asset file not found: {filepath}", filepath=filepath))
             return {'CANCELLED'}
 
         collection_name = "Rig2"
@@ -27,7 +29,10 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
                 if collection_name in data_from.collections:
                     data_to.collections = [collection_name]
                 else:
-                    self.report({'ERROR'}, f"Collection '{collection_name}' not found in asset file")
+                    self.report(
+                        {'ERROR'},
+                        _f("Collection '{collection_name}' not found in asset file", collection_name=collection_name),
+                    )
                     return {'CANCELLED'}
 
             for coll in data_to.collections:
@@ -40,7 +45,7 @@ class RIG2_OT_AppendRig(bpy.types.Operator):
             
             self.report({'INFO'}, "Rig2 Appended Successfully")
         except Exception as e:
-            self.report({'ERROR'}, f"Failed to append: {str(e)}")
+            self.report({'ERROR'}, _f("Failed to append: {error}", error=str(e)))
             return {'CANCELLED'}
             
         return {'FINISHED'}
