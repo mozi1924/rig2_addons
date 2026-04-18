@@ -1,133 +1,38 @@
 import base64
 import hashlib
-import importlib
-import importlib.util
 import json
-import os
 import re
 import select
-import shutil
 import socket
 import struct
-import subprocess
-import sys
 import threading
 import time
-from urllib.parse import quote
 
 import bpy
 from bpy.app.handlers import persistent
 
 from ...core.utils import is_rig2_armature
 from .props import get_face_cap_settings
-from .webtransport_helper import FaceCapWebTransportServer, parse_args as parse_webtransport_args
 
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 WEBSOCKET_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+JSON_SUBPROTOCOL = "r2fmc.json.v1"
+BINARY_SUBPROTOCOL = "r2fmc.bin.v1"
+BINARY_PACKET_MAGIC = 0x5232464D
+BINARY_PACKET_VERSION = 1
+BINARY_MESSAGE_BLENDSHAPES = 1
+FACE_FLAG_HEAD_POSE = 1 << 0
+FACE_FLAG_TRANSFORMATION_MATRIX = 1 << 1
+HEAD_POSE_FLOAT_COUNT = 7
+TRANSFORMATION_MATRIX_FLOAT_COUNT = 16
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
 FACE_CAP_DRAIN_CHUNK_SIZE = 65536
 FACE_CAP_TYPE_PATTERN = re.compile(r'"type"\s*:\s*"([^"]+)"')
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
-FACE_CAP_WEBTRANSPORT_DEFAULT_HOST = "127.0.0.1"
-FACE_CAP_WEBTRANSPORT_DEFAULT_PORT = 9443
-FACE_CAP_WEBTRANSPORT_RUNTIME_PACKAGE = "aioquic>=1.3.0"
-FACE_CAP_WEBTRANSPORT_READY_TIMEOUT = 5.0
-FACE_CAP_WEBTRANSPORT_POLL_INTERVAL = 0.05
-FACE_CAP_WEBTRANSPORT_CA_CERT_FILENAME = "rig2-facecap-root-ca.cert.pem"
-FACE_CAP_WEBTRANSPORT_CA_CERT_DER_FILENAME = "rig2-facecap-root-ca.cert.cer"
-FACE_CAP_WEBTRANSPORT_SERVER_CERT_FILENAME = "rig2-facecap-server.cert.pem"
-FACE_CAP_WEBTRANSPORT_SERVER_CHAIN_FILENAME = "rig2-facecap-server.fullchain.pem"
-FACE_CAP_WEBTRANSPORT_SERVER_KEY_FILENAME = "rig2-facecap-server.key.pem"
-FACE_CAP_WEBTRANSPORT_DEPENDENCY_DIRNAME = "python_modules"
-FACE_CAP_WEBTRANSPORT_CERT_DIRNAME = "certificates"
 
 
 def _clamp01(value):
     return max(0.0, min(1.0, float(value)))
-
-
-def _ensure_directory(path):
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _get_face_cap_runtime_dir():
-    try:
-        config_dir = bpy.utils.user_resource(
-            "CONFIG",
-            path="rig2_face_cap",
-            create=True,
-        )
-    except Exception:
-        config_dir = ""
-
-    if config_dir:
-        return _ensure_directory(config_dir)
-
-    return _ensure_directory(os.path.join(os.path.expanduser("~"), ".rig2_face_cap"))
-
-
-def _get_default_webtransport_dependency_dir():
-    return _ensure_directory(
-        os.path.join(_get_face_cap_runtime_dir(), FACE_CAP_WEBTRANSPORT_DEPENDENCY_DIRNAME)
-    )
-
-
-def _get_webtransport_dependency_dir():
-    return _get_default_webtransport_dependency_dir()
-
-
-def _get_bundled_webtransport_cert_dir():
-    return os.path.join(os.path.dirname(__file__), FACE_CAP_WEBTRANSPORT_CERT_DIRNAME)
-
-
-def _get_webtransport_cert_paths():
-    cert_dir = _get_bundled_webtransport_cert_dir()
-    return {
-        "directory": cert_dir,
-        "ca_cert": os.path.join(cert_dir, FACE_CAP_WEBTRANSPORT_CA_CERT_FILENAME),
-        "ca_cert_der": os.path.join(cert_dir, FACE_CAP_WEBTRANSPORT_CA_CERT_DER_FILENAME),
-        "server_cert": os.path.join(cert_dir, FACE_CAP_WEBTRANSPORT_SERVER_CERT_FILENAME),
-        "server_chain": os.path.join(cert_dir, FACE_CAP_WEBTRANSPORT_SERVER_CHAIN_FILENAME),
-        "server_key": os.path.join(cert_dir, FACE_CAP_WEBTRANSPORT_SERVER_KEY_FILENAME),
-    }
-
-
-def _ensure_webtransport_dependency_path():
-    dependency_dir = _get_webtransport_dependency_dir()
-    if dependency_dir not in sys.path:
-        sys.path.insert(0, dependency_dir)
-    importlib.invalidate_caches()
-    return dependency_dir
-
-
-def _purge_webtransport_modules():
-    for module_name in list(sys.modules.keys()):
-        if module_name == "aioquic" or module_name.startswith("aioquic."):
-            sys.modules.pop(module_name, None)
-
-
-def _get_webtransport_dependency_details():
-    _ensure_webtransport_dependency_path()
-    try:
-        spec = importlib.util.find_spec("aioquic")
-    except Exception:
-        spec = None
-
-    if spec is None:
-        return {
-            "available": False,
-            "origin": "",
-        }
-
-    return {
-        "available": True,
-        "origin": str(getattr(spec, "origin", "") or ""),
-    }
-
-
-def get_webtransport_dependency_dir():
-    return _get_webtransport_dependency_dir()
 
 
 def _sniff_packet_type(raw_message):
@@ -139,6 +44,50 @@ def _sniff_packet_type(raw_message):
         return None
 
     return match.group(1)
+
+
+def _resolve_transport_encoding(protocol):
+    if protocol == BINARY_SUBPROTOCOL:
+        return "binary"
+    if protocol == JSON_SUBPROTOCOL:
+        return "json"
+    return None
+
+
+def _sanitize_packet_payload(packet):
+    if not isinstance(packet, dict):
+        return None
+
+    faces = packet.get("faces")
+    if not isinstance(faces, list):
+        faces = []
+
+    first_face = faces[0] if faces else {}
+    blendshape_payload = first_face.get("blendshapes", {}) if isinstance(first_face, dict) else {}
+    if not isinstance(blendshape_payload, dict):
+        blendshape_payload = {}
+
+    sanitized = {}
+    for key, value in blendshape_payload.items():
+        try:
+            sanitized[str(key)] = _clamp01(value)
+        except Exception:
+            continue
+
+    try:
+        face_count = int(packet.get("faceCount", len(faces)))
+    except Exception:
+        face_count = len(faces)
+
+    sent_at = packet.get("sentAt", "")
+    if sent_at is None:
+        sent_at = ""
+
+    return {
+        "blendshapes": sanitized,
+        "face_count": max(0, face_count),
+        "sent_at": str(sent_at),
+    }
 
 
 def _is_face_cap_enabled(obj):
@@ -197,11 +146,8 @@ class FaceCapRuntimeService:
     def __init__(self):
         self._lock = threading.Lock()
         self._server = None
-        self._udp_bridge = None
-        self._webtransport_server = None
-        self._webtransport_ready_event = threading.Event()
         self._timer_registered = False
-        self._latest_packet_text = None
+        self._latest_packet_data = None
         self._latest_blendshapes = {}
         self._last_face_count = 0
         self._packet_count = 0
@@ -217,11 +163,7 @@ class FaceCapRuntimeService:
         self._last_applied_blendshapes = {}
         self._last_applied_face_count = 0
         self._transport_mode = "websocket"
-        self._webtransport_status = "Stopped"
-        self._webtransport_url = ""
-        self._webtransport_last_error = ""
-        self._webtransport_dependency_ready = False
-        self._webtransport_cert_ready = False
+        self._transport_encoding = None
 
     def register(self):
         self._ensure_timer()
@@ -244,8 +186,6 @@ class FaceCapRuntimeService:
         self._timer_registered = True
 
     def get_status_snapshot(self):
-        dependency_details = _get_webtransport_dependency_details()
-        cert_paths = _get_webtransport_cert_paths()
         with self._lock:
             if self._last_packet_time > 0.0:
                 age_seconds = max(0.0, time.time() - self._last_packet_time)
@@ -255,7 +195,9 @@ class FaceCapRuntimeService:
             return {
                 "host": self._server.host if self._server else "",
                 "port": self._server.port if self._server else 0,
-                "is_listening": bool(self._server and self._server.is_alive() and not self._server.bind_failed),
+                "is_listening": bool(
+                    self._server and self._server.is_alive() and not self._server.bind_failed
+                ),
                 "bind_failed": bool(self._server and self._server.bind_failed),
                 "client_address": self._client_address,
                 "packet_count": self._packet_count,
@@ -268,25 +210,12 @@ class FaceCapRuntimeService:
                 "last_error": self._last_error,
                 "target_name": _get_target_rig().name if _get_target_rig() else "",
                 "transport_mode": self._transport_mode,
-                "webtransport_status": self._webtransport_status,
-                "webtransport_url": self._webtransport_url,
-                "webtransport_last_error": self._webtransport_last_error,
-                "webtransport_dependency_ready": dependency_details["available"],
-                "webtransport_cert_ready": all(
-                    os.path.isfile(cert_paths[key])
-                    for key in ("ca_cert", "ca_cert_der", "server_chain", "server_key")
-                ),
-                "webtransport_dependency_origin": dependency_details["origin"],
-                "webtransport_dependency_dir": _get_webtransport_dependency_dir(),
-                "webtransport_ca_cert_path": cert_paths["ca_cert"],
-                "webtransport_ca_cert_der_path": cert_paths["ca_cert_der"],
-                "webtransport_server_cert_path": cert_paths["server_chain"],
-                "webtransport_server_key_path": cert_paths["server_key"],
+                "transport_encoding": self._transport_encoding,
             }
 
     def clear_cached_packet(self):
         with self._lock:
-            self._latest_packet_text = None
+            self._latest_packet_data = None
             self._latest_blendshapes = {}
             self._last_applied_blendshapes = {}
             self._last_face_count = 0
@@ -294,110 +223,9 @@ class FaceCapRuntimeService:
             self._last_packet_time = 0.0
             self._last_sent_at = ""
             self._packet_revision += 1
-            self._transport_mode = "websocket"
 
     def is_running(self):
         return bool(self._server and self._server.is_alive() and not self._server.bind_failed)
-
-    def is_webtransport_running(self):
-        server = self._webtransport_server
-        return bool(server and server.is_alive() and self._webtransport_ready_event.is_set())
-
-    def install_webtransport_dependency(self):
-        dependency_dir = _ensure_directory(_get_webtransport_dependency_dir())
-
-        subprocess.run(
-            [sys.executable, "-m", "ensurepip", "--upgrade"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--target",
-                dependency_dir,
-                "--upgrade",
-                FACE_CAP_WEBTRANSPORT_RUNTIME_PACKAGE,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        _purge_webtransport_modules()
-        dependency_details = _get_webtransport_dependency_details()
-        with self._lock:
-            self._webtransport_dependency_ready = dependency_details["available"]
-            self._webtransport_last_error = ""
-
-        return dependency_dir
-
-    def uninstall_webtransport_dependency(self):
-        dependency_dir = _get_webtransport_dependency_dir()
-        if os.path.isdir(dependency_dir):
-            shutil.rmtree(dependency_dir, ignore_errors=True)
-        _ensure_directory(dependency_dir)
-        _purge_webtransport_modules()
-
-        dependency_details = _get_webtransport_dependency_details()
-        with self._lock:
-            self._webtransport_dependency_ready = dependency_details["available"]
-            if not dependency_details["available"]:
-                self._webtransport_status = "WebSocket only"
-            self._webtransport_last_error = ""
-
-        return dependency_dir
-
-    def ensure_webtransport_runtime(self, settings=None):
-        return self.install_webtransport_dependency()
-
-    def ensure_webtransport_certificates(self, settings=None):
-        cert_paths = _get_webtransport_cert_paths()
-        required_paths = (
-            cert_paths["ca_cert"],
-            cert_paths["ca_cert_der"],
-            cert_paths["server_cert"],
-            cert_paths["server_chain"],
-            cert_paths["server_key"],
-        )
-        if not all(os.path.isfile(path) for path in required_paths):
-            raise RuntimeError("Bundled WebTransport certificates are missing from the addon package.")
-
-        with self._lock:
-            self._webtransport_cert_ready = True
-            self._webtransport_last_error = ""
-
-        return cert_paths
-
-    def _mark_webtransport_error(self, message):
-        with self._lock:
-            self._webtransport_last_error = message
-            self._webtransport_status = message
-            self._webtransport_ready_event.clear()
-
-    def handle_webtransport_process_output(self, line):
-        if not line:
-            return
-
-        if line.startswith("WT_READY "):
-            with self._lock:
-                self._webtransport_status = line[len("WT_READY "):]
-                self._webtransport_last_error = ""
-                self._webtransport_ready_event.set()
-            return
-
-        if line.startswith("WT_INFO "):
-            with self._lock:
-                self._webtransport_status = line[len("WT_INFO "):]
-            return
-
-        if line.startswith("WT_ERROR "):
-            self._mark_webtransport_error(line[len("WT_ERROR "):])
 
     def start(self, host=None, port=None, settings=None):
         if settings is None:
@@ -411,16 +239,12 @@ class FaceCapRuntimeService:
         self._server = FaceCapWebSocketServer(self, host, port)
         self._server.start()
 
-        self._start_webtransport(settings)
-
     def restart(self, host=None, port=None):
         self.start(host, port)
 
     def stop(self):
         server = self._server
         self._server = None
-
-        self._stop_webtransport()
 
         if server:
             server.stop()
@@ -430,6 +254,7 @@ class FaceCapRuntimeService:
             if self._status_message != "Stopped":
                 self._status_message = "Stopped"
             self._transport_mode = "websocket"
+            self._transport_encoding = None
 
     def _resolve_host_port(self, settings=None):
         if settings is None:
@@ -442,206 +267,46 @@ class FaceCapRuntimeService:
         port = int(settings.listen_port or FACE_CAP_WEBSOCKET_DEFAULT_PORT)
         return host, port
 
-    def _resolve_webtransport_host_port(self, settings=None):
-        if settings is None:
-            settings = _get_scene_settings()
-
-        if settings is None:
-            return FACE_CAP_WEBTRANSPORT_DEFAULT_HOST, FACE_CAP_WEBTRANSPORT_DEFAULT_PORT
-
-        host = (
-            getattr(settings, "webtransport_host", FACE_CAP_WEBTRANSPORT_DEFAULT_HOST)
-            or FACE_CAP_WEBTRANSPORT_DEFAULT_HOST
-        ).strip()
-        if host not in {"127.0.0.1", "localhost"}:
-            host = FACE_CAP_WEBTRANSPORT_DEFAULT_HOST
-        port = int(
-            getattr(settings, "webtransport_port", FACE_CAP_WEBTRANSPORT_DEFAULT_PORT)
-            or FACE_CAP_WEBTRANSPORT_DEFAULT_PORT
-        )
-        return host, port
-
-    def _start_webtransport(self, settings=None):
-        if settings is None:
-            settings = _get_scene_settings()
-
-        enabled = bool(getattr(settings, "webtransport_enabled", True)) if settings else True
-        dependency_details = _get_webtransport_dependency_details()
-        cert_paths = _get_webtransport_cert_paths()
-        cert_ready = all(
-            os.path.isfile(cert_paths[key])
-            for key in ("ca_cert", "ca_cert_der", "server_chain", "server_key")
-        )
-
-        if not enabled:
-            with self._lock:
-                self._webtransport_status = "Disabled"
-                self._webtransport_last_error = ""
-                self._webtransport_url = ""
-                self._webtransport_dependency_ready = dependency_details["available"]
-                self._webtransport_cert_ready = cert_ready
-            return
-
-        with self._lock:
-            self._webtransport_dependency_ready = dependency_details["available"]
-            self._webtransport_cert_ready = cert_ready
-
-        if not dependency_details["available"]:
-            with self._lock:
-                self._webtransport_status = "WebSocket only (WT dependency missing)"
-                self._webtransport_last_error = ""
-                self._webtransport_url = ""
-            return
-        if not cert_ready:
-            with self._lock:
-                self._webtransport_status = "WebSocket only (bundled WT cert missing)"
-                self._webtransport_last_error = ""
-                self._webtransport_url = ""
-            return
-
-        udp_bridge = FaceCapUdpBridgeServer(self)
-        udp_bridge.start()
-        udp_port = udp_bridge.bound_port
-        if udp_port <= 0:
-            udp_bridge.stop()
-            self._mark_webtransport_error("Failed to start the local WebTransport UDP bridge.")
-            return
-
-        host, port = self._resolve_webtransport_host_port(settings)
-        wt_server = FaceCapWebTransportServer(
-            parse_webtransport_args(
-                [
-                    "--host",
-                    host,
-                    "--port",
-                    str(port),
-                    "--udp-host",
-                    "127.0.0.1",
-                    "--udp-port",
-                    str(udp_port),
-                    "--cert",
-                    cert_paths["server_chain"],
-                    "--key",
-                    cert_paths["server_key"],
-                ]
-            ),
-            emit=self.handle_webtransport_process_output,
-        )
-        wt_server.start()
-        wt_server.wait_started(timeout=1.0)
-
-        self._udp_bridge = udp_bridge
-        self._webtransport_server = wt_server
-        self._webtransport_ready_event.clear()
-        self._webtransport_url = f"https://{host}:{port}/capture"
-        with self._lock:
-            self._webtransport_status = f"Starting on {self._webtransport_url}"
-            self._webtransport_last_error = ""
-
-        deadline = time.time() + FACE_CAP_WEBTRANSPORT_READY_TIMEOUT
-        while time.time() < deadline:
-            if self._webtransport_ready_event.wait(FACE_CAP_WEBTRANSPORT_POLL_INTERVAL):
-                return
-            if not wt_server.is_alive():
-                break
-
-        if not self._webtransport_ready_event.is_set():
-            self._stop_webtransport()
-            self._mark_webtransport_error("WebTransport server failed to start.")
-
-    def _stop_webtransport(self):
-        server = self._webtransport_server
-        self._webtransport_server = None
-        self._webtransport_ready_event.clear()
-
-        if server:
-            server.stop()
-
-        udp_bridge = self._udp_bridge
-        self._udp_bridge = None
-        if udp_bridge:
-            udp_bridge.stop()
-
-        with self._lock:
-            if self._webtransport_status != "Disabled":
-                self._webtransport_status = "Stopped"
-            self._webtransport_url = ""
-
     def ingest_json_message(self, raw_message):
         packet_type = _sniff_packet_type(raw_message)
         if packet_type == "blendshapes":
-            with self._lock:
-                self._transport_mode = "websocket"
             self.ingest_packet_text(raw_message)
-            return None
-
-        if packet_type not in {
-            "transport.hello",
-            "transport.webtransport.ready",
-            "transport.webtransport.failed",
-        }:
-            return None
-
-        try:
-            message = json.loads(raw_message)
-        except json.JSONDecodeError:
-            return None
-
-        if not isinstance(message, dict):
-            return None
-
-        message_type = message.get("type")
-        if message_type == "transport.hello":
-            session_id = message.get("sessionId")
-            if self.is_webtransport_running():
-                with self._lock:
-                    self._webtransport_status = "Negotiated over WebSocket control channel"
-                return {
-                    "type": "transport.webtransport.offer",
-                    "version": 1,
-                    "sessionId": session_id,
-                    "url": f"{self._webtransport_url}?session={quote(str(session_id or ''))}",
-                }
-
-            return {
-                "type": "transport.webtransport.unavailable",
-                "version": 1,
-                "sessionId": session_id,
-                "reason": "webtransport_not_ready",
-            }
-
-        if message_type == "transport.webtransport.ready":
-            with self._lock:
-                self._transport_mode = "webtransport"
-                self._webtransport_status = "Receiving WebTransport datagrams"
-                self._webtransport_last_error = ""
-                self._status_message = "Receiving WebTransport datagrams"
-            return None
-
-        if message_type == "transport.webtransport.failed":
-            reason = str(message.get("reason") or "unknown_error")
-            with self._lock:
-                self._transport_mode = "websocket"
-                self._webtransport_last_error = reason
-                self._webtransport_status = f"Fallback to WebSocket ({reason})"
-                if self._server and self._server.is_alive():
-                    self._status_message = "Receiving blendshape packets"
 
         return None
 
     def ingest_packet_text(self, raw_message):
+        packet_data = self._parse_packet_text(raw_message)
+        if packet_data is None:
+            self.note_invalid_packet("Ignored an invalid JSON blendshape packet.")
+            return
+
+        self.ingest_packet_data(packet_data, transport_encoding="json")
+
+    def ingest_packet_data(self, packet_data, transport_encoding="json"):
+        if packet_data is None:
+            return
+
         now = time.time()
 
         with self._lock:
-            if self._packet_revision != self._applied_revision and self._latest_packet_text:
+            if self._packet_revision != self._applied_revision and self._latest_packet_data:
                 self._dropped_packet_count += 1
-            self._latest_packet_text = raw_message
+            self._latest_packet_data = {
+                "blendshapes": dict(packet_data.get("blendshapes", {})),
+                "face_count": max(0, int(packet_data.get("face_count", 0))),
+                "sent_at": str(packet_data.get("sent_at", "")),
+            }
             self._packet_count += 1
             self._packet_revision += 1
             self._last_packet_time = now
             self._last_error = ""
+            self._transport_mode = "websocket"
+            self._transport_encoding = transport_encoding or self._transport_encoding
             if self._server and self._server.is_alive():
-                self._status_message = "Receiving blendshape packets"
+                if transport_encoding == "binary":
+                    self._status_message = "Receiving binary blendshape packets"
+                else:
+                    self._status_message = "Receiving JSON blendshape packets"
 
     def note_dropped_packets(self, dropped_count):
         if dropped_count <= 0:
@@ -650,40 +315,116 @@ class FaceCapRuntimeService:
         with self._lock:
             self._dropped_packet_count += int(dropped_count)
 
+    def note_invalid_packet(self, message):
+        with self._lock:
+            self._last_error = message
+            if self._server and self._server.is_alive():
+                self._status_message = message
+
     def _parse_packet_text(self, packet_text):
         try:
             packet = json.loads(packet_text)
         except json.JSONDecodeError:
             return None
 
-        if not isinstance(packet, dict):
+        return _sanitize_packet_payload(packet)
+
+    def parse_schema_message(self, raw_message):
+        try:
+            packet = json.loads(raw_message)
+        except json.JSONDecodeError:
             return None
 
-        faces = packet.get("faces")
-        if not isinstance(faces, list):
-            faces = []
+        if not isinstance(packet, dict):
+            return None
+        if packet.get("type") != "schema":
+            return None
+        if packet.get("format") != BINARY_SUBPROTOCOL:
+            return None
 
-        first_face = faces[0] if faces else {}
-        blendshape_payload = first_face.get("blendshapes", {}) if isinstance(first_face, dict) else {}
-        if not isinstance(blendshape_payload, dict):
-            blendshape_payload = {}
+        blendshape_names = packet.get("blendshapeNames")
+        if not isinstance(blendshape_names, list):
+            return []
 
-        sanitized = {}
-        for key, value in blendshape_payload.items():
-            try:
-                sanitized[str(key)] = _clamp01(value)
-            except Exception:
+        sanitized_names = []
+        for name in blendshape_names:
+            if not isinstance(name, str):
                 continue
+            sanitized_names.append(name)
+
+        return sanitized_names
+
+    def parse_binary_packet(self, packet_bytes, schema_names):
+        if len(packet_bytes) < 24:
+            return None
 
         try:
-            face_count = int(packet.get("faceCount", len(faces)))
-        except Exception:
-            face_count = len(faces)
+            magic = struct.unpack_from("<I", packet_bytes, 0)[0]
+            version = packet_bytes[4]
+            message_type = packet_bytes[5]
+            frame_timestamp_ms = struct.unpack_from("<I", packet_bytes, 8)[0]
+            face_count = struct.unpack_from("<H", packet_bytes, 20)[0]
+        except (IndexError, struct.error):
+            return None
+
+        if magic != BINARY_PACKET_MAGIC:
+            return None
+        if version != BINARY_PACKET_VERSION:
+            return None
+        if message_type != BINARY_MESSAGE_BLENDSHAPES:
+            return None
+
+        offset = 24
+        first_face_blendshapes = {}
+
+        for face_index in range(face_count):
+            if len(packet_bytes) - offset < 8:
+                return None
+
+            try:
+                blendshape_count = struct.unpack_from("<H", packet_bytes, offset + 2)[0]
+            except struct.error:
+                return None
+
+            flags = packet_bytes[offset + 4]
+            offset += 8
+
+            if blendshape_count > len(schema_names):
+                return None
+
+            if flags & FACE_FLAG_HEAD_POSE:
+                head_pose_bytes = HEAD_POSE_FLOAT_COUNT * 4
+                if len(packet_bytes) - offset < head_pose_bytes:
+                    return None
+                offset += head_pose_bytes
+
+            if flags & FACE_FLAG_TRANSFORMATION_MATRIX:
+                matrix_bytes = TRANSFORMATION_MATRIX_FLOAT_COUNT * 4
+                if len(packet_bytes) - offset < matrix_bytes:
+                    return None
+                offset += matrix_bytes
+
+            blendshape_bytes = blendshape_count * 4
+            if len(packet_bytes) - offset < blendshape_bytes:
+                return None
+
+            if face_index == 0:
+                face_blendshapes = {}
+                for blendshape_index in range(blendshape_count):
+                    try:
+                        value = struct.unpack_from("<f", packet_bytes, offset)[0]
+                    except struct.error:
+                        return None
+                    offset += 4
+                    face_blendshapes[schema_names[blendshape_index]] = _clamp01(value)
+                first_face_blendshapes = face_blendshapes
+            else:
+                offset += blendshape_bytes
 
         return {
-            "blendshapes": sanitized,
+            "blendshapes": first_face_blendshapes,
             "face_count": max(0, face_count),
-            "sent_at": str(packet.get("sentAt", "")),
+            "sent_at": str(frame_timestamp_ms),
         }
 
     def set_listening(self, host, port):
@@ -701,8 +442,13 @@ class FaceCapRuntimeService:
         with self._lock:
             if self._client_address == address:
                 self._client_address = ""
+                self._transport_encoding = None
             if self._server and self._server.is_alive() and not self._server.bind_failed:
                 self._status_message = f"Listening on ws://{self._server.host}:{self._server.port}"
+
+    def set_transport_encoding(self, transport_encoding):
+        with self._lock:
+            self._transport_encoding = transport_encoding
 
     def set_error(self, message):
         with self._lock:
@@ -717,26 +463,18 @@ class FaceCapRuntimeService:
             packet_revision = self._packet_revision
             applied_revision = self._applied_revision
             packet_count = self._packet_count
-            packet_text = self._latest_packet_text
+            packet_data = self._latest_packet_data
 
         if packet_count <= 0:
             return
         if packet_revision == applied_revision:
             return
-        if not packet_text:
+        if not packet_data:
             return
 
-        parsed_packet = self._parse_packet_text(packet_text)
-        if parsed_packet is None:
-            with self._lock:
-                self._applied_revision = packet_revision
-                self._applied_packet_count += 1
-                self._last_error = "Ignored an invalid blendshape packet."
-            return
-
-        blendshapes = parsed_packet["blendshapes"]
-        face_count = parsed_packet["face_count"]
-        sent_at = parsed_packet["sent_at"]
+        blendshapes = dict(packet_data.get("blendshapes", {}))
+        face_count = max(0, int(packet_data.get("face_count", 0)))
+        sent_at = str(packet_data.get("sent_at", ""))
 
         with self._lock:
             if (
@@ -794,70 +532,11 @@ class FaceCapRuntimeService:
 
     def _timer_callback(self):
         try:
-            server = self._webtransport_server
-            if server and not server.is_alive() and self._webtransport_ready_event.is_set():
-                self._stop_webtransport()
-                self._mark_webtransport_error("WebTransport server stopped unexpectedly.")
             self.apply_latest_data()
         except Exception as exc:
             self.set_error(f"Face Capture timer error: {exc}")
 
         return FACE_CAP_TIMER_INTERVAL
-
-
-class FaceCapUdpBridgeServer(threading.Thread):
-    def __init__(self, service):
-        super().__init__(daemon=True)
-        self.service = service
-        self._stop_event = threading.Event()
-        self._ready_event = threading.Event()
-        self._socket = None
-        self.bound_port = 0
-
-    def start(self):
-        super().start()
-        self._ready_event.wait(timeout=1.0)
-
-    def stop(self):
-        self._stop_event.set()
-        if self._socket:
-            try:
-                self._socket.close()
-            except OSError:
-                pass
-        if self.is_alive():
-            self.join(timeout=1.0)
-
-    def run(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.5)
-        sock.bind(("127.0.0.1", 0))
-        self._socket = sock
-        self.bound_port = sock.getsockname()[1]
-        self._ready_event.set()
-
-        try:
-            while not self._stop_event.is_set():
-                try:
-                    payload, _address = sock.recvfrom(65535)
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-
-                if not payload:
-                    continue
-
-                self.service.ingest_packet_text(payload.decode("utf-8", errors="replace"))
-                with self.service._lock:
-                    self.service._transport_mode = "webtransport"
-                    if not self.service._status_message.startswith("Face Capture timer error"):
-                        self.service._status_message = "Receiving WebTransport datagrams"
-        finally:
-            try:
-                sock.close()
-            except OSError:
-                pass
 
 
 class FaceCapWebSocketServer(threading.Thread):
@@ -934,16 +613,22 @@ class FaceCapWebSocketServer(threading.Thread):
         except OSError:
             pass
         buffer = bytearray()
-        self._perform_handshake(client_socket, buffer)
+        transport_protocol = self._perform_handshake(client_socket, buffer)
+        transport_encoding = _resolve_transport_encoding(transport_protocol)
 
         address_text = f"{address[0]}:{address[1]}"
         self.service.set_client_connected(address_text)
+        if transport_encoding:
+            self.service.set_transport_encoding(transport_encoding)
+
+        schema_names = []
 
         try:
             while not self._stop_event.is_set():
                 frames = self._recv_frame_batch(client_socket, buffer)
                 should_close = False
-                latest_blendshape_message = None
+                latest_packet_data = None
+                latest_packet_encoding = transport_encoding or "json"
                 dropped_blendshape_count = 0
 
                 for opcode, payload in frames:
@@ -956,27 +641,54 @@ class FaceCapWebSocketServer(threading.Thread):
                         self._send_frame(client_socket, payload, opcode=0xA)
                         continue
 
-                    if opcode != 0x1:
-                        continue
+                    if opcode == 0x1:
+                        raw_message = payload.decode("utf-8", errors="replace")
+                        packet_type = _sniff_packet_type(raw_message)
+                        if packet_type == "schema":
+                            next_schema_names = self.service.parse_schema_message(raw_message)
+                            if next_schema_names is not None:
+                                schema_names = next_schema_names
+                                transport_encoding = "binary"
+                                self.service.set_transport_encoding(transport_encoding)
+                            continue
 
-                    raw_message = payload.decode("utf-8", errors="replace")
-                    packet_type = _sniff_packet_type(raw_message)
-                    if packet_type == "blendshapes":
-                        if latest_blendshape_message is not None:
+                        if packet_type != "blendshapes":
+                            response = self.service.ingest_json_message(raw_message)
+                            if response:
+                                self._send_text(client_socket, json.dumps(response))
+                            continue
+
+                        parsed_packet = self.service._parse_packet_text(raw_message)
+                        if parsed_packet is None:
+                            self.service.note_invalid_packet(
+                                "Ignored an invalid JSON blendshape packet."
+                            )
+                            continue
+                        if latest_packet_data is not None:
                             dropped_blendshape_count += 1
-                        latest_blendshape_message = raw_message
+                        latest_packet_data = parsed_packet
+                        latest_packet_encoding = "json"
                         continue
 
-                    response = self.service.ingest_json_message(raw_message)
-                    if response:
-                        self._send_text(client_socket, json.dumps(response))
+                    if opcode == 0x2:
+                        parsed_packet = self.service.parse_binary_packet(payload, schema_names)
+                        if parsed_packet is None:
+                            self.service.note_invalid_packet(
+                                "Ignored an invalid binary blendshape packet."
+                            )
+                            continue
+                        if latest_packet_data is not None:
+                            dropped_blendshape_count += 1
+                        latest_packet_data = parsed_packet
+                        latest_packet_encoding = "binary"
+                        continue
 
                 if should_close:
                     break
 
                 self.service.note_dropped_packets(dropped_blendshape_count)
-                if latest_blendshape_message is not None:
-                    self.service.ingest_packet_text(latest_blendshape_message)
+                if latest_packet_data is not None:
+                    self.service.ingest_packet_data(latest_packet_data, latest_packet_encoding)
         finally:
             self.service.clear_client_connected(address_text)
             try:
@@ -999,6 +711,17 @@ class FaceCapWebSocketServer(threading.Thread):
         if not websocket_key:
             raise RuntimeError("Missing Sec-WebSocket-Key")
 
+        requested_protocols = []
+        protocol_header = headers.get("sec-websocket-protocol", "")
+        if protocol_header:
+            requested_protocols = [item.strip() for item in protocol_header.split(",") if item.strip()]
+
+        selected_protocol = ""
+        if BINARY_SUBPROTOCOL in requested_protocols:
+            selected_protocol = BINARY_SUBPROTOCOL
+        elif JSON_SUBPROTOCOL in requested_protocols:
+            selected_protocol = JSON_SUBPROTOCOL
+
         accept = base64.b64encode(
             hashlib.sha1((websocket_key + WEBSOCKET_MAGIC).encode("utf-8")).digest()
         ).decode("ascii")
@@ -1008,9 +731,12 @@ class FaceCapWebSocketServer(threading.Thread):
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
             f"Sec-WebSocket-Accept: {accept}\r\n"
-            "\r\n"
         )
+        if selected_protocol:
+            response += f"Sec-WebSocket-Protocol: {selected_protocol}\r\n"
+        response += "\r\n"
         client_socket.sendall(response.encode("utf-8"))
+        return selected_protocol
 
     def _recv_until(self, client_socket, buffer, marker):
         while marker not in buffer:

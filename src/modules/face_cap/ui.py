@@ -1,5 +1,3 @@
-import os
-
 import bpy
 
 from ...core.utils import get_context_object, is_rig2_armature
@@ -15,6 +13,15 @@ def _format_packet_age(age_seconds):
     if age_seconds < 1.0:
         return _f("{value:.0f} ms ago", value=age_seconds * 1000.0)
     return _f("{value:.2f} s ago", value=age_seconds)
+
+
+def _format_transport_label(status):
+    encoding = status.get("transport_encoding")
+    if encoding == "binary":
+        return _("WebSocket Binary")
+    if encoding == "json":
+        return _("WebSocket JSON")
+    return _("WebSocket")
 
 
 class FaceCapUIDrawer:
@@ -58,40 +65,6 @@ class FaceCapUIDrawer:
         row.operator("rig2.face_cap_stop_server", icon="PAUSE")
 
     @staticmethod
-    def _draw_webtransport_section(layout, settings, status):
-        layout.label(text=_("WebTransport"), icon="NETWORK_DRIVE")
-        box = layout.box()
-        if settings:
-            box.prop(settings, "webtransport_enabled")
-            box.prop(settings, "webtransport_host")
-            box.prop(settings, "webtransport_port")
-
-        FaceCapUIDrawer._draw_info_line(box, "WT Status", status["webtransport_status"])
-        FaceCapUIDrawer._draw_info_line(box, "WT Mode", status["transport_mode"])
-        FaceCapUIDrawer._draw_info_line(
-            box,
-            "WT Dependency",
-            _("Ready") if status["webtransport_dependency_ready"] else _("Missing"),
-        )
-        FaceCapUIDrawer._draw_info_line(
-            box,
-            "WT Cert",
-            _("Bundled") if status["webtransport_cert_ready"] else _("Missing"),
-        )
-        if status["webtransport_url"]:
-            FaceCapUIDrawer._draw_info_line(box, "WT URL", status["webtransport_url"])
-        if status["webtransport_ca_cert_der_path"]:
-            FaceCapUIDrawer._draw_info_line(
-                box,
-                "CA File",
-                os.path.basename(status["webtransport_ca_cert_der_path"]),
-            )
-        if not status["webtransport_dependency_ready"]:
-            box.label(text=_("Install WT dependency in Add-on Preferences."), icon="INFO")
-        if status["webtransport_last_error"]:
-            box.label(text=status["webtransport_last_error"], icon="ERROR")
-
-    @staticmethod
     def _draw_status_section(layout, status, enabled_rigs):
         box = layout.box()
         box.label(
@@ -103,6 +76,12 @@ class FaceCapUIDrawer:
         FaceCapUIDrawer._draw_info_line(box, "Dropped", status["dropped_packet_count"])
         FaceCapUIDrawer._draw_info_line(box, "Applied", status["applied_packet_count"])
         FaceCapUIDrawer._draw_info_line(box, "Faces", status["face_count"], icon="USER")
+        FaceCapUIDrawer._draw_info_line(
+            box,
+            "Transport",
+            _format_transport_label(status),
+            icon="URL",
+        )
         FaceCapUIDrawer._draw_info_line(
             box,
             "Last packet",
@@ -160,8 +139,6 @@ class FaceCapUIDrawer:
         FaceCapUIDrawer._draw_target_section(layout, obj, settings, status)
         layout.separator()
         FaceCapUIDrawer._draw_receiver_section(layout, settings)
-        layout.separator()
-        FaceCapUIDrawer._draw_webtransport_section(layout, settings, status)
         FaceCapUIDrawer._draw_status_section(layout, status, enabled_rigs)
         layout.separator()
         FaceCapUIDrawer._draw_data_section(layout, face_bone)

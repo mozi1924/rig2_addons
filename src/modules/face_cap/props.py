@@ -11,33 +11,13 @@ class Rig2FaceCapSettings(bpy.types.PropertyGroup):
     listen_host: bpy.props.StringProperty(
         name="Host",
         description="Local interface used by the face capture WebSocket receiver",
-        default="127.0.0.1",
+        default="0.0.0.0",
     )
 
     listen_port: bpy.props.IntProperty(
         name="Port",
         description="Local port used by the face capture WebSocket receiver",
         default=9000,
-        min=1,
-        max=65535,
-    )
-
-    webtransport_enabled: bpy.props.BoolProperty(
-        name="Enable WebTransport",
-        description="Enable HTTP/3 WebTransport datagrams when the addon dependency is installed",
-        default=True,
-    )
-
-    webtransport_host: bpy.props.StringProperty(
-        name="WT Host",
-        description="Local hostname used in the WebTransport offer URL; bundled certificates only support localhost and 127.0.0.1",
-        default="127.0.0.1",
-    )
-
-    webtransport_port: bpy.props.IntProperty(
-        name="WT Port",
-        description="Local UDP/HTTP3 port used by the WebTransport receiver",
-        default=9443,
         min=1,
         max=65535,
     )

@@ -69,7 +69,7 @@ class RIG2_OT_FaceCapClearTarget(bpy.types.Operator):
 class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     bl_idname = "rig2.face_cap_start_server"
     bl_label = "Start Face Capture Receiver"
-    bl_description = "Start the local WebSocket receiver and, when available, the integrated WebTransport server"
+    bl_description = "Start the local face capture WebSocket receiver"
 
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
@@ -83,29 +83,16 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
 
         service = get_runtime_service()
         service.start(settings=settings)
-        status = service.get_status_snapshot()
         target_name = settings.target_rig.name if settings.target_rig else "No target"
-        if service.is_webtransport_running():
-            self.report(
-                {"INFO"},
-                _f(
-                    "Face Capture receiver started on ws://{host}:{port} with WebTransport {transport} for {target}",
-                    host=settings.listen_host,
-                    port=settings.listen_port,
-                    transport=status["webtransport_status"],
-                    target=target_name,
-                ),
-            )
-        else:
-            self.report(
-                {"INFO"},
-                _f(
-                    "Face Capture receiver started on ws://{host}:{port} for {target}",
-                    host=settings.listen_host,
-                    port=settings.listen_port,
-                    target=target_name,
-                ),
-            )
+        self.report(
+            {"INFO"},
+            _f(
+                "Face Capture receiver started on ws://{host}:{port} for {target}",
+                host=settings.listen_host,
+                port=settings.listen_port,
+                target=target_name,
+            ),
+        )
         return {"FINISHED"}
 
 
@@ -194,62 +181,6 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class RIG2_OT_FaceCapInstallWebTransportDependency(bpy.types.Operator):
-    bl_idname = "rig2.face_cap_install_webtransport_dependency"
-    bl_label = "Install WT Dependency"
-    bl_description = "Install the aioquic dependency used by the integrated WebTransport server"
-
-    def execute(self, context):
-        service = get_runtime_service()
-        was_running = service.is_running()
-        scene = getattr(context, "scene", None)
-        settings = getattr(scene, "rig2_face_cap_settings", None) if scene else None
-        try:
-            dependency_dir = service.install_webtransport_dependency()
-        except Exception as exc:
-            self.report(
-                {"ERROR"},
-                _f("Failed to install WebTransport dependency: {error}", error=exc),
-            )
-            return {"CANCELLED"}
-
-        if was_running:
-            service.start(settings=settings)
-
-        self.report({"INFO"}, _f("WebTransport dependency ready: {path}", path=dependency_dir))
-        return {"FINISHED"}
-
-
-class RIG2_OT_FaceCapUninstallWebTransportDependency(bpy.types.Operator):
-    bl_idname = "rig2.face_cap_uninstall_webtransport_dependency"
-    bl_label = "Uninstall WT Dependency"
-    bl_description = "Remove the addon-managed aioquic dependency and fall back to WebSocket only"
-
-    def execute(self, context):
-        service = get_runtime_service()
-        was_running = service.is_running()
-        scene = getattr(context, "scene", None)
-        settings = getattr(scene, "rig2_face_cap_settings", None) if scene else None
-        service.stop()
-        try:
-            dependency_dir = service.uninstall_webtransport_dependency()
-        except Exception as exc:
-            self.report(
-                {"ERROR"},
-                _f("Failed to uninstall WebTransport dependency: {error}", error=exc),
-            )
-            return {"CANCELLED"}
-
-        if was_running:
-            service.start(settings=settings)
-
-        self.report(
-            {"INFO"},
-            _f("Removed addon-managed WT dependency from {path}", path=dependency_dir),
-        )
-        return {"FINISHED"}
-
-
 classes = (
     RIG2_OT_FaceCapPinCurrentRig,
     RIG2_OT_FaceCapClearTarget,
@@ -257,8 +188,6 @@ classes = (
     RIG2_OT_FaceCapStopServer,
     RIG2_OT_FaceCapApplyNow,
     RIG2_OT_FaceCapClearKeys,
-    RIG2_OT_FaceCapInstallWebTransportDependency,
-    RIG2_OT_FaceCapUninstallWebTransportDependency,
 )
 
 
