@@ -72,6 +72,8 @@ class FaceCapUIDrawer:
             text=status["status_message"],
             icon="INFO" if not status["last_error"] else "ERROR",
         )
+        if status["local_ipv4_address"]:
+            FaceCapUIDrawer._draw_info_line(box, "LAN IPv4", status["local_ipv4_address"], icon="URL")
         FaceCapUIDrawer._draw_info_line(box, "Enabled rigs", enabled_rigs, icon="ARMATURE_DATA")
         FaceCapUIDrawer._draw_info_line(box, "Packets", status["packet_count"])
         FaceCapUIDrawer._draw_info_line(box, "Dropped", status["dropped_packet_count"])

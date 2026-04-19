@@ -84,11 +84,14 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
         service = get_runtime_service()
         service.start(settings=settings)
         target_name = settings.target_rig.name if settings.target_rig else "No target"
+        status = service.get_status_snapshot()
+        local_ipv4_address = status.get("local_ipv4_address", "")
+        receiver_host = local_ipv4_address or settings.listen_host
         self.report(
             {"INFO"},
             _f(
                 "Face Capture receiver started on ws://{host}:{port} for {target}",
-                host=settings.listen_host,
+                host=receiver_host,
                 port=settings.listen_port,
                 target=target_name,
             ),

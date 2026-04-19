@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -53,6 +54,101 @@ def _resolve_transport_encoding(protocol):
     if protocol == JSON_SUBPROTOCOL:
         return "json"
     return None
+
+
+def _normalize_ipv4_address(address):
+    try:
+        ip = ipaddress.ip_address(str(address).strip())
+    except ValueError:
+        return ""
+
+    if ip.version != 4:
+        return ""
+
+    return str(ip)
+
+
+def _is_preferred_lan_ipv4(address):
+    normalized = _normalize_ipv4_address(address)
+    if not normalized:
+        return False
+
+    ip = ipaddress.ip_address(normalized)
+    return not (ip.is_loopback or ip.is_unspecified or ip.is_link_local)
+
+
+def _discover_local_ipv4(preferred_host=""):
+    normalized_host = _normalize_ipv4_address(preferred_host)
+    if _is_preferred_lan_ipv4(normalized_host):
+        return normalized_host
+
+    candidates = []
+    seen = set()
+
+    def add_candidate(address):
+        normalized = _normalize_ipv4_address(address)
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        candidates.append(normalized)
+
+    if normalized_host and normalized_host != "0.0.0.0":
+        add_candidate(normalized_host)
+
+    probe_targets = (("192.0.2.1", 80), ("8.8.8.8", 80))
+    for target_host, target_port in probe_targets:
+        probe_socket = None
+        try:
+            probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe_socket.settimeout(0.2)
+            probe_socket.connect((target_host, target_port))
+            add_candidate(probe_socket.getsockname()[0])
+        except OSError:
+            pass
+        finally:
+            if probe_socket is not None:
+                try:
+                    probe_socket.close()
+                except OSError:
+                    pass
+
+    host_names = [socket.gethostname()]
+    fqdn = socket.getfqdn()
+    if fqdn and fqdn not in host_names:
+        host_names.append(fqdn)
+
+    for host_name in host_names:
+        try:
+            for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
+                host_name,
+                None,
+                socket.AF_INET,
+                socket.SOCK_DGRAM,
+            ):
+                if family == socket.AF_INET and sockaddr:
+                    add_candidate(sockaddr[0])
+        except OSError:
+            pass
+
+        try:
+            _host_name, _aliases, host_addresses = socket.gethostbyname_ex(host_name)
+            for address in host_addresses:
+                add_candidate(address)
+        except OSError:
+            pass
+
+    for candidate in candidates:
+        if _is_preferred_lan_ipv4(candidate):
+            return candidate
+
+    if normalized_host and normalized_host != "0.0.0.0":
+        return normalized_host
+
+    for candidate in candidates:
+        if candidate != "0.0.0.0":
+            return candidate
+
+    return ""
 
 
 def _sanitize_packet_payload(packet):
@@ -209,6 +305,7 @@ class FaceCapRuntimeService:
         self._last_applied_head_quaternion = None
         self._transport_mode = "websocket"
         self._transport_encoding = None
+        self._local_ipv4_address = ""
 
     def register(self):
         self._ensure_timer()
@@ -256,6 +353,7 @@ class FaceCapRuntimeService:
                 "target_name": _get_target_rig().name if _get_target_rig() else "",
                 "transport_mode": self._transport_mode,
                 "transport_encoding": self._transport_encoding,
+                "local_ipv4_address": self._local_ipv4_address,
             }
 
     def clear_cached_packet(self):
@@ -281,6 +379,7 @@ class FaceCapRuntimeService:
             host, port = self._resolve_host_port(settings)
 
         self.stop()
+        self.refresh_local_ipv4(host)
 
         self._server = FaceCapWebSocketServer(self, host, port)
         self._server.start()
@@ -297,6 +396,7 @@ class FaceCapRuntimeService:
 
         with self._lock:
             self._client_address = ""
+            self._local_ipv4_address = ""
             if self._status_message != "Stopped":
                 self._status_message = "Stopped"
             self._transport_mode = "websocket"
@@ -312,6 +412,12 @@ class FaceCapRuntimeService:
         host = (settings.listen_host or "127.0.0.1").strip()
         port = int(settings.listen_port or FACE_CAP_WEBSOCKET_DEFAULT_PORT)
         return host, port
+
+    def refresh_local_ipv4(self, preferred_host=""):
+        local_ipv4 = _discover_local_ipv4(preferred_host)
+        with self._lock:
+            self._local_ipv4_address = local_ipv4
+        return local_ipv4
 
     def ingest_json_message(self, raw_message):
         packet_type = _sniff_packet_type(raw_message)
