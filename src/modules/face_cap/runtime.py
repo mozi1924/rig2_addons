@@ -14,7 +14,7 @@ import bpy
 from bpy.app.handlers import persistent
 
 from ...core.utils import is_rig2_armature
-from .props import get_face_cap_settings
+from .props import get_face_cap_bindings, get_face_cap_settings
 
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 WEBSOCKET_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -159,18 +159,6 @@ def _sanitize_packet_payload(packet):
     if not isinstance(faces, list):
         faces = []
 
-    first_face = faces[0] if faces else {}
-    blendshape_payload = first_face.get("blendshapes", {}) if isinstance(first_face, dict) else {}
-    if not isinstance(blendshape_payload, dict):
-        blendshape_payload = {}
-
-    sanitized = {}
-    for key, value in blendshape_payload.items():
-        try:
-            sanitized[str(key)] = _clamp01(value)
-        except Exception:
-            continue
-
     try:
         face_count = int(packet.get("faceCount", len(faces)))
     except Exception:
@@ -180,15 +168,43 @@ def _sanitize_packet_payload(packet):
     if sent_at is None:
         sent_at = ""
 
-    head_quaternion = None
-    head_pose = first_face.get("headPose") if isinstance(first_face, dict) else None
-    if isinstance(head_pose, dict):
-        head_quaternion = _sanitize_head_quaternion(head_pose.get("quaternionWxyz"))
+    sanitized_faces = []
+    for face in faces:
+        if not isinstance(face, dict):
+            sanitized_faces.append(
+                {
+                    "blendshapes": {},
+                    "head_quaternion": None,
+                }
+            )
+            continue
+
+        blendshape_payload = face.get("blendshapes", {})
+        if not isinstance(blendshape_payload, dict):
+            blendshape_payload = {}
+
+        sanitized_blendshapes = {}
+        for key, value in blendshape_payload.items():
+            try:
+                sanitized_blendshapes[str(key)] = _clamp01(value)
+            except Exception:
+                continue
+
+        head_quaternion = None
+        head_pose = face.get("headPose")
+        if isinstance(head_pose, dict):
+            head_quaternion = _sanitize_head_quaternion(head_pose.get("quaternionWxyz"))
+
+        sanitized_faces.append(
+            {
+                "blendshapes": sanitized_blendshapes,
+                "head_quaternion": head_quaternion,
+            }
+        )
 
     return {
-        "blendshapes": sanitized,
+        "faces": sanitized_faces,
         "face_count": max(0, face_count),
-        "head_quaternion": head_quaternion,
         "sent_at": str(sent_at),
     }
 
@@ -222,6 +238,22 @@ def _quaternions_close(lhs, rhs, epsilon=1e-6):
     return all(abs(float(a) - float(b)) <= epsilon for a, b in zip(lhs, rhs))
 
 
+def _face_payloads_equal(lhs_faces, rhs_faces):
+    if lhs_faces is rhs_faces:
+        return True
+    if lhs_faces is None or rhs_faces is None:
+        return lhs_faces is None and rhs_faces is None
+    if len(lhs_faces) != len(rhs_faces):
+        return False
+
+    for lhs_face, rhs_face in zip(lhs_faces, rhs_faces):
+        if dict(lhs_face.get("blendshapes", {})) != dict(rhs_face.get("blendshapes", {})):
+            return False
+        if not _quaternions_close(lhs_face.get("head_quaternion"), rhs_face.get("head_quaternion")):
+            return False
+    return True
+
+
 def _is_face_cap_enabled(obj):
     if not is_rig2_armature(obj):
         return False
@@ -252,22 +284,50 @@ def _get_scene_settings():
     return None
 
 
-def _get_target_rig():
-    settings = _get_scene_settings()
-    if settings is None:
-        return None
+def _get_scene_bindings():
+    scene = getattr(bpy.context, "scene", None)
+    if scene is not None:
+        return get_face_cap_bindings(scene)
 
-    obj = getattr(settings, "target_rig", None)
-    if obj and is_rig2_armature(obj):
-        return obj
+    scenes = getattr(getattr(bpy, "data", None), "scenes", None)
+    if scenes:
+        return get_face_cap_bindings(scenes[0])
 
-    return None
+    return []
 
 
 def _iter_face_cap_targets():
-    obj = _get_target_rig()
-    if obj and _is_face_cap_enabled(obj):
-        yield obj, obj.pose.bones["Face_BlendShapes"]
+    seen = set()
+    objects = getattr(getattr(bpy, "data", None), "objects", None)
+    if objects is None:
+        return
+
+    for binding in _get_scene_bindings():
+        obj = objects.get(binding["rig_name"])
+        if not obj or not _is_face_cap_enabled(obj):
+            continue
+
+        key = (binding["face_index"], obj.name_full)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        yield binding["face_index"], obj, obj.pose.bones["Face_BlendShapes"]
+
+
+def _get_binding_status_snapshot():
+    bindings = []
+    objects = getattr(getattr(bpy, "data", None), "objects", None)
+    for binding in _get_scene_bindings():
+        obj = objects.get(binding["rig_name"]) if objects is not None else None
+        bindings.append(
+            {
+                "face_index": binding["face_index"],
+                "rig_name": binding["rig_name"],
+                "missing": not bool(obj and is_rig2_armature(obj)),
+            }
+        )
+    return bindings
 
 
 def _get_target_props(face_bone):
@@ -288,7 +348,7 @@ class FaceCapRuntimeService:
         self._server = None
         self._timer_registered = False
         self._latest_packet_data = None
-        self._latest_blendshapes = {}
+        self._latest_faces = []
         self._last_face_count = 0
         self._packet_count = 0
         self._dropped_packet_count = 0
@@ -300,9 +360,8 @@ class FaceCapRuntimeService:
         self._packet_revision = 0
         self._applied_revision = 0
         self._applied_packet_count = 0
-        self._last_applied_blendshapes = {}
+        self._last_applied_faces = []
         self._last_applied_face_count = 0
-        self._last_applied_head_quaternion = None
         self._transport_mode = "websocket"
         self._transport_encoding = None
         self._local_ipv4_address = ""
@@ -350,7 +409,7 @@ class FaceCapRuntimeService:
                 "last_packet_age": age_seconds,
                 "status_message": self._status_message,
                 "last_error": self._last_error,
-                "target_name": _get_target_rig().name if _get_target_rig() else "",
+                "bindings": _get_binding_status_snapshot(),
                 "transport_mode": self._transport_mode,
                 "transport_encoding": self._transport_encoding,
                 "local_ipv4_address": self._local_ipv4_address,
@@ -359,11 +418,10 @@ class FaceCapRuntimeService:
     def clear_cached_packet(self):
         with self._lock:
             self._latest_packet_data = None
-            self._latest_blendshapes = {}
-            self._last_applied_blendshapes = {}
+            self._latest_faces = []
+            self._last_applied_faces = []
             self._last_face_count = 0
             self._last_applied_face_count = 0
-            self._last_applied_head_quaternion = None
             self._last_packet_time = 0.0
             self._last_sent_at = ""
             self._packet_revision += 1
@@ -444,9 +502,14 @@ class FaceCapRuntimeService:
             if self._packet_revision != self._applied_revision and self._latest_packet_data:
                 self._dropped_packet_count += 1
             self._latest_packet_data = {
-                "blendshapes": dict(packet_data.get("blendshapes", {})),
+                "faces": [
+                    {
+                        "blendshapes": dict(face.get("blendshapes", {})),
+                        "head_quaternion": face.get("head_quaternion"),
+                    }
+                    for face in packet_data.get("faces", [])
+                ],
                 "face_count": max(0, int(packet_data.get("face_count", 0))),
-                "head_quaternion": packet_data.get("head_quaternion"),
                 "sent_at": str(packet_data.get("sent_at", "")),
             }
             self._packet_count += 1
@@ -528,8 +591,7 @@ class FaceCapRuntimeService:
             return None
 
         offset = 24
-        first_face_blendshapes = {}
-        first_face_head_quaternion = None
+        faces_payload = []
 
         for face_index in range(face_count):
             if len(packet_bytes) - offset < 8:
@@ -550,24 +612,25 @@ class FaceCapRuntimeService:
                 head_pose_bytes = HEAD_POSE_FLOAT_COUNT * 4
                 if len(packet_bytes) - offset < head_pose_bytes:
                     return None
-                if face_index == 0:
-                    try:
-                        head_pose_values = struct.unpack_from(
-                            "<" + ("f" * HEAD_POSE_FLOAT_COUNT),
-                            packet_bytes,
-                            offset,
-                        )
-                    except struct.error:
-                        return None
-                    first_face_head_quaternion = _sanitize_head_quaternion(
-                        {
-                            "w": head_pose_values[3],
-                            "x": head_pose_values[4],
-                            "y": head_pose_values[5],
-                            "z": head_pose_values[6],
-                        }
+                try:
+                    head_pose_values = struct.unpack_from(
+                        "<" + ("f" * HEAD_POSE_FLOAT_COUNT),
+                        packet_bytes,
+                        offset,
                     )
+                except struct.error:
+                    return None
+                head_quaternion = _sanitize_head_quaternion(
+                    {
+                        "w": head_pose_values[3],
+                        "x": head_pose_values[4],
+                        "y": head_pose_values[5],
+                        "z": head_pose_values[6],
+                    }
+                )
                 offset += head_pose_bytes
+            else:
+                head_quaternion = None
 
             if flags & FACE_FLAG_TRANSFORMATION_MATRIX:
                 matrix_bytes = TRANSFORMATION_MATRIX_FLOAT_COUNT * 4
@@ -579,23 +642,25 @@ class FaceCapRuntimeService:
             if len(packet_bytes) - offset < blendshape_bytes:
                 return None
 
-            if face_index == 0:
-                face_blendshapes = {}
-                for blendshape_index in range(blendshape_count):
-                    try:
-                        value = struct.unpack_from("<f", packet_bytes, offset)[0]
-                    except struct.error:
-                        return None
-                    offset += 4
-                    face_blendshapes[schema_names[blendshape_index]] = _clamp01(value)
-                first_face_blendshapes = face_blendshapes
-            else:
-                offset += blendshape_bytes
+            face_blendshapes = {}
+            for blendshape_index in range(blendshape_count):
+                try:
+                    value = struct.unpack_from("<f", packet_bytes, offset)[0]
+                except struct.error:
+                    return None
+                offset += 4
+                face_blendshapes[schema_names[blendshape_index]] = _clamp01(value)
+
+            faces_payload.append(
+                {
+                    "blendshapes": face_blendshapes,
+                    "head_quaternion": head_quaternion,
+                }
+            )
 
         return {
-            "blendshapes": first_face_blendshapes,
+            "faces": faces_payload,
             "face_count": max(0, face_count),
-            "head_quaternion": first_face_head_quaternion,
             "sent_at": str(frame_timestamp_ms),
         }
 
@@ -604,8 +669,7 @@ class FaceCapRuntimeService:
             if self._latest_packet_data is None:
                 return
             self._last_applied_face_count = -1
-            self._last_applied_blendshapes = None
-            self._last_applied_head_quaternion = None
+            self._last_applied_faces = None
             self._packet_revision += 1
 
     def set_listening(self, host, port):
@@ -637,7 +701,7 @@ class FaceCapRuntimeService:
             self._status_message = message
 
     def count_enabled_rigs(self):
-        return sum(1 for _obj, _bone in _iter_face_cap_targets())
+        return sum(1 for _face_index, _obj, _bone in _iter_face_cap_targets())
 
     def apply_latest_data(self):
         with self._lock:
@@ -653,9 +717,14 @@ class FaceCapRuntimeService:
         if not packet_data:
             return
 
-        blendshapes = dict(packet_data.get("blendshapes", {}))
+        faces_payload = [
+            {
+                "blendshapes": dict(face.get("blendshapes", {})),
+                "head_quaternion": face.get("head_quaternion"),
+            }
+            for face in packet_data.get("faces", [])
+        ]
         face_count = max(0, int(packet_data.get("face_count", 0)))
-        head_quaternion = packet_data.get("head_quaternion")
         sent_at = str(packet_data.get("sent_at", ""))
         settings = _get_scene_settings()
         include_head_rotation = bool(
@@ -665,13 +734,9 @@ class FaceCapRuntimeService:
         with self._lock:
             if (
                 self._last_applied_face_count == face_count
-                and self._last_applied_blendshapes == blendshapes
-                and (
-                    not include_head_rotation
-                    or _quaternions_close(self._last_applied_head_quaternion, head_quaternion)
-                )
+                and _face_payloads_equal(self._last_applied_faces, faces_payload)
             ):
-                self._latest_blendshapes = dict(blendshapes)
+                self._latest_faces = list(faces_payload)
                 self._last_face_count = face_count
                 self._last_sent_at = sent_at
                 self._applied_revision = packet_revision
@@ -680,9 +745,19 @@ class FaceCapRuntimeService:
 
         neutralize = face_count <= 0
         changed_objects = []
-        target_head_quaternion = (1.0, 0.0, 0.0, 0.0) if neutralize else head_quaternion
 
-        for obj, face_bone in _iter_face_cap_targets():
+        for binding_face_index, obj, face_bone in _iter_face_cap_targets():
+            face_payload = (
+                faces_payload[binding_face_index]
+                if 0 <= binding_face_index < len(faces_payload)
+                else None
+            )
+            blendshapes = dict(face_payload.get("blendshapes", {})) if face_payload else {}
+            target_head_quaternion = (
+                (1.0, 0.0, 0.0, 0.0)
+                if neutralize
+                else (face_payload.get("head_quaternion") if face_payload else None)
+            )
             changed = False
             for prop_name in _get_target_props(face_bone):
                 target_value = 0.0 if neutralize else blendshapes.get(prop_name, 0.0)
@@ -722,14 +797,11 @@ class FaceCapRuntimeService:
                         pass
 
         with self._lock:
-            self._latest_blendshapes = dict(blendshapes)
+            self._latest_faces = list(faces_payload)
             self._last_face_count = face_count
             self._last_sent_at = sent_at
-            self._last_applied_blendshapes = dict(blendshapes)
+            self._last_applied_faces = list(faces_payload)
             self._last_applied_face_count = face_count
-            self._last_applied_head_quaternion = (
-                target_head_quaternion if include_head_rotation else self._last_applied_head_quaternion
-            )
             self._applied_revision = packet_revision
             self._applied_packet_count += 1
 

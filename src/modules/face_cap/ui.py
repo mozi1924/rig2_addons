@@ -3,6 +3,7 @@ import bpy
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
 from ...i18n import iface as _
+from .props import ensure_face_cap_binding_items
 from ..rig_controls.props import FRIENDLY_NAMES
 from .runtime import get_runtime_service
 
@@ -36,21 +37,34 @@ class FaceCapUIDrawer:
             layout.label(text=text, icon=icon)
 
     @staticmethod
-    def _draw_target_section(layout, obj, settings, status):
-        layout.label(text=_("Target"), icon="ARMATURE_DATA")
+    def _draw_target_section(layout, obj, scene, status):
+        layout.label(text=_("Bindings"), icon="ARMATURE_DATA")
         box = layout.box()
-        if settings:
-            box.prop(settings, "target_rig", text=_("Rig"))
-
-        row = box.row(align=True)
-        row.operator("rig2.face_cap_pin_current_rig", icon="PINNED")
-        row.operator("rig2.face_cap_clear_target", icon="X")
-
         FaceCapUIDrawer._draw_info_line(box, "Current Context", obj.name)
-        if status["target_name"]:
-            FaceCapUIDrawer._draw_info_line(box, "Pinned Target", status["target_name"])
+        ensure_face_cap_binding_items(scene)
+        items = getattr(scene, "rig2_face_cap_binding_items", None)
+        if not items or len(items) == 0:
+            box.label(text=_("Face Binding List: Empty"), icon="INFO")
         else:
-            box.label(text=_("Pinned Target: None"), icon="INFO")
+            list_box = box.column(align=True)
+            bindings = status.get("bindings", [])
+            for binding_index, item in enumerate(items):
+                row = list_box.row(align=True)
+                fields = row.split(factor=0.76, align=True)
+                rig_col = fields.row(align=True)
+                rig_col.prop(item, "rig", text="", icon="OBJECT_DATA")
+
+                right = fields.row(align=True)
+                index_col = right.row(align=True)
+                index_col.scale_x = 0.9
+                index_col.prop(item, "face_index", text="")
+                if binding_index < len(bindings) and bindings[binding_index].get("missing"):
+                    right.label(text="", icon="ERROR")
+                remove_op = right.operator("rig2.face_cap_remove_binding", text="", icon="X")
+                remove_op.binding_index = binding_index
+
+        footer = box.row(align=True)
+        footer.operator("rig2.face_cap_add_binding", text=_("New"), icon="ADD")
 
     @staticmethod
     def _draw_receiver_section(layout, settings):
@@ -95,10 +109,10 @@ class FaceCapUIDrawer:
             FaceCapUIDrawer._draw_info_line(box, "Client", status["client_address"])
         if status["last_error"]:
             box.label(text=status["last_error"], icon="ERROR")
-        if not status["target_name"]:
-            box.label(text=_("No pinned target rig selected."), icon="ERROR")
+        if not status.get("bindings"):
+            box.label(text=_("No face binding configured."), icon="ERROR")
         if status["packet_count"] > 0 and enabled_rigs <= 0:
-            box.label(text=_("No enabled rig. Set Face Capture to 1.00 on logic."), icon="ERROR")
+            box.label(text=_("No enabled rig in bindings. Set Face Capture to 1.00 on logic."), icon="ERROR")
 
     @staticmethod
     def _draw_data_section(layout, face_bone):
@@ -124,7 +138,6 @@ class FaceCapUIDrawer:
         pose_bones = obj.pose.bones
         logic_bone = pose_bones.get("logic")
         face_bone = pose_bones.get("Face_BlendShapes")
-        settings = getattr(context.scene, "rig2_face_cap_settings", None)
         service = get_runtime_service()
         status = service.get_status_snapshot()
         enabled_rigs = service.count_enabled_rigs()
@@ -139,9 +152,12 @@ class FaceCapUIDrawer:
             )
             layout.separator()
 
-        FaceCapUIDrawer._draw_target_section(layout, obj, settings, status)
+        FaceCapUIDrawer._draw_target_section(layout, obj, context.scene, status)
         layout.separator()
-        FaceCapUIDrawer._draw_receiver_section(layout, settings)
+        FaceCapUIDrawer._draw_receiver_section(
+            layout,
+            getattr(context.scene, "rig2_face_cap_settings", None),
+        )
         FaceCapUIDrawer._draw_status_section(layout, status, enabled_rigs)
         layout.separator()
         FaceCapUIDrawer._draw_data_section(layout, face_bone)

@@ -2,6 +2,12 @@ import bpy
 
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
+from .props import (
+    ensure_face_cap_binding_items,
+    get_face_cap_bindings,
+    set_face_cap_bindings,
+    sync_face_cap_bindings_to_scene_prop,
+)
 from .runtime import get_runtime_service
 
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
@@ -25,14 +31,10 @@ def _iter_face_actions(obj):
                 yield action
 
 
-class RIG2_OT_FaceCapPinCurrentRig(bpy.types.Operator):
-    bl_idname = "rig2.face_cap_pin_current_rig"
-    bl_label = "Pin Current Rig"
-    bl_description = "Use the current Rig2 armature as the only face capture target"
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
+class RIG2_OT_FaceCapAddBinding(bpy.types.Operator):
+    bl_idname = "rig2.face_cap_add_binding"
+    bl_label = "New"
+    bl_description = "Add a new face capture binding row"
 
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
@@ -40,20 +42,29 @@ class RIG2_OT_FaceCapPinCurrentRig(bpy.types.Operator):
             self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
-        obj = get_context_object(context)
-        if not is_rig2_armature(obj):
-            self.report({"ERROR"}, _f("Current object is not a Rig2 armature"))
+        ensure_face_cap_binding_items(context.scene)
+        items = getattr(context.scene, "rig2_face_cap_binding_items", None)
+        if items is None:
+            self.report({"ERROR"}, _f("Face Capture binding list is not registered"))
             return {"CANCELLED"}
 
-        settings.target_rig = obj
-        self.report({"INFO"}, _f("Face Capture target pinned to {name}", name=obj.name))
+        item = items.add()
+        obj = get_context_object(context)
+        if is_rig2_armature(obj):
+            item.rig = obj
+        item.face_index = 0
+        sync_face_cap_bindings_to_scene_prop(context.scene)
+        get_runtime_service().request_reapply()
+        self.report({"INFO"}, _f("Added new face binding row"))
         return {"FINISHED"}
 
 
-class RIG2_OT_FaceCapClearTarget(bpy.types.Operator):
-    bl_idname = "rig2.face_cap_clear_target"
-    bl_label = "Clear Face Target"
-    bl_description = "Clear the currently pinned face capture target rig"
+class RIG2_OT_FaceCapRemoveBinding(bpy.types.Operator):
+    bl_idname = "rig2.face_cap_remove_binding"
+    bl_label = "Remove Face Binding"
+    bl_description = "Remove a face capture binding from the scene list"
+
+    binding_index: bpy.props.IntProperty(default=-1, min=-1)
 
     def execute(self, context):
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
@@ -61,8 +72,47 @@ class RIG2_OT_FaceCapClearTarget(bpy.types.Operator):
             self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
-        settings.target_rig = None
-        self.report({"INFO"}, _f("Face Capture target cleared"))
+        ensure_face_cap_binding_items(context.scene)
+        items = getattr(context.scene, "rig2_face_cap_binding_items", None)
+        if items is None:
+            self.report({"ERROR"}, _f("Face Capture binding list is not registered"))
+            return {"CANCELLED"}
+
+        if self.binding_index < 0 or self.binding_index >= len(items):
+            self.report({"ERROR"}, _f("Face binding index is out of range"))
+            return {"CANCELLED"}
+
+        removed = items[self.binding_index]
+        removed_name = removed.rig.name if getattr(removed, "rig", None) else ""
+        removed_face_index = int(getattr(removed, "face_index", 0))
+        items.remove(self.binding_index)
+        sync_face_cap_bindings_to_scene_prop(context.scene)
+        get_runtime_service().request_reapply()
+        self.report(
+            {"INFO"},
+            _f(
+                "Removed face binding: Face {face_index} -> {name}",
+                face_index=removed_face_index,
+                name=removed_name,
+            ),
+        )
+        return {"FINISHED"}
+
+
+class RIG2_OT_FaceCapClearBindings(bpy.types.Operator):
+    bl_idname = "rig2.face_cap_clear_bindings"
+    bl_label = "Clear Face Bindings"
+    bl_description = "Clear every face capture binding stored on this scene"
+
+    def execute(self, context):
+        settings = getattr(context.scene, "rig2_face_cap_settings", None)
+        if settings is None:
+            self.report({"ERROR"}, _f("Face Capture settings are not registered"))
+            return {"CANCELLED"}
+
+        set_face_cap_bindings(context.scene, [])
+        get_runtime_service().request_reapply()
+        self.report({"INFO"}, _f("Face Capture bindings cleared"))
         return {"FINISHED"}
 
 
@@ -77,23 +127,19 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
             self.report({"ERROR"}, _f("Face Capture settings are not registered"))
             return {"CANCELLED"}
 
-        obj = get_context_object(context)
-        if is_rig2_armature(obj):
-            settings.target_rig = obj
-
         service = get_runtime_service()
         service.start(settings=settings)
-        target_name = settings.target_rig.name if settings.target_rig else "No target"
+        binding_count = len(get_face_cap_bindings(context.scene))
         status = service.get_status_snapshot()
         local_ipv4_address = status.get("local_ipv4_address", "")
         receiver_host = local_ipv4_address or settings.listen_host
         self.report(
             {"INFO"},
             _f(
-                "Face Capture receiver started on ws://{host}:{port} for {target}",
+                "Face Capture receiver started on ws://{host}:{port} with {count} binding(s)",
                 host=receiver_host,
                 port=settings.listen_port,
-                target=target_name,
+                count=binding_count,
             ),
         )
         return {"FINISHED"}
@@ -185,8 +231,9 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
 
 
 classes = (
-    RIG2_OT_FaceCapPinCurrentRig,
-    RIG2_OT_FaceCapClearTarget,
+    RIG2_OT_FaceCapAddBinding,
+    RIG2_OT_FaceCapRemoveBinding,
+    RIG2_OT_FaceCapClearBindings,
     RIG2_OT_FaceCapStartServer,
     RIG2_OT_FaceCapStopServer,
     RIG2_OT_FaceCapApplyNow,
