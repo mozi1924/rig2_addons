@@ -69,13 +69,6 @@ class Rig2FaceCapSettings(bpy.types.PropertyGroup):
         min=0,
     )
 
-    include_head_rotation: bpy.props.BoolProperty(
-        name="Include Head Rotation",
-        description="Apply incoming head-pose quaternion to the Head root bone",
-        default=True,
-        update=_update_face_cap_runtime,
-    )
-
 
 class Rig2FaceCapBindingItem(bpy.types.PropertyGroup):
     rig: bpy.props.PointerProperty(

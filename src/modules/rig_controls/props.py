@@ -48,6 +48,7 @@ FRIENDLY_NAMES = {
     "layout_mode": "Layout Mode",
     "panel_to_face": "Panel to Face",
     "face_cap": "Face Capture",
+    "face_cap_hr": "Face Capture Head Rotation",
 
     # Misc
     "alex": "Slim Arm (Alex)",

@@ -334,12 +334,12 @@ def _get_target_props(face_bone):
     return [key for key in face_bone.keys() if key not in INTERNAL_KEYS]
 
 
-def _get_head_root_bone(obj):
+def _get_face_blendshape_bone(obj):
     pose = getattr(obj, "pose", None)
     if not pose:
         return None
 
-    return pose.bones.get("Head root")
+    return pose.bones.get("Face_BlendShapes")
 
 
 class FaceCapRuntimeService:
@@ -726,11 +726,6 @@ class FaceCapRuntimeService:
         ]
         face_count = max(0, int(packet_data.get("face_count", 0)))
         sent_at = str(packet_data.get("sent_at", ""))
-        settings = _get_scene_settings()
-        include_head_rotation = bool(
-            settings is None or getattr(settings, "include_head_rotation", True)
-        )
-
         with self._lock:
             if (
                 self._last_applied_face_count == face_count
@@ -753,7 +748,7 @@ class FaceCapRuntimeService:
                 else None
             )
             blendshapes = dict(face_payload.get("blendshapes", {})) if face_payload else {}
-            target_head_quaternion = (
+            raw_head_quaternion = (
                 (1.0, 0.0, 0.0, 0.0)
                 if neutralize
                 else (face_payload.get("head_quaternion") if face_payload else None)
@@ -766,9 +761,10 @@ class FaceCapRuntimeService:
                     face_bone[prop_name] = target_value
                     changed = True
 
-            if include_head_rotation:
-                head_bone = _get_head_root_bone(obj)
-                if head_bone and target_head_quaternion is not None:
+            target_head_quaternion = raw_head_quaternion or (1.0, 0.0, 0.0, 0.0)
+            if target_head_quaternion is not None:
+                head_bone = _get_face_blendshape_bone(obj)
+                if head_bone:
                     current_quaternion = tuple(float(value) for value in head_bone.rotation_quaternion)
                     if not _quaternions_close(current_quaternion, target_head_quaternion):
                         head_bone.rotation_mode = "QUATERNION"
