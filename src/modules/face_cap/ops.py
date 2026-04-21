@@ -1,4 +1,6 @@
+import bpy
 import json
+from bpy_extras.io_utils import ImportHelper
 
 from ...core.constants import IDENTITY_QUATERNION, INTERNAL_KEYS
 from ...core.registration import register_classes, unregister_classes
