@@ -1,18 +1,19 @@
 import bpy
 
-from .props import FRIENDLY_NAMES
+from ...core.constants import INTERNAL_KEYS
+from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import iface as _
 from ...preferences import get_preferences
+from ...ui.base import RIG2_PT_PanelBase, RIG2_PT_SidePanelBase
 
 
 class Rig2UIDrawer:
     """Shared drawing methods for Rig2 controls."""
 
-    INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
-
     @staticmethod
     def _display_name(prop_name, text=""):
+        from .props import FRIENDLY_NAMES
         return _(text or FRIENDLY_NAMES.get(prop_name, prop_name))
 
     @staticmethod
@@ -79,7 +80,7 @@ class Rig2UIDrawer:
         remaining = [
             key
             for key in bone.keys()
-            if key not in handled_set and key not in Rig2UIDrawer.INTERNAL_KEYS
+            if key not in handled_set and key not in INTERNAL_KEYS
         ]
         if not remaining:
             return
@@ -271,18 +272,10 @@ class Rig2UIDrawer:
             Rig2UIDrawer.draw_auto_prop(column, bone, prop_name)
 
 
-class RIG2_PT_PropBase:
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
-    bl_order = -10
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
+# Base classes moved to src.ui.base
 
 
-class RIG2_PT_MainPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_MainPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Rig/2 Control Center"
     bl_idname = "RIG2_PT_main_panel"
 
@@ -292,7 +285,7 @@ class RIG2_PT_MainPanel(RIG2_PT_PropBase, bpy.types.Panel):
             Rig2UIDrawer.draw_main_toolbar(self.layout, obj, include_keyframe=True)
 
 
-class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_LimbsPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Limbs & IK-FK Switch"
     bl_idname = "RIG2_PT_limbs_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -302,7 +295,7 @@ class RIG2_PT_LimbsPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_limbs(self.layout, context)
 
 
-class RIG2_PT_HeadPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_HeadPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Face & Head Details"
     bl_idname = "RIG2_PT_head_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -312,7 +305,7 @@ class RIG2_PT_HeadPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_head(self.layout, context)
 
 
-class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_AdvancedPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Performance & Optimization"
     bl_idname = "RIG2_PT_advanced_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -322,7 +315,7 @@ class RIG2_PT_AdvancedPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_perf(self.layout, context)
 
 
-class RIG2_PT_MiscPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_MiscPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Character Style"
     bl_idname = "RIG2_PT_misc_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -332,7 +325,7 @@ class RIG2_PT_MiscPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_misc(self.layout, context)
 
 
-class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_DangerPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Danger Zone"
     bl_idname = "RIG2_PT_danger_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -347,7 +340,7 @@ class RIG2_PT_DangerPanel(RIG2_PT_PropBase, bpy.types.Panel):
         column.operator("rig2.reset_props", text=_("Reset All Defaults"), icon="LOOP_BACK")
 
 
-class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Mine-Imator Anim Tools"
     bl_idname = "RIG2_PT_utility_panel"
     bl_parent_id = "RIG2_PT_main_panel"
@@ -389,7 +382,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PropBase, bpy.types.Panel):
             row.operator("mi.bake_to_fk", text=_("Bake MI → FK"), icon="EXPORT")
 
 
-class RIG2_PT_MIIKPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_MIIKPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     """MI IK switches, for manual MI IK versus FK control."""
 
     bl_label = "MI IK Control"
@@ -438,7 +431,7 @@ class RIG2_PT_MIIKPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_split_props(layout, logic_bone, leg_left, leg_right, handled)
 
 
-class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
+class RIG2_PT_LogicPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "logic"
     bl_idname = "RIG2_PT_logic_panel"
     bl_parent_id = "RIG2_PT_danger_panel"
@@ -455,20 +448,10 @@ class RIG2_PT_LogicPanel(RIG2_PT_PropBase, bpy.types.Panel):
         Rig2UIDrawer.draw_logic_props(self.layout, context)
 
 
-class RIG2_PT_SideBase:
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Rig/2"
-
-    @classmethod
-    def poll(cls, context):
-        prefs = get_preferences()
-        if not prefs or not prefs.show_n_panel:
-            return False
-        return is_rig2_armature(context.active_object)
+# SideBase moved to src.ui.base
 
 
-class RIG2_PT_SideMain(RIG2_PT_SideBase, bpy.types.Panel):
+class RIG2_PT_SideMain(RIG2_PT_SidePanelBase, bpy.types.Panel):
     bl_label = "Rig Control"
     bl_idname = "RIG2_PT_side_main"
 
@@ -478,7 +461,7 @@ class RIG2_PT_SideMain(RIG2_PT_SideBase, bpy.types.Panel):
             Rig2UIDrawer.draw_main_toolbar(self.layout, obj, include_keyframe=False)
 
 
-class RIG2_PT_SideLimbs(RIG2_PT_SideBase, bpy.types.Panel):
+class RIG2_PT_SideLimbs(RIG2_PT_SidePanelBase, bpy.types.Panel):
     bl_label = "Limbs"
     bl_idname = "RIG2_PT_side_limbs"
     bl_parent_id = "RIG2_PT_side_main"
@@ -487,7 +470,7 @@ class RIG2_PT_SideLimbs(RIG2_PT_SideBase, bpy.types.Panel):
         Rig2UIDrawer.draw_limbs(self.layout, context)
 
 
-class RIG2_PT_SideHead(RIG2_PT_SideBase, bpy.types.Panel):
+class RIG2_PT_SideHead(RIG2_PT_SidePanelBase, bpy.types.Panel):
     bl_label = "Face"
     bl_idname = "RIG2_PT_side_head"
     bl_parent_id = "RIG2_PT_side_main"
@@ -513,16 +496,8 @@ classes = (
 
 
 def register():
-    for cls in classes:
-        try:
-            bpy.utils.register_class(cls)
-        except Exception as exc:
-            print(f"Rig2 Error registering {cls}: {exc}")
+    register_classes(classes)
 
 
 def unregister():
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+    unregister_classes(classes)

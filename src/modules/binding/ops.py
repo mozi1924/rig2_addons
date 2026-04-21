@@ -54,10 +54,16 @@ def menu_func(self, context):
     self.layout.separator()
     self.layout.operator(RIG2_OT_AppendRig.bl_idname, text="Rig/2", icon='ARMATURE_DATA')
 
+from ...core.registration import register_classes, unregister_classes
+
+classes = (
+    RIG2_OT_AppendRig,
+)
+
 def register():
-    bpy.utils.register_class(RIG2_OT_AppendRig)
+    register_classes(classes)
     bpy.types.VIEW3D_MT_add.append(menu_func)
 
 def unregister():
     bpy.types.VIEW3D_MT_add.remove(menu_func)
-    bpy.utils.unregister_class(RIG2_OT_AppendRig)
+    unregister_classes(classes)

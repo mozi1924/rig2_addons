@@ -29,18 +29,14 @@ def get_preferences():
     addon = bpy.context.preferences.addons.get(addon_name)
     return addon.preferences if addon else None
 
+from .core.registration import register_classes, unregister_classes
+
+classes = (
+    Rig2AddonPreferences,
+)
+
 def register():
-    try:
-        bpy.utils.register_class(Rig2AddonPreferences)
-    except ValueError:
-        try:
-            bpy.utils.unregister_class(Rig2AddonPreferences)
-        except Exception:
-            pass
-        bpy.utils.register_class(Rig2AddonPreferences)
+    register_classes(classes)
 
 def unregister():
-    try:
-        bpy.utils.unregister_class(Rig2AddonPreferences)
-    except Exception:
-        pass
+    unregister_classes(classes)

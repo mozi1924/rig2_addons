@@ -1,8 +1,7 @@
 import json
 
-import bpy
-from bpy_extras.io_utils import ImportHelper
-
+from ...core.constants import IDENTITY_QUATERNION, INTERNAL_KEYS
+from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
 from .props import (
@@ -13,8 +12,7 @@ from .props import (
 )
 from .runtime import _clamp01, _sanitize_head_quaternion, get_runtime_service
 
-INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
-IDENTITY_QUATERNION = (1.0, 0.0, 0.0, 0.0)
+# Constants moved to core.constants
 
 
 def _iter_face_actions(obj):
@@ -623,16 +621,8 @@ classes = (
 
 
 def register():
-    for cls in classes:
-        try:
-            bpy.utils.register_class(cls)
-        except Exception as exc:
-            print(f"Rig2 FaceCap register error for {cls.__name__}: {exc}")
+    register_classes(classes)
 
 
 def unregister():
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+    unregister_classes(classes)

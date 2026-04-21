@@ -1,5 +1,7 @@
 import bpy
 from .props import PROPERTY_MAP
+from ...core.constants import INTERNAL_KEYS
+from ...core.registration import register_classes, unregister_classes
 from ...i18n import format_text as _f
 
 # miframes imports are handled in the miframes module subdirectory
@@ -12,7 +14,7 @@ BONE_NAME_MAP = {
     "performance": "prop.prop"
 }
 
-INTERNAL_KEYS = {'_RNA_UI', 'is_rig2'}
+# Constants moved to core.constants
 
 def has_driver(obj, bone_name, prop_name):
     """Check if a custom property on a pose bone is controlled by a driver."""
@@ -144,15 +146,8 @@ classes = (
 )
 
 def register():
-    for cls in classes:
-        try:
-            bpy.utils.register_class(cls)
-        except Exception as e:
-            print(f"Rig2 Error registering {cls}: {e}")
+    register_classes(classes)
+
 
 def unregister():
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception as e:
-            pass # Silently fail if not registered or already unregistered
+    unregister_classes(classes)

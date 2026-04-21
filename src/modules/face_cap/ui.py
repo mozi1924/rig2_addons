@@ -1,8 +1,11 @@
 import bpy
 
+from ...core.constants import INTERNAL_KEYS
+from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
 from ...i18n import iface as _
+from ...ui.base import RIG2_PT_PanelBase
 from .props import ensure_face_cap_binding_items
 from ..rig_controls.props import FRIENDLY_NAMES
 from .runtime import get_runtime_service
@@ -212,107 +215,64 @@ class FaceCapUIDrawer:
             )
 
 
-class RIG2_PT_FaceCapPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Face Capture"
     bl_idname = "RIG2_PT_face_cap_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
-    bl_parent_id = "RIG2_PT_main_panel"
     bl_order = 25
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_header(self.layout, context)
 
 
-class RIG2_PT_FaceCapImportPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapImportPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Import"
     bl_idname = "RIG2_PT_face_cap_import_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
     bl_parent_id = "RIG2_PT_face_cap_panel"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 20
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_import_section(self.layout, context)
 
 
-class RIG2_PT_FaceCapReceiverPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapReceiverPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Receiver"
     bl_idname = "RIG2_PT_face_cap_receiver_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
     bl_parent_id = "RIG2_PT_face_cap_panel"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 30
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_receiver_section(self.layout, context)
 
 
-class RIG2_PT_FaceCapBindingsPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapBindingsPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Bindings"
     bl_idname = "RIG2_PT_face_cap_bindings_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
     bl_parent_id = "RIG2_PT_face_cap_panel"
     bl_order = 10
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_bindings_section(self.layout, context)
 
 
-class RIG2_PT_FaceCapStatusPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapStatusPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Status"
     bl_idname = "RIG2_PT_face_cap_status_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
     bl_parent_id = "RIG2_PT_face_cap_panel"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 40
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_status_section(self.layout)
 
 
-class RIG2_PT_FaceCapDataPanel(bpy.types.Panel):
+class RIG2_PT_FaceCapDataPanel(RIG2_PT_PanelBase, bpy.types.Panel):
     bl_label = "Data"
     bl_idname = "RIG2_PT_face_cap_data_panel"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
-    bl_context = "data"
     bl_parent_id = "RIG2_PT_face_cap_panel"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 50
-
-    @classmethod
-    def poll(cls, context):
-        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         FaceCapUIDrawer.draw_data_section(self.layout, context)
@@ -329,16 +289,8 @@ classes = (
 
 
 def register():
-    for cls in classes:
-        try:
-            bpy.utils.register_class(cls)
-        except Exception as exc:
-            print(f"Rig2 FaceCap register error for {cls.__name__}: {exc}")
+    register_classes(classes)
 
 
 def unregister():
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+    unregister_classes(classes)
