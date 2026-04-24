@@ -9,11 +9,11 @@ after the current `face_cap` and `miframes` wrapper direction.
   - `src/native/loader.py`
   - `src/native/face_cap_wrapper.py`
   - `src/native/miframes_wrapper.py`
-- `face_cap` already has service + fallback contract.
+- `face_cap` already has service + native lock-state contract.
 - `miframes` now has:
   - `src/services/miframes_service.py`
   - `src/logic/miframes/planner.py`
-  - `src/logic/miframes/fallback.py` contract entrypoint
+  - `src/native/miframes_wrapper.py` native contract entrypoint
 
 ## Immediate C++ Targets (High ROI)
 
@@ -73,4 +73,4 @@ after the current `face_cap` and `miframes` wrapper direction.
 
 - `configs.py` currently imports MI helpers from `mi2bl`; if `mi2bl` API changes, Python and native behavior can drift.
 - To avoid drift, define a versioned schema for planner input/output (JSON-compatible primitives only).
-- Keep fallback parity tests so Python and C++ backends produce identical operation plans.
+- Keep native contract fixture tests so C++ output stays deterministic across releases.

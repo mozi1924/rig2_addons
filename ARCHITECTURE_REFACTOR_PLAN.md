@@ -209,8 +209,7 @@ Recommended runtime model:
 3. Wrapper tries to load a native backend.
 4. If native backend exists, use it.
 5. If native backend does not exist:
-   - use Python fallback in development builds
-   - or expose limited functionality in commercial release builds
+   - expose a clear "locked/unavailable" state in commercial release builds
 
 This keeps the import path stable even when the backend implementation changes later.
 
@@ -219,9 +218,6 @@ Suggested naming:
 - wrapper modules:
   - `src/native/face_cap_wrapper.py`
   - `src/native/miframes_wrapper.py`
-- Python fallback contracts:
-  - `src/logic/face_cap/fallback.py`
-  - `src/logic/miframes/fallback.py`
 - downloaded binary names:
   - `rig2_face_cap`
   - `rig2_miframes`
@@ -288,7 +284,7 @@ Responsibilities:
 
 - present clean methods to operators
 - hide whether implementation is pure Python or native-backed
-- centralize error handling and fallback behavior
+- centralize error handling and lock/unlock behavior
 - become the natural place to trigger entitlement checks later
 
 Example service boundaries:
@@ -309,7 +305,7 @@ Responsibilities:
 - detect platform and bundled binary name
 - load native library
 - marshal Python dict/list/bytes into stable FFI payloads
-- fall back to pure Python if native load fails
+- validate native symbol contract and API version before use
 - later coordinate with downloader and license validation
 
 Do not let Blender UI or operators import the native library directly.
@@ -477,7 +473,7 @@ If the main goal is reverse-engineering resistance:
 - Put protocol parsing and mapping rules in native code first.
 - Avoid shipping high-value mapping templates as plain Python dicts.
 - Prefer a service facade so reverse engineers do not get a single obvious Python entry file with all core logic.
-- Keep fallback mode optional for development, but consider restricting it in release builds.
+- Keep lock-state behavior deterministic across all builds.
 - Keep the downloader, version manifest, and entitlement response format separate from the core logic API.
 - Design wrappers so the advanced feature call sites do not care whether binaries were bundled or downloaded.
 
@@ -494,7 +490,7 @@ Recommended shape:
    - local binary availability
    - binary version compatibility
 4. If needed, download the platform-specific binary into `src/native/binaries/<platform-tag>/`
-5. Wrapper loads the binary and exposes the same contract as the Python fallback
+5. Wrapper loads the binary only after API version and required-symbol validation passes
 
 Important implementation note:
 
@@ -515,7 +511,7 @@ This way:
 2. Extract pure helpers from `face_cap/runtime.py` into `src/logic/face_cap/`.
 3. Extract offline JSON parsing helpers from `face_cap/ops.py` into `src/logic/face_cap/offline_loader.py`.
 4. Extract transform math from `rig_controls/miframes` into `src/logic/miframes/`.
-5. Add `src/native/*_bridge.py` placeholders with pure Python fallback.
+5. Add `src/native/*_bridge.py` placeholders with required-symbol and API-version checks.
 6. Update existing operators to call services instead of internal helper functions directly.
 
 ## Expected Result

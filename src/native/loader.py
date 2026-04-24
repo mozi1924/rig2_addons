@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 from types import ModuleType
-from typing import Optional
+from typing import Optional, Sequence
 
 
 def get_native_root():
@@ -28,6 +28,76 @@ class NativeLoadResult:
         return self.module is not None
 
 
+def _format_validation_error(
+    module_name,
+    module_path,
+    missing_callables,
+    missing_attributes,
+    api_version_attr,
+    expected_api_version,
+    actual_api_version,
+):
+    parts = []
+    if missing_callables:
+        parts.append(
+            "missing callables: " + ", ".join(sorted(missing_callables))
+        )
+    if missing_attributes:
+        parts.append(
+            "missing attributes: " + ", ".join(sorted(missing_attributes))
+        )
+    if expected_api_version is not None:
+        parts.append(
+            f"{api_version_attr} expected {expected_api_version}, got {actual_api_version!r}"
+        )
+
+    joined = "; ".join(parts) if parts else "interface validation failed"
+    return (
+        "Native backend is locked: "
+        f"'{module_name}' at '{module_path}' failed validation ({joined})."
+    )
+
+
+def _validate_native_module_interface(
+    *,
+    module_name,
+    module,
+    module_path,
+    required_callables,
+    required_attributes,
+    api_version_attr,
+    expected_api_version,
+):
+    missing_callables = []
+    missing_attributes = []
+
+    for symbol in required_callables:
+        if not callable(getattr(module, symbol, None)):
+            missing_callables.append(symbol)
+
+    for symbol in required_attributes:
+        if not hasattr(module, symbol):
+            missing_attributes.append(symbol)
+
+    actual_api_version = getattr(module, api_version_attr, None)
+    version_mismatch = (
+        expected_api_version is not None
+        and actual_api_version != expected_api_version
+    )
+
+    if missing_callables or missing_attributes or version_mismatch:
+        return _format_validation_error(
+            module_name=module_name,
+            module_path=module_path,
+            missing_callables=missing_callables,
+            missing_attributes=missing_attributes,
+            api_version_attr=api_version_attr,
+            expected_api_version=expected_api_version,
+            actual_api_version=actual_api_version,
+        )
+    return ""
+
+
 def build_native_module_path(module_name):
     # `EXTENSION_SUFFIXES` lives in importlib.machinery across Python versions.
     # Keep a small fallback list for maximum compatibility.
@@ -37,7 +107,14 @@ def build_native_module_path(module_name):
         yield os.path.join(base_dir, module_name + suffix)
 
 
-def load_native_extension_result(module_name):
+def load_native_extension_result(
+    module_name,
+    *,
+    required_callables: Sequence[str] = (),
+    required_attributes: Sequence[str] = (),
+    api_version_attr: str = "RIG2_API_VERSION",
+    expected_api_version: Optional[int] = None,
+):
     """Try loading a managed native extension and return a structured status."""
     checked_paths = list(build_native_module_path(module_name))
     existing_paths = [module_path for module_path in checked_paths if os.path.exists(module_path)]
@@ -62,6 +139,19 @@ def load_native_extension_result(module_name):
 
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
+            validation_error = _validate_native_module_interface(
+                module_name=module_name,
+                module=module,
+                module_path=module_path,
+                required_callables=required_callables,
+                required_attributes=required_attributes,
+                api_version_attr=api_version_attr,
+                expected_api_version=expected_api_version,
+            )
+            if validation_error:
+                last_error = validation_error
+                continue
+
             return NativeLoadResult(
                 module_name=module_name,
                 module=module,
@@ -77,20 +167,3 @@ def load_native_extension_result(module_name):
         module_path=existing_paths[0] if existing_paths else "",
         error=last_error or f"Native backend is locked: failed to load '{module_name}'.",
     )
-
-
-def load_native_extension(module_name):
-    """
-    Attempt to load a native extension module from the managed binary directory.
-    Returns the imported module or None if no compatible binary is available.
-    """
-    return load_native_extension_result(module_name).module
-
-
-def load_native_or_fallback(native_name, fallback_importer):
-    native_module = load_native_extension(native_name)
-    if native_module is not None:
-        return native_module, True
-
-    fallback_module = fallback_importer()
-    return fallback_module, False
