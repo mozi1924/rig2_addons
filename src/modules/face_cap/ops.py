@@ -14,7 +14,8 @@ from .props import (
 )
 from .runtime import get_runtime_service
 
-_load_offline_face_cap_payload = get_face_cap_backend_service().load_offline_face_cap_payload
+_face_cap_backend_service = get_face_cap_backend_service()
+_load_offline_face_cap_payload = _face_cap_backend_service.load_offline_face_cap_payload
 
 # Constants moved to core.constants
 
@@ -182,6 +183,10 @@ class RIG2_OT_FaceCapImportJson(bpy.types.Operator, ImportHelper):
     )
 
     def execute(self, context):
+        if not _face_cap_backend_service.is_feature_unlocked():
+            self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
+            return {"CANCELLED"}
+
         scene = context.scene
         targets = _collect_binding_targets(scene)
         if not targets:
@@ -256,6 +261,10 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     bl_description = "Start the local face capture WebSocket receiver"
 
     def execute(self, context):
+        if not _face_cap_backend_service.is_feature_unlocked():
+            self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
+            return {"CANCELLED"}
+
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings is None:
             self.report({"ERROR"}, _f("Face Capture settings are not registered"))

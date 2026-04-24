@@ -35,6 +35,19 @@ This project is structured modularly:
 - `src/modules/binding`: Core binding logic.
 - `src/i18n`: Internationalization files.
 
+### VSCode Blender Addon Link Issue
+
+If Blender VSCode startup throws:
+`FileExistsError: ... scripts/addons/rig2_addons`
+it is usually caused by a broken symlink left by an old workspace path.
+
+Fix by recreating the symlink:
+
+```bash
+rm "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
+ln -s "/absolute/path/to/rig2_addons" "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
+```
+
 ---
 
 _Created by Antigravity_

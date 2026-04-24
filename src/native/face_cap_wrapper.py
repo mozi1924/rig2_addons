@@ -1,14 +1,9 @@
-from .loader import load_native_or_fallback
+from .loader import load_native_extension_result
 
-
-def _import_fallback():
-    from ..logic.face_cap import fallback as fallback_module
-
-    return fallback_module
-
-
-MODULE, IS_NATIVE = load_native_or_fallback("rig2_face_cap", _import_fallback)
-
+_LOAD_RESULT = load_native_extension_result("rig2_face_cap")
+MODULE = _LOAD_RESULT.module
+IS_NATIVE = bool(_LOAD_RESULT.is_available)
+LOAD_ERROR = _LOAD_RESULT.error
 
 def is_native_backend():
     return IS_NATIVE
@@ -17,3 +12,14 @@ def is_native_backend():
 def backend():
     return MODULE
 
+
+def is_feature_unlocked():
+    return IS_NATIVE
+
+
+def get_lock_reason():
+    return LOAD_ERROR
+
+
+def backend_path():
+    return _LOAD_RESULT.module_path

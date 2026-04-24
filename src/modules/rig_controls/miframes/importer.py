@@ -1,11 +1,10 @@
 import bpy
-import json
 import math
 import sys
 import os
-import importlib
 import re
-from mathutils import Euler, Vector
+from mathutils import Euler
+from ....services.miframes_service import get_miframes_backend_service
 
 # Rig2 depends on mi2bl for the core MI parsing and easing logic.
 # This fulfills the "Rig2 needs mi2bl" requirement and merges duplicate code.
@@ -36,6 +35,20 @@ try:
 except (ImportError, ValueError):
     import configs
 
+
+_miframes_plan_ops = get_miframes_backend_service().plan_miframes_keyframe_ops
+_miframes_model_config = get_miframes_backend_service().get_model_config
+
+
+def _apply_bend_values(bone, values, time):
+    bx = math.radians(values.get("BEND_ANGLE_X", 0))
+    by = math.radians(values.get("BEND_ANGLE_Y", 0))
+    bz = math.radians(values.get("BEND_ANGLE_Z", 0))
+    bone.rotation_mode = 'QUATERNION'
+    bone.rotation_quaternion = Euler((bx, by, bz), 'XYZ').to_quaternion()
+    bone.keyframe_insert("rotation_quaternion", frame=time)
+
+
 class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
     """Import .miframes using a selected model configuration (REQUIRES Rig2)"""
     bl_idname = "mi.import_action"
@@ -52,6 +65,11 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
     )
 
     def execute(self, context):
+        miframes_service = get_miframes_backend_service()
+        if not miframes_service.is_feature_unlocked():
+            self.report({'ERROR'}, miframes_service.get_lock_reason())
+            return {'CANCELLED'}
+
         arm = context.active_object
         if not arm or arm.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select the Rig2 Armature")
@@ -81,7 +99,7 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
             return {'CANCELLED'}
             
         model_key = arm.rig2_props.mi_selected_model
-        config = configs.MODELS.get(model_key)
+        config = _miframes_model_config(model_key)
         if not config:
             self.report({'ERROR'}, f"Model config '{model_key}' not found.")
             return {'CANCELLED'}
@@ -93,60 +111,29 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
         )
         start_frame = arm.rig2_props.mi_start_frame
 
-        kf_trans_map = {}
-        def _add_trans(b_name, _time, _t_info):
-            if b_name not in kf_trans_map:
-                kf_trans_map[b_name] = []
-            kf_trans_map[b_name].append((_time, _t_info))
+        plan = _miframes_plan_ops(data, config, start_frame, fps_scale)
+        kf_trans_map = plan.get("transitions", {})
 
-        for kf in data.get("keyframes", []):
-            time = start_frame + (kf.get("position", 0) * fps_scale)
-            part_name = kf.get("part_name", "").strip().lower()
-            if not part_name: part_name = "root"
-            values = kf.get("values", {})
+        for operation in plan.get("operations", []):
+            time = operation["time"]
+            values = operation["values"]
+            bone_name = operation["bone_name"]
+            handler_kind = operation["handler_kind"]
+            handler_name = operation.get("handler_name", "")
 
-            # Transition info for easing pass
-            trans_type = values.get("TRANSITION", "linear")
-            t_info = {
-                "type": trans_type,
-                "ease_in": (values.get("EASE_IN_X", 1.0), values.get("EASE_IN_Y", 0.0)),
-                "ease_out": (values.get("EASE_OUT_X", 0.0), values.get("EASE_OUT_Y", 1.0))
-            }
-            
-            if part_name in config.get("bones", {}):
-                b_cfg = config["bones"][part_name]
-                if "target_rot" in b_cfg: _add_trans(b_cfg["target_rot"], time, t_info)
-                if "target_pos_scl" in b_cfg: _add_trans(b_cfg["target_pos_scl"], time, t_info)
-                if "target" in b_cfg: _add_trans(b_cfg["target"], time, t_info)
+            pose_bone = arm.pose.bones.get(bone_name)
+            if not pose_bone:
+                continue
 
-            if part_name in config.get("bend_targets", {}):
-                _add_trans(config["bend_targets"][part_name], time, t_info)
+            if handler_kind == "bend":
+                _apply_bend_values(pose_bone, values, time)
+                continue
 
-            # --- Bone Handling ---
-            if part_name in config.get("bones", {}):
-                bone_cfg = config["bones"][part_name]
-                if "target_rot" in bone_cfg:
-                    bone_rot = arm.pose.bones.get(bone_cfg["target_rot"])
-                    if bone_rot:
-                        handler = configs.HANDLERS.get(bone_cfg.get("handler_rot", "standard"))
-                        if handler: handler(bone_rot, values, bone_cfg, time)
-                if "target_pos_scl" in bone_cfg:
-                    bone_ps = arm.pose.bones.get(bone_cfg["target_pos_scl"])
-                    if bone_ps:
-                        handler = configs.HANDLERS.get(bone_cfg.get("handler_pos_scl", "pos_scl"))
-                        if handler: handler(bone_ps, values, bone_cfg, time)
-
-            # --- Bend Handling ---
-            if part_name in config.get("bend_targets", {}):
-                target_bone_name = config["bend_targets"][part_name]
-                bone_lower = arm.pose.bones.get(target_bone_name)
-                if bone_lower:
-                    bx = math.radians(values.get("BEND_ANGLE_X", 0))
-                    by = math.radians(values.get("BEND_ANGLE_Y", 0))
-                    bz = math.radians(values.get("BEND_ANGLE_Z", 0))
-                    bone_lower.rotation_mode = 'QUATERNION'
-                    bone_lower.rotation_quaternion = Euler((bx, by, bz), 'XYZ').to_quaternion()
-                    bone_lower.keyframe_insert("rotation_quaternion", frame=time)
+            part_name = operation["part_name"]
+            bone_cfg = config.get("bones", {}).get(part_name, {})
+            handler = configs.HANDLERS.get(handler_name)
+            if handler:
+                handler(pose_bone, values, bone_cfg, time)
 
         # --- Easing ---
         if arm.animation_data and arm.animation_data.action:
