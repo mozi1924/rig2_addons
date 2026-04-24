@@ -35,6 +35,23 @@ This project is structured modularly:
 - `src/modules/binding`: Core binding logic.
 - `src/i18n`: Internationalization files.
 
+### Native Backends (C++)
+
+Commercial logic backends are now provided as CPython C++ extensions:
+
+- `rig2_miframes`
+- `rig2_face_cap`
+
+Build and place binaries for the current Python runtime:
+
+```bash
+python3 scripts/build_native.py
+```
+
+Output location:
+
+- `src/native/binaries/<platform-tag>/`
+
 ### VSCode Blender Addon Link Issue
 
 If Blender VSCode startup throws:

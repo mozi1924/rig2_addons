@@ -1,10 +1,6 @@
-"""Miframes pure logic modules."""
+"""Miframes logic package placeholder.
 
-from .model_registry import get_model_config, get_models
-from .planner import plan_miframes_keyframe_ops
+Core miframes planning has been migrated to the native `rig2_miframes` backend.
+"""
 
-__all__ = [
-    "get_models",
-    "get_model_config",
-    "plan_miframes_keyframe_ops",
-]
+__all__ = []
