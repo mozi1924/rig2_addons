@@ -1,8 +1,3 @@
-import base64
-import hashlib
-import select
-import socket
-import struct
 import threading
 import time
 
@@ -15,26 +10,16 @@ from .props import get_face_cap_bindings, get_face_cap_settings
 
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
-FACE_CAP_DRAIN_CHUNK_SIZE = 65536
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
+
 _runtime_bindings = get_face_cap_backend_service().get_runtime_bindings()
-_clamp01 = _runtime_bindings["clamp01"]
 _discover_local_ipv4 = _runtime_bindings["discover_local_ipv4"]
 _face_payloads_equal = _runtime_bindings["face_payloads_equal"]
-_parse_binary_packet = _runtime_bindings["parse_binary_packet"]
-_parse_packet_text = _runtime_bindings["parse_packet_text"]
-_parse_schema_message = _runtime_bindings["parse_schema_message"]
 _quaternions_close = _runtime_bindings["quaternions_close"]
-_resolve_transport_encoding = _runtime_bindings["resolve_transport_encoding"]
-_sanitize_head_quaternion = _runtime_bindings["sanitize_head_quaternion"]
-_sniff_packet_type = _runtime_bindings["sniff_packet_type"]
 _start_receiver = _runtime_bindings.get("start_receiver")
 _stop_receiver = _runtime_bindings.get("stop_receiver")
 _poll_latest_packet = _runtime_bindings.get("poll_latest_packet")
 _get_receiver_stats = _runtime_bindings.get("get_receiver_stats")
-BINARY_SUBPROTOCOL = _runtime_bindings["BINARY_SUBPROTOCOL"]
-JSON_SUBPROTOCOL = _runtime_bindings["JSON_SUBPROTOCOL"]
-WEBSOCKET_MAGIC = _runtime_bindings["WEBSOCKET_MAGIC"]
 _HAS_NATIVE_RECEIVER_API = all(
     callable(fn)
     for fn in (_start_receiver, _stop_receiver, _poll_latest_packet, _get_receiver_stats)
@@ -132,7 +117,6 @@ def _get_face_blendshape_bone(obj):
 class FaceCapRuntimeService:
     def __init__(self):
         self._lock = threading.Lock()
-        self._server = None
         self._native_receiver_enabled = _HAS_NATIVE_RECEIVER_API
         self._native_host = ""
         self._native_port = 0
@@ -182,6 +166,7 @@ class FaceCapRuntimeService:
         native_stats = self._get_native_stats() if self._native_receiver_enabled else None
         if native_stats:
             self._apply_native_stats(native_stats)
+
         with self._lock:
             if self._last_packet_time > 0.0:
                 age_seconds = max(0.0, time.time() - self._last_packet_time)
@@ -189,14 +174,10 @@ class FaceCapRuntimeService:
                 age_seconds = None
 
             return {
-                "host": self._native_host if self._native_receiver_enabled else (self._server.host if self._server else ""),
-                "port": self._native_port if self._native_receiver_enabled else (self._server.port if self._server else 0),
-                "is_listening": self._native_is_listening if self._native_receiver_enabled else bool(
-                    self._server and self._server.is_alive() and not self._server.bind_failed
-                ),
-                "bind_failed": self._native_bind_failed if self._native_receiver_enabled else bool(
-                    self._server and self._server.bind_failed
-                ),
+                "host": self._native_host,
+                "port": self._native_port,
+                "is_listening": self._native_is_listening,
+                "bind_failed": self._native_bind_failed,
                 "client_address": self._client_address,
                 "packet_count": self._packet_count,
                 "dropped_packet_count": self._dropped_packet_count,
@@ -224,10 +205,10 @@ class FaceCapRuntimeService:
             self._packet_revision += 1
 
     def is_running(self):
-        if self._native_receiver_enabled:
-            stats = self._get_native_stats()
-            return bool(stats and stats.get("is_listening") and not stats.get("bind_failed"))
-        return bool(self._server and self._server.is_alive() and not self._server.bind_failed)
+        if not self._native_receiver_enabled:
+            return False
+        stats = self._get_native_stats()
+        return bool(stats and stats.get("is_listening") and not stats.get("bind_failed"))
 
     def start(self, host=None, port=None, settings=None):
         if settings is None:
@@ -239,33 +220,26 @@ class FaceCapRuntimeService:
         self.stop()
         self.refresh_local_ipv4(host)
 
-        if self._native_receiver_enabled:
-            self._native_host = host
-            self._native_port = port
-            try:
-                _start_receiver(host, int(port), {"drop_old_packets": True})
-            except Exception as exc:
-                self.set_error(f"Face Capture native receiver failed on ws://{host}:{port}: {exc}")
+        if not self._native_receiver_enabled:
+            self.set_error("Face Capture native receiver API is unavailable.")
             return
 
-        self._server = FaceCapWebSocketServer(self, host, port)
-        self._server.start()
+        self._native_host = host
+        self._native_port = port
+        try:
+            _start_receiver(host, int(port), {"drop_old_packets": True})
+        except Exception as exc:
+            self.set_error(f"Face Capture native receiver failed on ws://{host}:{port}: {exc}")
 
     def restart(self, host=None, port=None):
         self.start(host, port)
 
     def stop(self):
-        server = self._server
-        self._server = None
-
         if self._native_receiver_enabled:
             try:
                 _stop_receiver()
             except Exception:
                 pass
-
-        if server:
-            server.stop()
 
         with self._lock:
             self._client_address = ""
@@ -296,21 +270,6 @@ class FaceCapRuntimeService:
             self._local_ipv4_address = local_ipv4
         return local_ipv4
 
-    def ingest_json_message(self, raw_message):
-        packet_type = _sniff_packet_type(raw_message)
-        if packet_type == "blendshapes":
-            self.ingest_packet_text(raw_message)
-
-        return None
-
-    def ingest_packet_text(self, raw_message):
-        packet_data = self._parse_packet_text(raw_message)
-        if packet_data is None:
-            self.note_invalid_packet("Ignored an invalid JSON blendshape packet.")
-            return
-
-        self.ingest_packet_data(packet_data, transport_encoding="json")
-
     def ingest_packet_data(self, packet_data, transport_encoding="json"):
         if packet_data is None:
             return
@@ -337,33 +296,15 @@ class FaceCapRuntimeService:
             self._last_error = ""
             self._transport_mode = "websocket"
             self._transport_encoding = transport_encoding or self._transport_encoding
-            if self._server and self._server.is_alive():
-                if transport_encoding == "binary":
-                    self._status_message = "Receiving binary blendshape packets"
-                else:
-                    self._status_message = "Receiving JSON blendshape packets"
-
-    def note_dropped_packets(self, dropped_count):
-        if dropped_count <= 0:
-            return
-
-        with self._lock:
-            self._dropped_packet_count += int(dropped_count)
+            if transport_encoding == "binary":
+                self._status_message = "Receiving binary blendshape packets"
+            else:
+                self._status_message = "Receiving JSON blendshape packets"
 
     def note_invalid_packet(self, message):
         with self._lock:
             self._last_error = message
-            if self._server and self._server.is_alive():
-                self._status_message = message
-
-    def _parse_packet_text(self, packet_text):
-        return _parse_packet_text(packet_text)
-
-    def parse_schema_message(self, raw_message):
-        return _parse_schema_message(raw_message)
-
-    def parse_binary_packet(self, packet_bytes, schema_names):
-        return _parse_binary_packet(packet_bytes, schema_names)
+            self._status_message = message
 
     def request_reapply(self):
         with self._lock:
@@ -372,29 +313,6 @@ class FaceCapRuntimeService:
             self._last_applied_face_count = -1
             self._last_applied_faces = None
             self._packet_revision += 1
-
-    def set_listening(self, host, port):
-        with self._lock:
-            self._status_message = f"Listening on ws://{host}:{port}"
-            self._last_error = ""
-
-    def set_client_connected(self, address):
-        with self._lock:
-            self._client_address = address
-            self._status_message = f"Client connected: {address}"
-            self._last_error = ""
-
-    def clear_client_connected(self, address):
-        with self._lock:
-            if self._client_address == address:
-                self._client_address = ""
-                self._transport_encoding = None
-            if self._server and self._server.is_alive() and not self._server.bind_failed:
-                self._status_message = f"Listening on ws://{self._server.host}:{self._server.port}"
-
-    def set_transport_encoding(self, transport_encoding):
-        with self._lock:
-            self._transport_encoding = transport_encoding
 
     def set_error(self, message):
         with self._lock:
@@ -560,353 +478,6 @@ class FaceCapRuntimeService:
             self.ingest_packet_data(packet, transport_encoding=transport_encoding or "json")
         if stats:
             self._apply_native_stats(stats)
-
-
-class FaceCapWebSocketServer(threading.Thread):
-    def __init__(self, service, host, port):
-        super().__init__(daemon=True)
-        self.service = service
-        self.host = host
-        self.port = port
-        self.bind_failed = False
-        self._stop_event = threading.Event()
-        self._server_socket = None
-        self._client_socket = None
-
-    def matches(self, host, port):
-        return self.host == host and self.port == port
-
-    def stop(self):
-        self._stop_event.set()
-
-        for sock in (self._client_socket, self._server_socket):
-            if sock is None:
-                continue
-            try:
-                sock.close()
-            except OSError:
-                pass
-
-        if self.is_alive():
-            self.join(timeout=1.0)
-
-    def run(self):
-        try:
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
-            except OSError:
-                pass
-            server_socket.bind((self.host, self.port))
-            server_socket.listen(8)
-            server_socket.settimeout(0.5)
-            self._server_socket = server_socket
-            self.service.set_listening(self.host, self.port)
-        except OSError as exc:
-            self.bind_failed = True
-            self.service.set_error(f"Face Capture receiver failed on ws://{self.host}:{self.port}: {exc}")
-            return
-
-        with self._server_socket:
-            while not self._stop_event.is_set():
-                try:
-                    client_socket, address = self._server_socket.accept()
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-
-                self._client_socket = client_socket
-                try:
-                    self._handle_client(client_socket, address)
-                except Exception as exc:
-                    self.service.set_error(f"Face Capture client error: {exc}")
-                finally:
-                    self._client_socket = None
-
-    def _handle_client(self, client_socket, address):
-        client_socket.settimeout(0.5)
-        try:
-            client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except OSError:
-            pass
-        try:
-            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
-        except OSError:
-            pass
-        buffer = bytearray()
-        transport_protocol = self._perform_handshake(client_socket, buffer)
-        transport_encoding = _resolve_transport_encoding(transport_protocol)
-
-        address_text = f"{address[0]}:{address[1]}"
-        self.service.set_client_connected(address_text)
-        if transport_encoding:
-            self.service.set_transport_encoding(transport_encoding)
-
-        schema_names = []
-
-        try:
-            while not self._stop_event.is_set():
-                frames = self._recv_frame_batch(client_socket, buffer)
-                should_close = False
-                latest_packet_data = None
-                latest_packet_encoding = transport_encoding or "json"
-                dropped_blendshape_count = 0
-
-                for opcode, payload in frames:
-                    if opcode == 0x8:
-                        self._send_close(client_socket)
-                        should_close = True
-                        break
-
-                    if opcode == 0x9:
-                        self._send_frame(client_socket, payload, opcode=0xA)
-                        continue
-
-                    if opcode == 0x1:
-                        raw_message = payload.decode("utf-8", errors="replace")
-                        packet_type = _sniff_packet_type(raw_message)
-                        if packet_type == "schema":
-                            next_schema_names = self.service.parse_schema_message(raw_message)
-                            if next_schema_names is not None:
-                                schema_names = next_schema_names
-                                transport_encoding = "binary"
-                                self.service.set_transport_encoding(transport_encoding)
-                            continue
-
-                        if packet_type != "blendshapes":
-                            response = self.service.ingest_json_message(raw_message)
-                            if response:
-                                self._send_text(client_socket, json.dumps(response))
-                            continue
-
-                        parsed_packet = self.service._parse_packet_text(raw_message)
-                        if parsed_packet is None:
-                            self.service.note_invalid_packet(
-                                "Ignored an invalid JSON blendshape packet."
-                            )
-                            continue
-                        if latest_packet_data is not None:
-                            dropped_blendshape_count += 1
-                        latest_packet_data = parsed_packet
-                        latest_packet_encoding = "json"
-                        continue
-
-                    if opcode == 0x2:
-                        parsed_packet = self.service.parse_binary_packet(payload, schema_names)
-                        if parsed_packet is None:
-                            self.service.note_invalid_packet(
-                                "Ignored an invalid binary blendshape packet."
-                            )
-                            continue
-                        if latest_packet_data is not None:
-                            dropped_blendshape_count += 1
-                        latest_packet_data = parsed_packet
-                        latest_packet_encoding = "binary"
-                        continue
-
-                if should_close:
-                    break
-
-                self.service.note_dropped_packets(dropped_blendshape_count)
-                if latest_packet_data is not None:
-                    self.service.ingest_packet_data(latest_packet_data, latest_packet_encoding)
-        finally:
-            self.service.clear_client_connected(address_text)
-            try:
-                client_socket.close()
-            except OSError:
-                pass
-
-    def _perform_handshake(self, client_socket, buffer):
-        header_bytes = self._recv_until(client_socket, buffer, b"\r\n\r\n")
-        request_text = header_bytes.decode("utf-8", errors="replace")
-        lines = request_text.split("\r\n")
-        headers = {}
-        for line in lines[1:]:
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            headers[key.strip().lower()] = value.strip()
-
-        websocket_key = headers.get("sec-websocket-key")
-        if not websocket_key:
-            raise RuntimeError("Missing Sec-WebSocket-Key")
-
-        requested_protocols = []
-        protocol_header = headers.get("sec-websocket-protocol", "")
-        if protocol_header:
-            requested_protocols = [item.strip() for item in protocol_header.split(",") if item.strip()]
-
-        selected_protocol = ""
-        if BINARY_SUBPROTOCOL in requested_protocols:
-            selected_protocol = BINARY_SUBPROTOCOL
-        elif JSON_SUBPROTOCOL in requested_protocols:
-            selected_protocol = JSON_SUBPROTOCOL
-
-        accept = base64.b64encode(
-            hashlib.sha1((websocket_key + WEBSOCKET_MAGIC).encode("utf-8")).digest()
-        ).decode("ascii")
-
-        response = (
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Accept: {accept}\r\n"
-        )
-        if selected_protocol:
-            response += f"Sec-WebSocket-Protocol: {selected_protocol}\r\n"
-        response += "\r\n"
-        client_socket.sendall(response.encode("utf-8"))
-        return selected_protocol
-
-    def _recv_until(self, client_socket, buffer, marker):
-        while marker not in buffer:
-            chunk = client_socket.recv(4096)
-            if not chunk:
-                raise ConnectionError("Connection closed during handshake")
-            buffer.extend(chunk)
-
-        end_index = buffer.index(marker) + len(marker)
-        data = bytes(buffer[:end_index])
-        del buffer[:end_index]
-        return data
-
-    def _recv_frame(self, client_socket, buffer):
-        header = self._read_exact(client_socket, buffer, 2)
-        first_byte, second_byte = header[0], header[1]
-        opcode = first_byte & 0x0F
-        masked = (second_byte & 0x80) != 0
-        payload_length = second_byte & 0x7F
-
-        if payload_length == 126:
-            payload_length = struct.unpack("!H", self._read_exact(client_socket, buffer, 2))[0]
-        elif payload_length == 127:
-            payload_length = struct.unpack("!Q", self._read_exact(client_socket, buffer, 8))[0]
-
-        mask = self._read_exact(client_socket, buffer, 4) if masked else b""
-        payload = self._read_exact(client_socket, buffer, payload_length) if payload_length else b""
-
-        if masked:
-            payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
-
-        return opcode, payload
-
-    def _recv_frame_batch(self, client_socket, buffer):
-        frames = [self._recv_frame(client_socket, buffer)]
-        self._drain_available_socket_bytes(client_socket, buffer)
-
-        while True:
-            frame = self._try_recv_frame_from_buffer(buffer)
-            if frame is None:
-                break
-            frames.append(frame)
-
-        return frames
-
-    def _drain_available_socket_bytes(self, client_socket, buffer):
-        while not self._stop_event.is_set():
-            try:
-                readable, _, _ = select.select([client_socket], [], [], 0.0)
-            except (OSError, ValueError):
-                break
-
-            if not readable:
-                break
-
-            try:
-                chunk = client_socket.recv(FACE_CAP_DRAIN_CHUNK_SIZE)
-            except (BlockingIOError, InterruptedError, socket.timeout):
-                break
-
-            if not chunk:
-                raise ConnectionError("Connection closed")
-            buffer.extend(chunk)
-
-    def _try_recv_frame_from_buffer(self, buffer):
-        if len(buffer) < 2:
-            return None
-
-        first_byte = buffer[0]
-        second_byte = buffer[1]
-        opcode = first_byte & 0x0F
-        masked = (second_byte & 0x80) != 0
-        payload_length = second_byte & 0x7F
-        header_length = 2
-
-        if payload_length == 126:
-            if len(buffer) < 4:
-                return None
-            payload_length = struct.unpack("!H", bytes(buffer[2:4]))[0]
-            header_length = 4
-        elif payload_length == 127:
-            if len(buffer) < 10:
-                return None
-            payload_length = struct.unpack("!Q", bytes(buffer[2:10]))[0]
-            header_length = 10
-
-        mask_length = 4 if masked else 0
-        frame_length = header_length + mask_length + payload_length
-        if len(buffer) < frame_length:
-            return None
-
-        payload_offset = header_length
-        if masked:
-            mask = bytes(buffer[payload_offset:payload_offset + 4])
-            payload_offset += 4
-        else:
-            mask = b""
-
-        payload = bytes(buffer[payload_offset:payload_offset + payload_length])
-        del buffer[:frame_length]
-
-        if masked:
-            payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
-
-        return opcode, payload
-
-    def _read_exact(self, client_socket, buffer, size):
-        while len(buffer) < size:
-            try:
-                chunk = client_socket.recv(max(4096, size - len(buffer)))
-            except socket.timeout:
-                if self._stop_event.is_set():
-                    raise ConnectionError("Face Capture receiver stopped")
-                continue
-
-            if not chunk:
-                raise ConnectionError("Connection closed")
-            buffer.extend(chunk)
-
-        data = bytes(buffer[:size])
-        del buffer[:size]
-        return data
-
-    def _send_text(self, client_socket, text):
-        self._send_frame(client_socket, text.encode("utf-8"), opcode=0x1)
-
-    def _send_close(self, client_socket):
-        try:
-            self._send_frame(client_socket, b"", opcode=0x8)
-        except OSError:
-            pass
-
-    def _send_frame(self, client_socket, payload, opcode):
-        payload_length = len(payload)
-        header = bytearray()
-        header.append(0x80 | (opcode & 0x0F))
-
-        if payload_length < 126:
-            header.append(payload_length)
-        elif payload_length <= 0xFFFF:
-            header.append(126)
-            header.extend(struct.pack("!H", payload_length))
-        else:
-            header.append(127)
-            header.extend(struct.pack("!Q", payload_length))
-
-        client_socket.sendall(bytes(header) + payload)
 
 
 _runtime_service = FaceCapRuntimeService()

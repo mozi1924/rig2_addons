@@ -336,57 +336,58 @@ std::string compute_websocket_accept(const std::string& websocket_key) {
 
   PyGILState_STATE gil = PyGILState_Ensure();
   std::string accept_value;
+  {
+    PyRef hashlib_module(PyImport_ImportModule("hashlib"));
+    PyRef base64_module(PyImport_ImportModule("base64"));
+    if (!hashlib_module || !base64_module) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  PyRef hashlib_module(PyImport_ImportModule("hashlib"));
-  PyRef base64_module(PyImport_ImportModule("base64"));
-  if (!hashlib_module || !base64_module) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
+    PyRef sha1_fn(PyObject_GetAttrString(hashlib_module.get(), "sha1"));
+    PyRef b64encode_fn(PyObject_GetAttrString(base64_module.get(), "b64encode"));
+    if (!sha1_fn || !b64encode_fn || !PyCallable_Check(sha1_fn.get()) || !PyCallable_Check(b64encode_fn.get())) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  PyRef sha1_fn(PyObject_GetAttrString(hashlib_module.get(), "sha1"));
-  PyRef b64encode_fn(PyObject_GetAttrString(base64_module.get(), "b64encode"));
-  if (!sha1_fn || !b64encode_fn || !PyCallable_Check(sha1_fn.get()) || !PyCallable_Check(b64encode_fn.get())) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
+    const std::string input = websocket_key + kWebsocketMagic;
+    PyRef input_bytes(PyBytes_FromStringAndSize(input.c_str(), static_cast<Py_ssize_t>(input.size())));
+    if (!input_bytes) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  const std::string input = websocket_key + kWebsocketMagic;
-  PyRef input_bytes(PyBytes_FromStringAndSize(input.c_str(), static_cast<Py_ssize_t>(input.size())));
-  if (!input_bytes) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
+    PyRef sha1_obj(PyObject_CallFunctionObjArgs(sha1_fn.get(), input_bytes.get(), nullptr));
+    if (!sha1_obj) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  PyRef sha1_obj(PyObject_CallFunctionObjArgs(sha1_fn.get(), input_bytes.get(), nullptr));
-  if (!sha1_obj) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
+    PyRef digest(PyObject_CallMethod(sha1_obj.get(), "digest", nullptr));
+    if (!digest) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  PyRef digest(PyObject_CallMethod(sha1_obj.get(), "digest", nullptr));
-  if (!digest) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
+    PyRef encoded(PyObject_CallFunctionObjArgs(b64encode_fn.get(), digest.get(), nullptr));
+    if (!encoded) {
+      PyErr_Clear();
+      PyGILState_Release(gil);
+      return std::string();
+    }
 
-  PyRef encoded(PyObject_CallFunctionObjArgs(b64encode_fn.get(), digest.get(), nullptr));
-  if (!encoded) {
-    PyErr_Clear();
-    PyGILState_Release(gil);
-    return std::string();
-  }
-
-  const char* encoded_text = PyBytes_AsString(encoded.get());
-  if (encoded_text) {
-    accept_value = encoded_text;
-  } else {
-    PyErr_Clear();
+    const char* encoded_text = PyBytes_AsString(encoded.get());
+    if (encoded_text) {
+      accept_value = encoded_text;
+    } else {
+      PyErr_Clear();
+    }
   }
 
   PyGILState_Release(gil);

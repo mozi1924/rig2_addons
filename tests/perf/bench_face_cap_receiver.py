@@ -5,20 +5,25 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import json
+import math
 import os
 import platform
 import random
 import socket
+import statistics
 import struct
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SRC = os.path.join(ROOT, "src")
 WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 JSON_SUBPROTOCOL = "r2fmc.json.v1"
+BINARY_SUBPROTOCOL = "r2fmc.bin.v1"
+DEFAULT_SCHEMA_NAMES = ["jawOpen", "eyeBlinkLeft"]
 
 
 def arch_tag() -> str:
@@ -99,7 +104,8 @@ def send_ws_frame(sock: socket.socket, payload: bytes, opcode: int, masked: bool
     sock.sendall(bytes(header) + payload)
 
 
-def ws_client_connect(host: str, port: int) -> socket.socket:
+def ws_client_connect(host: str, port: int, protocol: str) -> socket.socket:
+    subprotocol = JSON_SUBPROTOCOL if protocol == "json" else BINARY_SUBPROTOCOL
     sock = socket.create_connection((host, port), timeout=2.0)
     key = base64.b64encode(os.urandom(16)).decode("ascii")
     request = (
@@ -109,7 +115,7 @@ def ws_client_connect(host: str, port: int) -> socket.socket:
         "Connection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {key}\r\n"
         "Sec-WebSocket-Version: 13\r\n"
-        f"Sec-WebSocket-Protocol: {JSON_SUBPROTOCOL}\r\n"
+        f"Sec-WebSocket-Protocol: {subprotocol}\r\n"
         "\r\n"
     )
     sock.sendall(request.encode("utf-8"))
@@ -117,6 +123,30 @@ def ws_client_connect(host: str, port: int) -> socket.socket:
     if "101 Switching Protocols" not in response:
         raise RuntimeError(f"handshake failed: {response}")
     return sock
+
+
+def build_binary_packet(sent_id: int, jaw_open: float, eye_blink_left: float) -> bytes:
+    header = bytearray(24)
+    struct.pack_into("<I", header, 0, 0x5232464D)
+    header[4] = 1
+    header[5] = 1
+    struct.pack_into("<I", header, 8, int(sent_id) & 0xFFFFFFFF)
+    struct.pack_into("<H", header, 20, 1)
+
+    face_header = bytearray(8)
+    struct.pack_into("<H", face_header, 2, 2)
+    face_header[4] = 0
+    payload = header + face_header + struct.pack("<f", float(jaw_open)) + struct.pack("<f", float(eye_blink_left))
+    return bytes(payload)
+
+
+def send_binary_schema(sock: socket.socket, schema_names):
+    schema_msg = {
+        "type": "schema",
+        "format": BINARY_SUBPROTOCOL,
+        "blendshapeNames": list(schema_names),
+    }
+    send_ws_frame(sock, json.dumps(schema_msg, separators=(",", ":")).encode("utf-8"), opcode=0x1, masked=True)
 
 
 class NativeReceiver:
@@ -148,7 +178,7 @@ class PythonRefReceiver:
         self._host = ""
         self._port = 0
         self._server = None
-        self._client = None
+        self._clients = set()
         self._latest = None
         self._packet_count = 0
         self._dropped = 0
@@ -176,7 +206,14 @@ class PythonRefReceiver:
 
     def stop(self):
         self._stop.set()
-        for s in (self._client, self._server):
+        for s in list(self._clients):
+            try:
+                s.close()
+            except OSError:
+                pass
+        self._clients.clear()
+
+        for s in (self._server,):
             if s is None:
                 continue
             try:
@@ -221,7 +258,7 @@ class PythonRefReceiver:
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             srv.bind((self._host, self._port))
-            srv.listen(1)
+            srv.listen(8)
             srv.settimeout(0.2)
             self._server = srv
             with self._lock:
@@ -231,21 +268,24 @@ class PythonRefReceiver:
                     cli, addr = srv.accept()
                 except socket.timeout:
                     continue
-                self._client = cli
-                try:
-                    self._handle_client(cli, addr)
-                finally:
-                    try:
-                        cli.close()
-                    except OSError:
-                        pass
-                    self._client = None
+                self._clients.add(cli)
+                threading.Thread(target=self._handle_client, args=(cli, addr), daemon=True).start()
         except Exception as exc:
             with self._lock:
                 self._status = f"Face Capture receiver failed on ws://{self._host}:{self._port}"
                 self._last_error = str(exc)
 
     def _handle_client(self, sock: socket.socket, addr):
+        try:
+            self._handle_client_inner(sock, addr)
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            self._clients.discard(sock)
+
+    def _handle_client_inner(self, sock: socket.socket, addr):
         buffer = bytearray()
         while b"\r\n\r\n" not in buffer:
             chunk = sock.recv(4096)
@@ -304,103 +344,346 @@ class PythonRefReceiver:
 def percentile(values, p):
     if not values:
         return None
-    values = sorted(values)
-    idx = int(round((len(values) - 1) * p))
-    return values[idx]
+    values_sorted = sorted(values)
+    idx = int(round((len(values_sorted) - 1) * p))
+    return values_sorted[idx]
 
 
-def run_once(mode: str, duration_s: float, host: str, port: int, send_interval_s: float):
-    native = load_native_module("rig2_face_cap")
-    receiver = NativeReceiver(native) if mode == "native" else PythonRefReceiver(native)
-    receiver.start(host, port)
+def mean_or_none(values):
+    if not values:
+        return None
+    return sum(values) / len(values)
 
-    sent_count = 0
-    sent_lock = threading.Lock()
-    stop_sender = threading.Event()
 
-    def sender():
-        nonlocal sent_count
-        sock = ws_client_connect(host, port)
-        try:
-            while not stop_sender.is_set():
-                sent_at = time.perf_counter_ns()
+def stddev_or_none(values):
+    if len(values) <= 1:
+        return 0.0 if values else None
+    return statistics.pstdev(values)
+
+
+def _safe_round(value, digits=6):
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def _sender_worker(
+    client_id,
+    protocol,
+    host,
+    port,
+    rounds,
+    send_interval_s,
+    send_timestamps,
+    lock,
+    errors,
+):
+    try:
+        sock = ws_client_connect(host, port, protocol)
+        if protocol == "binary":
+            send_binary_schema(sock, DEFAULT_SCHEMA_NAMES)
+
+        for i in range(rounds):
+            sent_id = client_id * 1_000_000_000 + i
+            sent_ns = time.perf_counter_ns()
+            jaw_open = (i % 101) / 100.0
+            eye_blink_left = ((i * 7) % 101) / 100.0
+            if protocol == "json":
                 msg = {
                     "type": "blendshapes",
-                    "faces": [{"blendshapes": {"jawOpen": 0.5}}],
+                    "faces": [{"blendshapes": {"jawOpen": jaw_open, "eyeBlinkLeft": eye_blink_left}}],
                     "faceCount": 1,
-                    "sentAt": str(sent_at),
+                    "sentAt": str(sent_id),
                 }
                 payload = json.dumps(msg, separators=(",", ":")).encode("utf-8")
                 send_ws_frame(sock, payload, opcode=0x1, masked=True)
-                with sent_lock:
-                    sent_count += 1
-                if send_interval_s > 0.0:
-                    time.sleep(send_interval_s)
-        finally:
-            try:
-                send_ws_frame(sock, b"", opcode=0x8, masked=True)
-            except Exception:
-                pass
-            sock.close()
+            else:
+                payload = build_binary_packet(sent_id=sent_id, jaw_open=jaw_open, eye_blink_left=eye_blink_left)
+                send_ws_frame(sock, payload, opcode=0x2, masked=True)
 
-    sender_thread = threading.Thread(target=sender, daemon=True)
-    sender_thread.start()
+            with lock:
+                send_timestamps[sent_id] = sent_ns
+
+            if send_interval_s > 0.0:
+                time.sleep(send_interval_s)
+
+        try:
+            send_ws_frame(sock, b"", opcode=0x8, masked=True)
+        except Exception:
+            pass
+        sock.close()
+    except Exception as exc:
+        with lock:
+            errors.append(f"client#{client_id}: {exc}")
+
+
+def run_once(
+    mode: str,
+    protocol: str,
+    clients: int,
+    rounds: int,
+    host: str,
+    port: int,
+    send_interval_s: float,
+    poll_timeout_s: float,
+):
+    native = load_native_module("rig2_face_cap")
+    if mode == "python_ref" and protocol == "binary":
+        return {
+            "mode": mode,
+            "protocol": protocol,
+            "clients": clients,
+            "rounds": rounds,
+            "skipped": True,
+            "skip_reason": "python_ref only supports json",
+        }
+
+    receiver = NativeReceiver(native) if mode == "native" else PythonRefReceiver(native)
+    receiver.start(host, port)
+
+    send_timestamps = {}
+    send_lock = threading.Lock()
+    sender_errors = []
 
     started = time.perf_counter()
+    sender_threads = []
+    for client_id in range(clients):
+        t = threading.Thread(
+            target=_sender_worker,
+            args=(client_id, protocol, host, port, rounds, send_interval_s, send_timestamps, send_lock, sender_errors),
+            daemon=True,
+        )
+        t.start()
+        sender_threads.append(t)
+
     latencies_ms = []
-    received_count = 0
-    while time.perf_counter() - started < duration_s:
+    polled_count = 0
+    end_deadline = time.perf_counter() + poll_timeout_s
+
+    while time.perf_counter() < end_deadline:
+        all_done = all(not t.is_alive() for t in sender_threads)
         pkt = receiver.poll()
         if isinstance(pkt, dict):
-            received_count += 1
+            polled_count += 1
             sent_at_raw = str(pkt.get("sent_at", "") or "")
             try:
-                sent_ns = int(sent_at_raw)
-                latencies_ms.append((time.perf_counter_ns() - sent_ns) / 1_000_000.0)
+                sent_id = int(sent_at_raw)
             except Exception:
-                pass
-        else:
-            time.sleep(0.0005)
+                sent_id = None
+            if sent_id is not None:
+                with send_lock:
+                    sent_ns = send_timestamps.get(sent_id)
+                if sent_ns is not None:
+                    latencies_ms.append((time.perf_counter_ns() - sent_ns) / 1_000_000.0)
+            continue
 
-    stop_sender.set()
-    sender_thread.join(timeout=1.0)
+        if all_done:
+            stats = receiver.stats() or {}
+            packet_count = int(stats.get("packet_count", 0) or 0)
+            if packet_count >= clients * rounds:
+                break
+        time.sleep(0.0005)
+
+    for t in sender_threads:
+        t.join(timeout=2.0)
+
+    elapsed_s = max(1e-6, time.perf_counter() - started)
     stats = receiver.stats() or {}
     receiver.stop()
 
-    with sent_lock:
-        total_sent = sent_count
+    with send_lock:
+        total_sent = len(send_timestamps)
 
-    return {
+    packet_count = int(stats.get("packet_count", 0) or 0)
+    dropped_count = int(stats.get("dropped_packet_count", 0) or 0)
+
+    result = {
         "mode": mode,
-        "duration_s": duration_s,
-        "sent_count": total_sent,
-        "received_count": received_count,
-        "receiver_packet_count": int(stats.get("packet_count", 0) or 0),
-        "dropped_packet_count": int(stats.get("dropped_packet_count", 0) or 0),
-        "send_msgs_per_s": total_sent / max(duration_s, 1e-6),
-        "received_msgs_per_s": received_count / max(duration_s, 1e-6),
-        "p50_ms": percentile(latencies_ms, 0.50),
-        "p95_ms": percentile(latencies_ms, 0.95),
-        "p99_ms": percentile(latencies_ms, 0.99),
+        "protocol": protocol,
+        "clients": clients,
+        "rounds": rounds,
+        "elapsed_s": _safe_round(elapsed_s),
+        "sent_count": int(total_sent),
+        "polled_count": int(polled_count),
+        "receiver_packet_count": packet_count,
+        "dropped_packet_count": dropped_count,
+        "send_msgs_per_s": _safe_round(total_sent / elapsed_s),
+        "receiver_msgs_per_s": _safe_round(packet_count / elapsed_s),
+        "poll_msgs_per_s": _safe_round(polled_count / elapsed_s),
+        "p50_ms": _safe_round(percentile(latencies_ms, 0.50)),
+        "p95_ms": _safe_round(percentile(latencies_ms, 0.95)),
+        "p99_ms": _safe_round(percentile(latencies_ms, 0.99)),
+        "sender_errors": sender_errors,
+        "status_message": str(stats.get("status_message", "") or ""),
+        "last_error": str(stats.get("last_error", "") or ""),
+        "transport_encoding": stats.get("transport_encoding"),
     }
+    return result
+
+
+def summarize_repeats(repeat_results):
+    valid = [r for r in repeat_results if not r.get("skipped")]
+    if not valid:
+        return {
+            "repeat_count": len(repeat_results),
+            "valid_repeats": 0,
+            "skipped": True,
+            "skip_reason": repeat_results[0].get("skip_reason", "all repeats skipped") if repeat_results else "",
+        }
+
+    fields = [
+        "elapsed_s",
+        "send_msgs_per_s",
+        "receiver_msgs_per_s",
+        "poll_msgs_per_s",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+        "receiver_packet_count",
+        "dropped_packet_count",
+    ]
+    agg = {
+        "repeat_count": len(repeat_results),
+        "valid_repeats": len(valid),
+        "sent_count": int(sum(r.get("sent_count", 0) for r in valid) / max(1, len(valid))),
+    }
+
+    for field in fields:
+        values = [float(r[field]) for r in valid if r.get(field) is not None]
+        agg[f"{field}_mean"] = _safe_round(mean_or_none(values))
+        agg[f"{field}_stddev"] = _safe_round(stddev_or_none(values))
+
+    total_errors = []
+    for r in valid:
+        total_errors.extend(r.get("sender_errors", []))
+        if r.get("last_error"):
+            total_errors.append(r["last_error"])
+    agg["error_count"] = len([e for e in total_errors if e])
+    return agg
+
+
+def run_matrix(
+    modes,
+    protocols,
+    client_values,
+    rounds,
+    repeat,
+    host,
+    base_port,
+    send_interval,
+    poll_timeout,
+):
+    matrix = []
+    case_index = 0
+    for mode in modes:
+        for protocol in protocols:
+            for clients in client_values:
+                repeat_results = []
+                for rep in range(repeat):
+                    port = base_port + case_index * 50 + rep
+                    one = run_once(
+                        mode=mode,
+                        protocol=protocol,
+                        clients=clients,
+                        rounds=rounds,
+                        host=host,
+                        port=port,
+                        send_interval_s=send_interval,
+                        poll_timeout_s=poll_timeout,
+                    )
+                    one["repeat_index"] = rep + 1
+                    repeat_results.append(one)
+                matrix.append(
+                    {
+                        "case": {
+                            "mode": mode,
+                            "protocol": protocol,
+                            "clients": clients,
+                            "rounds": rounds,
+                        },
+                        "summary": summarize_repeats(repeat_results),
+                        "repeats": repeat_results,
+                    }
+                )
+                case_index += 1
+    return matrix
+
+
+def parse_csv_ints(input_text):
+    out = []
+    for part in str(input_text or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        value = int(part)
+        if value <= 0:
+            raise ValueError("clients must be > 0")
+        out.append(value)
+    if not out:
+        raise ValueError("at least one clients value is required")
+    return out
 
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark face_cap receiver path.")
     parser.add_argument("--mode", choices=["native", "python_ref", "both"], default="both")
-    parser.add_argument("--duration", type=float, default=8.0)
+    parser.add_argument("--protocol", choices=["json", "binary", "both"], default="both")
+    parser.add_argument("--clients", default="1,4,8", help="comma-separated client counts")
+    parser.add_argument("--rounds", type=int, default=2000, help="fixed messages per client")
+    parser.add_argument("--repeat", type=int, default=3, help="repeat count per case")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=19090)
     parser.add_argument("--send-interval", type=float, default=0.0, help="seconds between sends")
+    parser.add_argument("--poll-timeout", type=float, default=20.0, help="max polling seconds per run")
     args = parser.parse_args()
 
-    modes = ["native", "python_ref"] if args.mode == "both" else [args.mode]
-    results = []
-    for i, mode in enumerate(modes):
-        port = args.port + i
-        results.append(run_once(mode, args.duration, args.host, port, args.send_interval))
+    if args.rounds <= 0:
+        raise ValueError("--rounds must be > 0")
+    if args.repeat <= 0:
+        raise ValueError("--repeat must be > 0")
 
-    print(json.dumps({"results": results}, indent=2, ensure_ascii=False))
+    modes = ["native", "python_ref"] if args.mode == "both" else [args.mode]
+    protocols = ["json", "binary"] if args.protocol == "both" else [args.protocol]
+    client_values = parse_csv_ints(args.clients)
+
+    started_utc = datetime.now(timezone.utc)
+    matrix = run_matrix(
+        modes=modes,
+        protocols=protocols,
+        client_values=client_values,
+        rounds=args.rounds,
+        repeat=args.repeat,
+        host=args.host,
+        base_port=args.port,
+        send_interval=args.send_interval,
+        poll_timeout=args.poll_timeout,
+    )
+
+    output = {
+        "schema_version": 1,
+        "benchmark": "face_cap_receiver",
+        "started_at_utc": started_utc.isoformat(),
+        "config": {
+            "mode": args.mode,
+            "protocol": args.protocol,
+            "clients": client_values,
+            "rounds": args.rounds,
+            "repeat": args.repeat,
+            "host": args.host,
+            "base_port": args.port,
+            "send_interval": args.send_interval,
+            "poll_timeout": args.poll_timeout,
+        },
+        "environment": {
+            "platform": platform.platform(),
+            "python_version": sys.version,
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+        },
+        "results": matrix,
+    }
+
+    print(json.dumps(output, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
