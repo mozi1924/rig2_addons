@@ -2,24 +2,43 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import platform
 import struct
 import sys
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "src")
-NATIVE_BIN = os.path.join(
-    SRC,
-    "native",
-    "binaries",
-    f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}",
+def arch_tag() -> str:
+    machine = (platform.machine() or "").strip().lower()
+    if machine in {"x86_64", "amd64", "x64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "arm64"
+    return machine or "unknown"
+
+
+NATIVE_BIN_CANDIDATES = (
+    os.path.join(SRC, "native", "binaries", f"{sys.platform}-{arch_tag()}-abi3"),
+    os.path.join(SRC, "native", "binaries", f"{sys.platform}-abi3"),
+    os.path.join(
+        SRC,
+        "native",
+        "binaries",
+        f"{sys.platform}-{arch_tag()}-{sys.version_info.major}{sys.version_info.minor}",
+    ),
+    os.path.join(
+        SRC,
+        "native",
+        "binaries",
+        f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}",
+    ),
 )
-NATIVE_BIN_ABI3 = os.path.join(SRC, "native", "binaries", f"{sys.platform}-abi3")
 
 
 def load_native_module(module_name: str):
     suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
-    for base_dir in (NATIVE_BIN, NATIVE_BIN_ABI3):
+    for base_dir in NATIVE_BIN_CANDIDATES:
         for suffix in suffixes:
             module_path = os.path.join(base_dir, module_name + suffix)
             if os.path.exists(module_path):
@@ -29,9 +48,7 @@ def load_native_module(module_name: str):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 return module
-    raise FileNotFoundError(
-        f"Native module {module_name} not found under {NATIVE_BIN} or {NATIVE_BIN_ABI3}"
-    )
+    raise FileNotFoundError(f"Native module {module_name} not found under {NATIVE_BIN_CANDIDATES}")
 
 
 class NativeContractTest(unittest.TestCase):

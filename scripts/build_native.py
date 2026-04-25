@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -23,10 +24,27 @@ MODULE_NAMES = ("rig2_miframes", "rig2_face_cap")
 
 
 def platform_tag() -> str:
+    return f"{sys.platform}-{arch_tag()}-{sys.version_info.major}{sys.version_info.minor}"
+
+
+def legacy_platform_tag() -> str:
     return f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}"
 
 
+def arch_tag() -> str:
+    machine = (platform.machine() or "").strip().lower()
+    if machine in {"x86_64", "amd64", "x64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "arm64"
+    return machine or "unknown"
+
+
 def abi3_platform_tag() -> str:
+    return f"{sys.platform}-{arch_tag()}-abi3"
+
+
+def legacy_abi3_platform_tag() -> str:
     return f"{sys.platform}-abi3"
 
 
@@ -95,15 +113,28 @@ def _copy_to_platform_dir(module_path: Path, tag: str, module_name: str) -> Path
 def copy_to_runtime_bins(module_path: Path, module_name: str) -> list[Path]:
     copied = []
     copied.append(_copy_to_platform_dir(module_path, platform_tag(), module_name))
+    copied.append(_copy_to_platform_dir(module_path, legacy_platform_tag(), module_name))
     if _is_abi3_binary(module_path):
         copied.append(_copy_to_platform_dir(module_path, abi3_platform_tag(), module_name))
-    return copied
+        copied.append(_copy_to_platform_dir(module_path, legacy_abi3_platform_tag(), module_name))
+    deduped = []
+    seen = set()
+    for path in copied:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
 
 
 def main() -> int:
     print(f"[rig2-native] Python: {sys.executable}")
+    print(f"[rig2-native] Arch tag: {arch_tag()}")
     print(f"[rig2-native] Platform tag: {platform_tag()}")
+    print(f"[rig2-native] Legacy platform tag: {legacy_platform_tag()}")
     print(f"[rig2-native] ABI3 tag: {abi3_platform_tag()}")
+    print(f"[rig2-native] Legacy ABI3 tag: {legacy_abi3_platform_tag()}")
     ensure_build_backend_available()
     build_extensions()
 

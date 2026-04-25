@@ -1,6 +1,7 @@
 import importlib.util
 import importlib.machinery
 import os
+import platform
 import sys
 from dataclasses import dataclass
 from types import ModuleType
@@ -13,12 +14,40 @@ def get_native_root():
 
 
 def get_platform_tag():
+    return f"{sys.platform}-{get_arch_tag()}-{sys.version_info.major}{sys.version_info.minor}"
+
+
+def get_legacy_platform_tag():
+    """Legacy runtime tag kept for backward compatibility."""
     return f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}"
 
 
+def get_arch_tag():
+    machine = (platform.machine() or "").strip().lower()
+    if machine in {"x86_64", "amd64", "x64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "arm64"
+    return machine or "unknown"
+
+
+def get_abi3_platform_tag():
+    return f"{sys.platform}-{get_arch_tag()}-abi3"
+
+
+def get_legacy_abi3_platform_tag():
+    """Legacy abi3 tag kept for backward compatibility."""
+    return f"{sys.platform}-abi3"
+
+
 def get_platform_tags():
-    """Return search-order platform tags, preferring abi3 shared binaries first."""
-    tags = [f"{sys.platform}-abi3", get_platform_tag()]
+    """Return search-order platform tags for native binary discovery."""
+    tags = [
+        get_abi3_platform_tag(),
+        get_legacy_abi3_platform_tag(),
+        get_platform_tag(),
+        get_legacy_platform_tag(),
+    ]
     # Preserve order while deduplicating.
     return tuple(dict.fromkeys(tags))
 

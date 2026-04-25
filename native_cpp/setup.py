@@ -39,9 +39,14 @@ extensions = [
     ),
 ]
 
+setup_kwargs = {}
+if enable_abi3 and _HAS_SETUPTOOLS:
+    setup_kwargs["options"] = {"bdist_wheel": {"py_limited_api": "cp39"}}
+
 setup(
     name="rig2_native",
     version="0.1.0",
     description="Rig2 native backends",
     ext_modules=extensions,
+    **setup_kwargs,
 )

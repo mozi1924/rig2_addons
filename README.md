@@ -61,13 +61,30 @@ Output location:
 When built with `setuptools`, native modules use `abi3` (stable ABI, `Py3.9+`),
 and are copied to:
 
-- `src/native/binaries/<platform-tag>/`
-- `src/native/binaries/<sys.platform>-abi3/`
+- `src/native/binaries/<sys.platform>-<arch>-<pyver>/`
+- `src/native/binaries/<sys.platform>-<arch>-abi3/`
+- (compat) `src/native/binaries/<sys.platform>-<pyver>/`
+- (compat) `src/native/binaries/<sys.platform>-abi3/`
 
 Runtime loader search order is:
 
-1. `<platform-tag>` (exact interpreter version)
-2. `<sys.platform>-abi3` (cross-minor compatible binary)
+1. `<sys.platform>-<arch>-abi3`
+2. `<sys.platform>-abi3`
+3. `<sys.platform>-<arch>-<pyver>`
+4. `<sys.platform>-<pyver>`
+
+### Cross-Platform Artifacts
+
+CI workflow [build-native-binaries.yml](/Users/jaxlocke/rig2_ecosystem/rig2_addons/.github/workflows/build-native-binaries.yml)
+builds wheels for:
+
+- Linux: `x86_64`, `aarch64`
+- macOS: `x86_64`, `arm64`
+- Windows: `AMD64`, `ARM64`
+
+Then converts wheels to addon runtime layout using:
+
+- [extract_native_from_wheels.py](/Users/jaxlocke/rig2_ecosystem/rig2_addons/scripts/extract_native_from_wheels.py)
 
 ### VSCode Blender Addon Link Issue
 
