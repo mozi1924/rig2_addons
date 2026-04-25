@@ -159,7 +159,12 @@ std::string normalize_part_name_impl(PyObject* part_name_obj) {
     return "root";
   }
 
-  const char* utf8 = PyUnicode_AsUTF8(as_str.get());
+  PyRef utf8_bytes(PyUnicode_AsUTF8String(as_str.get()));
+  if (!utf8_bytes) {
+    PyErr_Clear();
+    return "root";
+  }
+  const char* utf8 = PyBytes_AsString(utf8_bytes.get());
   if (!utf8) {
     PyErr_Clear();
     return "root";
@@ -361,7 +366,7 @@ int init_models_cache() {
     return -1;
   }
 
-  PyRef models(PyObject_CallOneArg(loads_fn.get(), json_text.get()));
+  PyRef models(PyObject_CallFunctionObjArgs(loads_fn.get(), json_text.get(), nullptr));
   if (!models || !PyDict_Check(models.get())) {
     PyErr_SetString(PyExc_RuntimeError, "Failed to parse internal model registry.");
     return -1;

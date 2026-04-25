@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Build Rig2 native C++ backends into src/native/binaries/<platform-tag>."""
+"""Build Rig2 native C++ backends into src/native/binaries/*.
+
+Default behavior (when setuptools is available) builds ABI3 modules and copies to:
+- <platform-tag>
+- <sys.platform>-abi3
+"""
 
 from __future__ import annotations
 
 import importlib.machinery
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -20,11 +26,26 @@ def platform_tag() -> str:
     return f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}"
 
 
+def abi3_platform_tag() -> str:
+    return f"{sys.platform}-abi3"
+
+
 def extension_suffixes() -> list[str]:
     suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None)
     if suffixes:
         return list(suffixes)
     return [".so", ".pyd", ".dylib"]
+
+
+def ensure_build_backend_available() -> None:
+    if importlib.util.find_spec("setuptools") is not None:
+        return
+    if importlib.util.find_spec("distutils.core") is not None:
+        return
+    raise RuntimeError(
+        "This Python runtime does not provide setuptools/distutils. "
+        "Use a Python with build tooling (for example Blender's python3.11 or system python3.9)."
+    )
 
 
 def build_extensions() -> None:
@@ -35,6 +56,10 @@ def build_extensions() -> None:
 
 
 def find_built_module(module_name: str) -> Path:
+    abi3_candidates = sorted(NATIVE_CPP_DIR.glob(f"{module_name}*.abi3.*"))
+    if abi3_candidates:
+        return abi3_candidates[0]
+
     suffixes = extension_suffixes()
     for suffix in suffixes:
         candidate = NATIVE_CPP_DIR / f"{module_name}{suffix}"
@@ -48,23 +73,45 @@ def find_built_module(module_name: str) -> Path:
     raise FileNotFoundError(f"Built extension for '{module_name}' not found in {NATIVE_CPP_DIR}")
 
 
-def copy_to_runtime_bin(module_path: Path) -> Path:
-    output_dir = ROOT / "src" / "native" / "binaries" / platform_tag()
+def _is_abi3_binary(module_path: Path) -> bool:
+    return ".abi3." in module_path.name
+
+
+def _clear_existing_variants(output_dir: Path, module_name: str) -> None:
+    for existing in output_dir.glob(f"{module_name}*"):
+        if existing.is_file():
+            existing.unlink()
+
+
+def _copy_to_platform_dir(module_path: Path, tag: str, module_name: str) -> Path:
+    output_dir = ROOT / "src" / "native" / "binaries" / tag
     output_dir.mkdir(parents=True, exist_ok=True)
+    _clear_existing_variants(output_dir, module_name)
     output_path = output_dir / module_path.name
     shutil.copy2(module_path, output_path)
     return output_path
 
 
+def copy_to_runtime_bins(module_path: Path, module_name: str) -> list[Path]:
+    copied = []
+    copied.append(_copy_to_platform_dir(module_path, platform_tag(), module_name))
+    if _is_abi3_binary(module_path):
+        copied.append(_copy_to_platform_dir(module_path, abi3_platform_tag(), module_name))
+    return copied
+
+
 def main() -> int:
     print(f"[rig2-native] Python: {sys.executable}")
     print(f"[rig2-native] Platform tag: {platform_tag()}")
+    print(f"[rig2-native] ABI3 tag: {abi3_platform_tag()}")
+    ensure_build_backend_available()
     build_extensions()
 
     for module_name in MODULE_NAMES:
         built = find_built_module(module_name)
-        copied = copy_to_runtime_bin(built)
-        print(f"[rig2-native] {module_name}: {copied}")
+        copied_paths = copy_to_runtime_bins(built, module_name)
+        for copied in copied_paths:
+            print(f"[rig2-native] {module_name}: {copied}")
 
     return 0
 

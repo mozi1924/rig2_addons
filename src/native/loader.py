@@ -16,6 +16,13 @@ def get_platform_tag():
     return f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}"
 
 
+def get_platform_tags():
+    """Return search-order platform tags, preferring abi3 shared binaries first."""
+    tags = [f"{sys.platform}-abi3", get_platform_tag()]
+    # Preserve order while deduplicating.
+    return tuple(dict.fromkeys(tags))
+
+
 @dataclass(frozen=True)
 class NativeLoadResult:
     module_name: str
@@ -102,9 +109,10 @@ def build_native_module_path(module_name):
     # `EXTENSION_SUFFIXES` lives in importlib.machinery across Python versions.
     # Keep a small fallback list for maximum compatibility.
     suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
-    base_dir = os.path.join(get_native_root(), get_platform_tag())
-    for suffix in suffixes:
-        yield os.path.join(base_dir, module_name + suffix)
+    for platform_tag in get_platform_tags():
+        base_dir = os.path.join(get_native_root(), platform_tag)
+        for suffix in suffixes:
+            yield os.path.join(base_dir, module_name + suffix)
 
 
 def load_native_extension_result(
@@ -119,11 +127,15 @@ def load_native_extension_result(
     checked_paths = list(build_native_module_path(module_name))
     existing_paths = [module_path for module_path in checked_paths if os.path.exists(module_path)]
     if not existing_paths:
+        tags = ", ".join(get_platform_tags())
         return NativeLoadResult(
             module_name=module_name,
             module=None,
             module_path="",
-            error=f"Native backend is locked: missing binary for '{module_name}' on platform '{get_platform_tag()}'.",
+            error=(
+                "Native backend is locked: missing binary for "
+                f"'{module_name}' on platform tags [{tags}]."
+            ),
         )
 
     last_error = ""

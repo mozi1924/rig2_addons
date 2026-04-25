@@ -48,9 +48,26 @@ Build and place binaries for the current Python runtime:
 python3 scripts/build_native.py
 ```
 
+Force legacy version-specific binaries (disable ABI3):
+
+```bash
+RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
+```
+
 Output location:
 
 - `src/native/binaries/<platform-tag>/`
+
+When built with `setuptools`, native modules use `abi3` (stable ABI, `Py3.9+`),
+and are copied to:
+
+- `src/native/binaries/<platform-tag>/`
+- `src/native/binaries/<sys.platform>-abi3/`
+
+Runtime loader search order is:
+
+1. `<platform-tag>` (exact interpreter version)
+2. `<sys.platform>-abi3` (cross-minor compatible binary)
 
 ### VSCode Blender Addon Link Issue
 

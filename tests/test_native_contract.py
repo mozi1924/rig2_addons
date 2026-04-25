@@ -14,20 +14,24 @@ NATIVE_BIN = os.path.join(
     "binaries",
     f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}",
 )
+NATIVE_BIN_ABI3 = os.path.join(SRC, "native", "binaries", f"{sys.platform}-abi3")
 
 
 def load_native_module(module_name: str):
     suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
-    for suffix in suffixes:
-        module_path = os.path.join(NATIVE_BIN, module_name + suffix)
-        if os.path.exists(module_path):
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            if spec is None or spec.loader is None:
-                continue
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-    raise FileNotFoundError(f"Native module {module_name} not found under {NATIVE_BIN}")
+    for base_dir in (NATIVE_BIN, NATIVE_BIN_ABI3):
+        for suffix in suffixes:
+            module_path = os.path.join(base_dir, module_name + suffix)
+            if os.path.exists(module_path):
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+    raise FileNotFoundError(
+        f"Native module {module_name} not found under {NATIVE_BIN} or {NATIVE_BIN_ABI3}"
+    )
 
 
 class NativeContractTest(unittest.TestCase):

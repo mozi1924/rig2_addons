@@ -121,7 +121,12 @@ std::string py_object_to_utf8(PyObject* obj) {
   }
 
   if (PyUnicode_Check(obj)) {
-    const char* utf8 = PyUnicode_AsUTF8(obj);
+    PyRef utf8_bytes(PyUnicode_AsUTF8String(obj));
+    if (!utf8_bytes) {
+      PyErr_Clear();
+      return std::string();
+    }
+    const char* utf8 = PyBytes_AsString(utf8_bytes.get());
     if (!utf8) {
       PyErr_Clear();
       return std::string();
@@ -135,7 +140,12 @@ std::string py_object_to_utf8(PyObject* obj) {
     return std::string();
   }
 
-  const char* utf8 = PyUnicode_AsUTF8(text.get());
+  PyRef utf8_bytes(PyUnicode_AsUTF8String(text.get()));
+  if (!utf8_bytes) {
+    PyErr_Clear();
+    return std::string();
+  }
+  const char* utf8 = PyBytes_AsString(utf8_bytes.get());
   if (!utf8) {
     PyErr_Clear();
     return std::string();
@@ -346,27 +356,30 @@ bool quaternions_close_impl(PyObject* lhs, PyObject* rhs, double epsilon, bool* 
     return true;
   }
 
-  PyRef left_seq(PySequence_Fast(lhs, "lhs must be a sequence"));
-  PyRef right_seq(PySequence_Fast(rhs, "rhs must be a sequence"));
-  if (!left_seq || !right_seq) {
+  const Py_ssize_t left_len = PySequence_Size(lhs);
+  const Py_ssize_t right_len = PySequence_Size(rhs);
+  if (left_len < 0 || right_len < 0) {
     PyErr_Clear();
     *out = false;
     return true;
   }
 
-  const Py_ssize_t left_len = PySequence_Fast_GET_SIZE(left_seq.get());
-  const Py_ssize_t right_len = PySequence_Fast_GET_SIZE(right_seq.get());
   const Py_ssize_t size = std::min(left_len, right_len);
 
   for (Py_ssize_t i = 0; i < size; ++i) {
-    PyObject* left_item = PySequence_Fast_GET_ITEM(left_seq.get(), i);
-    PyObject* right_item = PySequence_Fast_GET_ITEM(right_seq.get(), i);
+    PyRef left_item(PySequence_GetItem(lhs, i));
+    PyRef right_item(PySequence_GetItem(rhs, i));
+    if (!left_item || !right_item) {
+      PyErr_Clear();
+      *out = false;
+      return true;
+    }
 
-    double a = PyFloat_AsDouble(left_item);
+    double a = PyFloat_AsDouble(left_item.get());
     if (PyErr_Occurred()) {
       return false;
     }
-    double b = PyFloat_AsDouble(right_item);
+    double b = PyFloat_AsDouble(right_item.get());
     if (PyErr_Occurred()) {
       return false;
     }
@@ -540,7 +553,7 @@ PyObject* json_loads(PyObject* input_text) {
     return nullptr;
   }
 
-  return PyObject_CallOneArg(loads_fn.get(), input_text);
+  return PyObject_CallFunctionObjArgs(loads_fn.get(), input_text, nullptr);
 }
 
 bool read_file_utf8(const std::string& filepath, std::string* out) {
@@ -1099,7 +1112,12 @@ PyObject* method_sniff_packet_type(PyObject*, PyObject* args) {
     return new_none();
   }
 
-  const char* text = PyUnicode_AsUTF8(raw_message);
+  PyRef text_bytes(PyUnicode_AsUTF8String(raw_message));
+  if (!text_bytes) {
+    PyErr_Clear();
+    return new_none();
+  }
+  const char* text = PyBytes_AsString(text_bytes.get());
   if (!text) {
     PyErr_Clear();
     return new_none();
@@ -1216,22 +1234,26 @@ PyObject* method_face_payloads_equal(PyObject*, PyObject* args) {
     Py_RETURN_FALSE;
   }
 
-  PyRef left_seq(PySequence_Fast(lhs_faces, "lhs_faces must be a sequence"));
-  PyRef right_seq(PySequence_Fast(rhs_faces, "rhs_faces must be a sequence"));
-  if (!left_seq || !right_seq) {
+  const Py_ssize_t left_len = PySequence_Size(lhs_faces);
+  const Py_ssize_t right_len = PySequence_Size(rhs_faces);
+  if (left_len < 0 || right_len < 0) {
     PyErr_Clear();
     Py_RETURN_FALSE;
   }
 
-  const Py_ssize_t left_len = PySequence_Fast_GET_SIZE(left_seq.get());
-  const Py_ssize_t right_len = PySequence_Fast_GET_SIZE(right_seq.get());
   if (left_len != right_len) {
     Py_RETURN_FALSE;
   }
 
   for (Py_ssize_t i = 0; i < left_len; ++i) {
-    PyObject* lhs_face = PySequence_Fast_GET_ITEM(left_seq.get(), i);
-    PyObject* rhs_face = PySequence_Fast_GET_ITEM(right_seq.get(), i);
+    PyRef lhs_face_ref(PySequence_GetItem(lhs_faces, i));
+    PyRef rhs_face_ref(PySequence_GetItem(rhs_faces, i));
+    if (!lhs_face_ref || !rhs_face_ref) {
+      PyErr_Clear();
+      Py_RETURN_FALSE;
+    }
+    PyObject* lhs_face = lhs_face_ref.get();
+    PyObject* rhs_face = rhs_face_ref.get();
 
     PyObject* lhs_blendshape_obj = nullptr;
     PyObject* rhs_blendshape_obj = nullptr;
@@ -1362,18 +1384,21 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
     return nullptr;
   }
 
-  Py_buffer view{};
-  if (PyObject_GetBuffer(packet_bytes_obj, &view, PyBUF_SIMPLE) != 0) {
-    return nullptr;
+  PyRef packet_bytes(PyBytes_FromObject(packet_bytes_obj));
+  if (!packet_bytes) {
+    PyErr_Clear();
+    return new_none();
   }
 
-  const auto* bytes = reinterpret_cast<const unsigned char*>(view.buf);
-  const Py_ssize_t len = view.len;
-
-  auto release_view = [&view]() { PyBuffer_Release(&view); };
+  char* raw_bytes = nullptr;
+  Py_ssize_t len = 0;
+  if (PyBytes_AsStringAndSize(packet_bytes.get(), &raw_bytes, &len) != 0 || !raw_bytes) {
+    PyErr_Clear();
+    return new_none();
+  }
+  const auto* bytes = reinterpret_cast<const unsigned char*>(raw_bytes);
 
   if (len < 24) {
-    release_view();
     return new_none();
   }
 
@@ -1383,7 +1408,6 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
 
   if (!read_u32_le(bytes, len, 0, &magic) || !read_u32_le(bytes, len, 8, &frame_timestamp_ms) ||
       !read_u16_le(bytes, len, 20, &face_count)) {
-    release_view();
     return new_none();
   }
 
@@ -1392,45 +1416,38 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
 
   if (magic != kBinaryPacketMagic || version != kBinaryPacketVersion ||
       message_type != kBinaryMessageBlendshapes) {
-    release_view();
     return new_none();
   }
 
   if (!PyList_Check(schema_names) && !PyTuple_Check(schema_names)) {
-    release_view();
     return new_none();
   }
 
   const Py_ssize_t schema_len = PySequence_Size(schema_names);
   if (schema_len < 0) {
     PyErr_Clear();
-    release_view();
     return new_none();
   }
 
   Py_ssize_t offset = 24;
   PyRef faces_payload(PyList_New(0));
   if (!faces_payload) {
-    release_view();
     return nullptr;
   }
 
   for (uint16_t face_index = 0; face_index < face_count; ++face_index) {
     if (len - offset < 8) {
-      release_view();
       return new_none();
     }
 
     uint16_t blendshape_count = 0;
     if (!read_u16_le(bytes, len, offset + 2, &blendshape_count)) {
-      release_view();
       return new_none();
     }
     const uint8_t flags = bytes[offset + 4];
     offset += 8;
 
     if (blendshape_count > static_cast<uint16_t>(schema_len)) {
-      release_view();
       return new_none();
     }
 
@@ -1439,34 +1456,29 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
     if ((flags & kFaceFlagHeadPose) != 0) {
       const Py_ssize_t head_pose_bytes = static_cast<Py_ssize_t>(kHeadPoseFloatCount * 4);
       if (len - offset < head_pose_bytes) {
-        release_view();
         return new_none();
       }
 
       float head_pose_values[kHeadPoseFloatCount] = {0.0f};
       for (size_t i = 0; i < kHeadPoseFloatCount; ++i) {
         if (!read_f32_le(bytes, len, offset + static_cast<Py_ssize_t>(i * 4), &head_pose_values[i])) {
-          release_view();
           return new_none();
         }
       }
 
       PyRef quaternion_payload(PyDict_New());
       if (!quaternion_payload) {
-        release_view();
         return nullptr;
       }
       if (dict_set_item_string_owned(quaternion_payload.get(), "w", PyFloat_FromDouble(head_pose_values[3])) < 0 ||
           dict_set_item_string_owned(quaternion_payload.get(), "x", PyFloat_FromDouble(head_pose_values[4])) < 0 ||
           dict_set_item_string_owned(quaternion_payload.get(), "y", PyFloat_FromDouble(head_pose_values[5])) < 0 ||
           dict_set_item_string_owned(quaternion_payload.get(), "z", PyFloat_FromDouble(head_pose_values[6])) < 0) {
-        release_view();
         return nullptr;
       }
 
       PyRef sanitized_quaternion(sanitize_head_quaternion_impl(quaternion_payload.get()));
       if (!sanitized_quaternion) {
-        release_view();
         return nullptr;
       }
       head_quaternion = std::move(sanitized_quaternion);
@@ -1476,7 +1488,6 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
     if ((flags & kFaceFlagTransformationMatrix) != 0) {
       const Py_ssize_t matrix_bytes = static_cast<Py_ssize_t>(kTransformationMatrixFloatCount * 4);
       if (len - offset < matrix_bytes) {
-        release_view();
         return new_none();
       }
       offset += matrix_bytes;
@@ -1484,66 +1495,54 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
 
     const Py_ssize_t blendshape_bytes = static_cast<Py_ssize_t>(blendshape_count * 4);
     if (len - offset < blendshape_bytes) {
-      release_view();
       return new_none();
     }
 
     PyRef face_blendshapes(PyDict_New());
     if (!face_blendshapes) {
-      release_view();
       return nullptr;
     }
 
     for (uint16_t blendshape_index = 0; blendshape_index < blendshape_count; ++blendshape_index) {
       float value = 0.0f;
       if (!read_f32_le(bytes, len, offset, &value)) {
-        release_view();
         return new_none();
       }
       offset += 4;
 
       PyRef key(PySequence_GetItem(schema_names, blendshape_index));
       if (!key) {
-        release_view();
         return nullptr;
       }
 
       PyRef raw_value(PyFloat_FromDouble(value));
       if (!raw_value) {
-        release_view();
         return nullptr;
       }
       PyRef clamped(clamp01_object(raw_value.get()));
       if (!clamped) {
-        release_view();
         return nullptr;
       }
 
       if (PyDict_SetItem(face_blendshapes.get(), key.get(), clamped.get()) < 0) {
-        release_view();
         return nullptr;
       }
     }
 
     PyRef face_payload(PyDict_New());
     if (!face_payload) {
-      release_view();
       return nullptr;
     }
 
     if (PyDict_SetItemString(face_payload.get(), "blendshapes", face_blendshapes.get()) < 0 ||
         PyDict_SetItemString(face_payload.get(), "head_quaternion", head_quaternion.get()) < 0) {
-      release_view();
       return nullptr;
     }
 
     if (PyList_Append(faces_payload.get(), face_payload.get()) < 0) {
-      release_view();
       return nullptr;
     }
   }
-
-  release_view();
 
   PyRef out(PyDict_New());
   if (!out) {
