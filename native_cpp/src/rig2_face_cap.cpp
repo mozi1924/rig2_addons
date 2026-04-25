@@ -1,3 +1,7 @@
+#if defined(_WIN32) && !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+
 #include <Python.h>
 
 #include <algorithm>
@@ -14,6 +18,12 @@
 #if defined(_WIN32)
 #include <Winsock2.h>
 #include <Ws2tcpip.h>
+#if defined(min)
+#undef min
+#endif
+#if defined(max)
+#undef max
+#endif
 #pragma comment(lib, "Ws2_32.lib")
 #else
 #include <arpa/inet.h>
@@ -111,7 +121,7 @@ int dict_set_item_string_owned(PyObject* dict_obj, const char* key, PyObject* va
 
 PyObject* clamp01_object(PyObject* obj) {
   const double raw = object_to_double_or(obj, 0.0);
-  const double clamped = std::max(0.0, std::min(1.0, raw));
+  const double clamped = (std::max)(0.0, (std::min)(1.0, raw));
   return PyFloat_FromDouble(clamped);
 }
 
@@ -364,7 +374,7 @@ bool quaternions_close_impl(PyObject* lhs, PyObject* rhs, double epsilon, bool* 
     return true;
   }
 
-  const Py_ssize_t size = std::min(left_len, right_len);
+  const Py_ssize_t size = (std::min)(left_len, right_len);
 
   for (Py_ssize_t i = 0; i < size; ++i) {
     PyRef left_item(PySequence_GetItem(lhs, i));
@@ -533,7 +543,7 @@ PyObject* sanitize_packet_payload(PyObject* packet) {
   }
 
   if (PyDict_SetItemString(out.get(), "faces", sanitized_faces.get()) < 0 ||
-      dict_set_item_string_owned(out.get(), "face_count", PyLong_FromLong(std::max(0, face_count))) < 0 ||
+      dict_set_item_string_owned(out.get(), "face_count", PyLong_FromLong((std::max)(0, face_count))) < 0 ||
       PyDict_SetItemString(out.get(), "sent_at", sent_at_text.get()) < 0) {
     return nullptr;
   }
@@ -841,7 +851,7 @@ PyObject* blendshapes_from_payload_impl(PyObject* payload, PyObject* schema_name
   if (payload && PyList_Check(payload)) {
     const Py_ssize_t payload_len = PyList_Size(payload);
     const Py_ssize_t schema_len = PyList_Check(schema_names) ? PyList_Size(schema_names) : 0;
-    const Py_ssize_t max_len = std::min(payload_len, schema_len);
+    const Py_ssize_t max_len = (std::min)(payload_len, schema_len);
 
     for (Py_ssize_t i = 0; i < max_len; ++i) {
       PyObject* value = PyList_GetItem(payload, i);

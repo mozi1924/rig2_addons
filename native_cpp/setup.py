@@ -8,20 +8,26 @@ except Exception:  # Blender bundled Python may ship a partial setuptools.
     _HAS_SETUPTOOLS = False
 
 extra_compile_args = ["-O3"]
+define_macros = []
 if os.name == "nt":
     extra_compile_args.extend(["/std:c++17"])
+    define_macros.append(("NOMINMAX", "1"))
 else:
     extra_compile_args.extend(["-std=c++17"])
 
-extension_kwargs = {"language": "c++", "extra_compile_args": extra_compile_args}
+extension_kwargs = {
+    "language": "c++",
+    "extra_compile_args": extra_compile_args,
+    "define_macros": define_macros,
+}
 
 # ABI3 mode is enabled by default when setuptools is available.
 # Set `RIG2_ENABLE_ABI3=0` to force version-specific CPython binaries.
 enable_abi3 = _HAS_SETUPTOOLS and os.environ.get("RIG2_ENABLE_ABI3", "1") != "0"
 if enable_abi3:
+    define_macros.append(("Py_LIMITED_API", "0x03090000"))
     extension_kwargs.update(
         {
-            "define_macros": [("Py_LIMITED_API", "0x03090000")],
             "py_limited_api": True,
         }
     )
