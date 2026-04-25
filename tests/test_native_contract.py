@@ -67,7 +67,7 @@ class NativeContractTest(unittest.TestCase):
 
     def test_face_cap_required_symbols(self):
         native = load_native_module("rig2_face_cap")
-        self.assertEqual(native.RIG2_FACE_CAP_API_VERSION, 1)
+        self.assertEqual(native.RIG2_FACE_CAP_API_VERSION, 2)
         self.assertEqual(native.BINARY_SUBPROTOCOL, "r2fmc.bin.v1")
         self.assertEqual(native.JSON_SUBPROTOCOL, "r2fmc.json.v1")
         self.assertEqual(native.WEBSOCKET_MAGIC, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
@@ -85,6 +85,10 @@ class NativeContractTest(unittest.TestCase):
             "sanitize_head_quaternion",
             "sniff_packet_type",
             "load_offline_face_cap_payload",
+            "start_receiver",
+            "stop_receiver",
+            "poll_latest_packet",
+            "get_receiver_stats",
         )
         for name in required:
             self.assertTrue(callable(getattr(native, name, None)), name)

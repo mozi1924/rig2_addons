@@ -6,13 +6,18 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <fstream>
+#include <limits>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -28,16 +33,19 @@
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
 
 namespace {
 
-constexpr int kApiVersion = 1;
+constexpr int kApiVersion = 2;
 constexpr const char* kWebsocketMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr const char* kJsonSubprotocol = "r2fmc.json.v1";
 constexpr const char* kBinarySubprotocol = "r2fmc.bin.v1";
+constexpr int kReceiverDefaultBacklog = 8;
+constexpr int kReceiverSocketTimeoutMs = 500;
 
 constexpr uint32_t kBinaryPacketMagic = 0x5232464D;
 constexpr uint8_t kBinaryPacketVersion = 1;
@@ -46,6 +54,10 @@ constexpr uint8_t kFaceFlagHeadPose = 1 << 0;
 constexpr uint8_t kFaceFlagTransformationMatrix = 1 << 1;
 constexpr size_t kHeadPoseFloatCount = 7;
 constexpr size_t kTransformationMatrixFloatCount = 16;
+
+PyObject* method_parse_packet_text(PyObject*, PyObject* args);
+PyObject* method_parse_schema_message(PyObject*, PyObject* args);
+PyObject* method_parse_binary_packet(PyObject*, PyObject* args);
 
 class PyRef {
  public:
@@ -322,6 +334,8 @@ std::string discover_local_ipv4_impl(const std::string& preferred_host) {
 
   return std::string();
 }
+
+#include "rig2_face_cap/receiver_core.inc"
 
 PyObject* sanitize_head_quaternion_impl(PyObject* payload) {
   if (!payload || !PyDict_Check(payload)) {
@@ -1078,6 +1092,8 @@ PyObject* extract_frame_payloads_impl(PyObject* payload) {
   return PyList_New(0);
 }
 
+#include "rig2_face_cap/receiver_api.inc"
+
 PyObject* method_backend_name(PyObject*, PyObject*) {
   return PyUnicode_FromString("rig2_face_cap_cpp");
 }
@@ -1711,6 +1727,15 @@ PyMethodDef kMethods[] = {
         METH_VARARGS,
         "Load and normalize offline face capture payload.",
     },
+    {
+        "start_receiver",
+        reinterpret_cast<PyCFunction>(method_start_receiver),
+        METH_VARARGS | METH_KEYWORDS,
+        "Start native websocket receiver.",
+    },
+    {"stop_receiver", method_stop_receiver, METH_NOARGS, "Stop native websocket receiver."},
+    {"poll_latest_packet", method_poll_latest_packet, METH_NOARGS, "Poll latest packet from receiver."},
+    {"get_receiver_stats", method_get_receiver_stats, METH_NOARGS, "Get receiver runtime stats."},
     {nullptr, nullptr, 0, nullptr},
 };
 

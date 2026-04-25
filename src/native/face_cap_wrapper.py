@@ -1,6 +1,6 @@
 from .loader import load_native_extension_result
 
-FACE_CAP_NATIVE_API_VERSION = 1
+FACE_CAP_NATIVE_API_VERSION = 2
 
 _REQUIRED_CALLABLES = (
     "backend_name",
@@ -15,6 +15,10 @@ _REQUIRED_CALLABLES = (
     "sanitize_head_quaternion",
     "sniff_packet_type",
     "load_offline_face_cap_payload",
+    "start_receiver",
+    "stop_receiver",
+    "poll_latest_packet",
+    "get_receiver_stats",
 )
 
 _REQUIRED_ATTRIBUTES = (

@@ -85,6 +85,35 @@ class _LockedFaceCapBackend:
     def load_offline_face_cap_payload(self, _filepath):
         self._raise_locked()
 
+    def start_receiver(self, _host, _port, _options=None):
+        self._raise_locked()
+
+    @staticmethod
+    def stop_receiver():
+        return None
+
+    @staticmethod
+    def poll_latest_packet():
+        return None
+
+    @staticmethod
+    def get_receiver_stats():
+        return {
+            "host": "",
+            "port": 0,
+            "is_listening": False,
+            "bind_failed": False,
+            "client_address": "",
+            "packet_count": 0,
+            "dropped_packet_count": 0,
+            "last_packet_time": 0.0,
+            "last_sent_at": "",
+            "status_message": "Stopped",
+            "last_error": "",
+            "transport_mode": "websocket",
+            "transport_encoding": None,
+        }
+
 
 class FaceCapBackendService:
     """
@@ -146,6 +175,10 @@ class FaceCapBackendService:
             "resolve_transport_encoding": backend.resolve_transport_encoding,
             "sanitize_head_quaternion": backend.sanitize_head_quaternion,
             "sniff_packet_type": backend.sniff_packet_type,
+            "start_receiver": getattr(backend, "start_receiver", None),
+            "stop_receiver": getattr(backend, "stop_receiver", None),
+            "poll_latest_packet": getattr(backend, "poll_latest_packet", None),
+            "get_receiver_stats": getattr(backend, "get_receiver_stats", None),
             "BINARY_SUBPROTOCOL": backend.BINARY_SUBPROTOCOL,
             "JSON_SUBPROTOCOL": backend.JSON_SUBPROTOCOL,
             "WEBSOCKET_MAGIC": backend.WEBSOCKET_MAGIC,
