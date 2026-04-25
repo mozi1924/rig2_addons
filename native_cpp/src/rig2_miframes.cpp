@@ -285,13 +285,92 @@ int append_transition(PyObject* transitions, PyObject* bone_name, double time, P
   return 0;
 }
 
+int seed_transition_bucket(PyObject* transitions, PyObject* bone_name) {
+  if (!bone_name) {
+    return 0;
+  }
+  const int is_truthy = PyObject_IsTrue(bone_name);
+  if (is_truthy < 0) {
+    return -1;
+  }
+  if (!is_truthy) {
+    return 0;
+  }
+
+  PyObject* bucket = PyDict_GetItemWithError(transitions, bone_name);
+  if (bucket) {
+    return 0;
+  }
+  if (PyErr_Occurred()) {
+    return -1;
+  }
+
+  PyRef new_bucket(PyList_New(0));
+  if (!new_bucket) {
+    return -1;
+  }
+  if (PyDict_SetItem(transitions, bone_name, new_bucket.get()) < 0) {
+    return -1;
+  }
+  return 0;
+}
+
+int preseed_transition_buckets(PyObject* transitions, PyObject* bones_cfg, PyObject* bend_cfg) {
+  Py_ssize_t pos = 0;
+  PyObject* part_name = nullptr;
+  PyObject* bone_cfg = nullptr;
+  while (PyDict_Next(bones_cfg, &pos, &part_name, &bone_cfg)) {
+    if (!bone_cfg || !PyDict_Check(bone_cfg)) {
+      continue;
+    }
+    PyObject* rot_target = dict_get_item(bone_cfg, "target_rot");
+    PyObject* pos_target = dict_get_item(bone_cfg, "target_pos_scl");
+    PyObject* target = dict_get_item(bone_cfg, "target");
+    if (seed_transition_bucket(transitions, rot_target) < 0 ||
+        seed_transition_bucket(transitions, pos_target) < 0 ||
+        seed_transition_bucket(transitions, target) < 0) {
+      return -1;
+    }
+  }
+
+  pos = 0;
+  PyObject* bend_part = nullptr;
+  PyObject* bend_target = nullptr;
+  while (PyDict_Next(bend_cfg, &pos, &bend_part, &bend_target)) {
+    if (seed_transition_bucket(transitions, bend_target) < 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+int append_operation_item(PyObject* operations, Py_ssize_t* write_index, PyObject* op) {
+  const Py_ssize_t preallocated = PyList_Size(operations);
+  if (*write_index < preallocated) {
+    if (PyList_SetItem(operations, *write_index, op) < 0) {  // steals `op`
+      return -1;
+    }
+    *write_index += 1;
+    return 0;
+  }
+
+  if (PyList_Append(operations, op) < 0) {
+    Py_DECREF(op);
+    return -1;
+  }
+  Py_DECREF(op);
+  *write_index += 1;
+  return 0;
+}
+
 int append_operation(
     PyObject* operations,
+    Py_ssize_t* write_index,
     double time,
     PyObject* part_name,
     PyObject* values,
     PyObject* bone_name,
-    const char* handler_kind,
+    PyObject* handler_kind,
     PyObject* handler_name) {
   PyRef op(PyDict_New());
   if (!op) {
@@ -315,11 +394,7 @@ int append_operation(
     return -1;
   }
 
-  PyRef kind(PyUnicode_FromString(handler_kind));
-  if (!kind) {
-    return -1;
-  }
-  if (PyDict_SetItemString(op.get(), "handler_kind", kind.get()) < 0) {
+  if (PyDict_SetItemString(op.get(), "handler_kind", handler_kind) < 0) {
     return -1;
   }
 
@@ -330,10 +405,30 @@ int append_operation(
     return -1;
   }
 
-  if (PyList_Append(operations, op.get()) < 0) {
-    return -1;
+  return append_operation_item(operations, write_index, op.release());
+}
+
+PyObject* normalize_part_name_cached(PyObject* cache, PyObject* part_name_obj) {
+  PyObject* cache_key = part_name_obj ? part_name_obj : Py_None;
+  PyObject* cached = PyDict_GetItemWithError(cache, cache_key);
+  if (cached) {
+    Py_INCREF(cached);
+    return cached;
   }
-  return 0;
+  if (PyErr_Occurred()) {
+    PyErr_Clear();
+  }
+
+  const std::string normalized = normalize_part_name_impl(part_name_obj);
+  PyRef normalized_obj(PyUnicode_FromString(normalized.c_str()));
+  if (!normalized_obj) {
+    return nullptr;
+  }
+
+  if (PyDict_SetItem(cache, cache_key, normalized_obj.get()) < 0) {
+    PyErr_Clear();
+  }
+  return normalized_obj.release();
 }
 
 PyObject* get_dict_or_empty(PyObject* obj, const char* key) {
@@ -426,12 +521,6 @@ PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
     return nullptr;
   }
 
-  PyRef operations(PyList_New(0));
-  PyRef transitions(PyDict_New());
-  if (!operations || !transitions) {
-    return nullptr;
-  }
-
   PyRef bones_cfg(get_dict_or_empty(config, "bones"));
   PyRef bend_cfg(get_dict_or_empty(config, "bend_targets"));
   if (!bones_cfg || !bend_cfg) {
@@ -450,22 +539,47 @@ PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
   PyRef keyframes_holder(keyframes);
 
   const Py_ssize_t keyframe_count = PyList_Size(keyframes);
+  const Py_ssize_t estimated_operation_count = keyframe_count > 0 ? keyframe_count * 3 : 0;
+
+  PyRef operations(PyList_New(estimated_operation_count));
+  PyRef transitions(PyDict_New());
+  PyRef part_name_cache(PyDict_New());
+  if (!operations || !transitions || !part_name_cache) {
+    return nullptr;
+  }
+  if (preseed_transition_buckets(transitions.get(), bones_cfg.get(), bend_cfg.get()) < 0) {
+    return nullptr;
+  }
+
+  PyRef kind_rot(PyUnicode_FromString("rot"));
+  PyRef kind_pos_scl(PyUnicode_FromString("pos_scl"));
+  PyRef kind_bend(PyUnicode_FromString("bend"));
+  PyRef handler_standard(PyUnicode_FromString("standard"));
+  PyRef handler_pos_scl(PyUnicode_FromString("pos_scl"));
+  PyRef handler_bend(PyUnicode_FromString("bend"));
+  if (!kind_rot || !kind_pos_scl || !kind_bend || !handler_standard || !handler_pos_scl || !handler_bend) {
+    return nullptr;
+  }
+
+  Py_ssize_t operation_write_index = 0;
   for (Py_ssize_t i = 0; i < keyframe_count; ++i) {
     PyObject* keyframe = PyList_GetItem(keyframes, i);
     if (!keyframe || !PyDict_Check(keyframe)) {
       continue;
     }
 
-    const double position = object_to_double_or(dict_get_item(keyframe, "position"), 0.0);
+    PyObject* position_obj = dict_get_item(keyframe, "position");
+    PyObject* part_name_obj = dict_get_item(keyframe, "part_name");
+    PyObject* values = dict_get_item(keyframe, "values");
+
+    const double position = object_to_double_or(position_obj, 0.0);
     const double time = start_frame + (position * fps_scale);
 
-    const std::string normalized_part_name = normalize_part_name_impl(dict_get_item(keyframe, "part_name"));
-    PyRef part_name(PyUnicode_FromString(normalized_part_name.c_str()));
+    PyRef part_name(normalize_part_name_cached(part_name_cache.get(), part_name_obj));
     if (!part_name) {
       return nullptr;
     }
 
-    PyObject* values = dict_get_item(keyframe, "values");
     PyRef values_holder;
     if (!values || !PyDict_Check(values)) {
       values_holder = PyRef(PyDict_New());
@@ -482,64 +596,56 @@ PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
 
     PyObject* bone_cfg = PyDict_GetItemWithError(bones_cfg.get(), part_name.get());
     if (bone_cfg && PyDict_Check(bone_cfg)) {
-      const char* target_keys[] = {"target_rot", "target_pos_scl", "target"};
-      for (const char* target_key : target_keys) {
-        PyObject* bone_name = dict_get_item(bone_cfg, target_key);
-        if (append_transition(transitions.get(), bone_name, time, transition.get()) < 0) {
-          return nullptr;
-        }
+      PyObject* rot_target = dict_get_item(bone_cfg, "target_rot");
+      PyObject* pos_target = dict_get_item(bone_cfg, "target_pos_scl");
+      PyObject* target = dict_get_item(bone_cfg, "target");
+      PyObject* handler_rot = dict_get_item(bone_cfg, "handler_rot");
+      PyObject* handler_pos = dict_get_item(bone_cfg, "handler_pos_scl");
+
+      if (append_transition(transitions.get(), rot_target, time, transition.get()) < 0 ||
+          append_transition(transitions.get(), pos_target, time, transition.get()) < 0 ||
+          append_transition(transitions.get(), target, time, transition.get()) < 0) {
+        return nullptr;
       }
 
-      PyObject* rot_target = dict_get_item(bone_cfg, "target_rot");
       if (rot_target) {
         const int truthy = PyObject_IsTrue(rot_target);
         if (truthy < 0) {
           return nullptr;
         }
         if (truthy) {
-          PyObject* handler_name = dict_get_item(bone_cfg, "handler_rot");
-          if (!handler_name) {
-            handler_name = PyUnicode_FromString("standard");
-            if (!handler_name) {
-              return nullptr;
-            }
-            PyRef tmp(handler_name);
-            if (append_operation(
-                    operations.get(), time, part_name.get(), values, rot_target, "rot", handler_name) < 0) {
-              return nullptr;
-            }
-          } else {
-            if (append_operation(
-                    operations.get(), time, part_name.get(), values, rot_target, "rot", handler_name) < 0) {
-              return nullptr;
-            }
+          PyObject* handler_name = handler_rot ? handler_rot : handler_standard.get();
+          if (append_operation(
+                  operations.get(),
+                  &operation_write_index,
+                  time,
+                  part_name.get(),
+                  values,
+                  rot_target,
+                  kind_rot.get(),
+                  handler_name) < 0) {
+            return nullptr;
           }
         }
       }
 
-      PyObject* pos_target = dict_get_item(bone_cfg, "target_pos_scl");
       if (pos_target) {
         const int truthy = PyObject_IsTrue(pos_target);
         if (truthy < 0) {
           return nullptr;
         }
         if (truthy) {
-          PyObject* handler_name = dict_get_item(bone_cfg, "handler_pos_scl");
-          if (!handler_name) {
-            handler_name = PyUnicode_FromString("pos_scl");
-            if (!handler_name) {
-              return nullptr;
-            }
-            PyRef tmp(handler_name);
-            if (append_operation(
-                    operations.get(), time, part_name.get(), values, pos_target, "pos_scl", handler_name) < 0) {
-              return nullptr;
-            }
-          } else {
-            if (append_operation(
-                    operations.get(), time, part_name.get(), values, pos_target, "pos_scl", handler_name) < 0) {
-              return nullptr;
-            }
+          PyObject* handler_name = handler_pos ? handler_pos : handler_pos_scl.get();
+          if (append_operation(
+                  operations.get(),
+                  &operation_write_index,
+                  time,
+                  part_name.get(),
+                  values,
+                  pos_target,
+                  kind_pos_scl.get(),
+                  handler_name) < 0) {
+            return nullptr;
           }
         }
       }
@@ -555,15 +661,24 @@ PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
         if (append_transition(transitions.get(), bend_target, time, transition.get()) < 0) {
           return nullptr;
         }
-        PyRef handler_name(PyUnicode_FromString("bend"));
-        if (!handler_name) {
-          return nullptr;
-        }
         if (append_operation(
-                operations.get(), time, part_name.get(), values, bend_target, "bend", handler_name.get()) < 0) {
+                operations.get(),
+                &operation_write_index,
+                time,
+                part_name.get(),
+                values,
+                bend_target,
+                kind_bend.get(),
+                handler_bend.get()) < 0) {
           return nullptr;
         }
       }
+    }
+  }
+
+  if (operation_write_index < estimated_operation_count) {
+    if (PyList_SetSlice(operations.get(), operation_write_index, estimated_operation_count, nullptr) < 0) {
+      return nullptr;
     }
   }
 
