@@ -1,0 +1,105 @@
+name: Build Native Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "native_cpp/**"
+      - "scripts/extract_native_from_wheels.py"
+      - ".github/workflows/build-native-binaries.yml"
+  pull_request:
+    paths:
+      - "native_cpp/**"
+      - "scripts/extract_native_from_wheels.py"
+      - ".github/workflows/build-native-binaries.yml"
+
+jobs:
+  build-wheels:
+    name: Build Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            cibw_archs: "x86_64 aarch64"
+            cibw_arch_env_key: "CIBW_ARCHS_LINUX"
+          - os: macos-14
+            cibw_archs: "x86_64 arm64"
+            cibw_arch_env_key: "CIBW_ARCHS_MACOS"
+          - os: windows-2022
+            cibw_archs: "AMD64 ARM64"
+            cibw_arch_env_key: "CIBW_ARCHS_WINDOWS"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup QEMU (Linux cross-arch)
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip cibuildwheel
+
+      - name: Configure cibuildwheel architecture env
+        shell: bash
+        run: |
+          echo "${{ matrix.cibw_arch_env_key }}=${{ matrix.cibw_archs }}" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        env:
+          CIBW_BUILD: "cp39-*"
+          CIBW_SKIP: "pp* *-musllinux_* *-manylinux_i686 *-win32"
+          CIBW_ENVIRONMENT: "RIG2_ENABLE_ABI3=1"
+          CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name())\""
+        run: python -m cibuildwheel native_cpp --output-dir wheelhouse
+
+      - name: Upload wheelhouse
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelhouse-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  package-native:
+    name: Package Runtime Binaries
+    runs-on: ubuntu-22.04
+    needs: build-wheels
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: wheelhouse
+          merge-multiple: true
+
+      - name: Extract runtime native binaries
+        run: |
+          python scripts/extract_native_from_wheels.py \
+            --wheelhouse wheelhouse \
+            --output native_dist
+
+      - name: Show extracted layout
+        run: find native_dist -type f | sort
+
+      - name: Upload runtime binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-binaries
+          path: native_dist/**
+          if-no-files-found: error

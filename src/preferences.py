@@ -5,13 +5,13 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
     # Get the root package name robustly
     bl_idname = __package__.partition('.')[0] if __package__ else "rig2_addons"
 
-    show_n_panel = bpy.props.BoolProperty(
+    show_n_panel: bpy.props.BoolProperty(
         name="Show N-Panel",
         description="Show the Rig2 control panel in the 3D View side panel (N-key)",
         default=True,
     )
 
-    show_logic_props = bpy.props.BoolProperty(
+    show_logic_props: bpy.props.BoolProperty(
         name="Show all logic properties",
         description="Show all custom properties for the 'logic' bone in the Danger Zone",
         default=False,

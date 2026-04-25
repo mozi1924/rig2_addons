@@ -1,5 +1,6 @@
 import bpy
 from bpy.props import EnumProperty, PointerProperty
+from ...services.miframes_service import get_miframes_backend_service
 
 # Property mapping and friendly names for Rig Controls
 PROPERTY_MAP = {
@@ -120,9 +121,9 @@ class Rig2ControlProperties(bpy.types.PropertyGroup):
     )
 
     def get_model_items(self, context):
-        from .miframes.configs import MODELS
+        models = get_miframes_backend_service().get_models()
         items = []
-        for key, cfg in MODELS.items():
+        for key, cfg in models.items():
             items.append((key, cfg.get("name", key), ""))
         if not items:
             items.append(("steve", "Steve (Internal Default)", ""))

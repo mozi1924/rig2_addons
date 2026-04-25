@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# Rig2 commercial native payloads (downloaded/unpacked locally)
+/src/native/binaries/
+/src/native/**/*.pyd
+/src/native/**/*.so
+/src/native/**/*.dylib
+/src/native/**/*.dll
+
 # Distribution / packaging
 .Python
 build/

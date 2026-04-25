@@ -35,6 +35,70 @@ This project is structured modularly:
 - `src/modules/binding`: Core binding logic.
 - `src/i18n`: Internationalization files.
 
+### Native Backends (C++)
+
+Commercial logic backends are now provided as CPython C++ extensions:
+
+- `rig2_miframes`
+- `rig2_face_cap`
+
+Build and place binaries for the current Python runtime:
+
+```bash
+python3 scripts/build_native.py
+```
+
+Force legacy version-specific binaries (disable ABI3):
+
+```bash
+RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
+```
+
+Output location:
+
+- `src/native/binaries/<platform-tag>/`
+
+When built with `setuptools`, native modules use `abi3` (stable ABI, `Py3.9+`),
+and are copied to:
+
+- `src/native/binaries/<sys.platform>-<arch>-<pyver>/`
+- `src/native/binaries/<sys.platform>-<arch>-abi3/`
+- (compat) `src/native/binaries/<sys.platform>-<pyver>/`
+- (compat) `src/native/binaries/<sys.platform>-abi3/`
+
+Runtime loader search order is:
+
+1. `<sys.platform>-<arch>-abi3`
+2. `<sys.platform>-abi3`
+3. `<sys.platform>-<arch>-<pyver>`
+4. `<sys.platform>-<pyver>`
+
+### Cross-Platform Artifacts
+
+CI workflow [build-native-binaries.yml](/Users/jaxlocke/rig2_ecosystem/rig2_addons/.github/workflows/build-native-binaries.yml)
+builds wheels for:
+
+- Linux: `x86_64`, `aarch64`
+- macOS: `x86_64`, `arm64`
+- Windows: `AMD64`, `ARM64`
+
+Then converts wheels to addon runtime layout using:
+
+- [extract_native_from_wheels.py](/Users/jaxlocke/rig2_ecosystem/rig2_addons/scripts/extract_native_from_wheels.py)
+
+### VSCode Blender Addon Link Issue
+
+If Blender VSCode startup throws:
+`FileExistsError: ... scripts/addons/rig2_addons`
+it is usually caused by a broken symlink left by an old workspace path.
+
+Fix by recreating the symlink:
+
+```bash
+rm "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
+ln -s "/absolute/path/to/rig2_addons" "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
+```
+
 ---
 
 _Created by Antigravity_

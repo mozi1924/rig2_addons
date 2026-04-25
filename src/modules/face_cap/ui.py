@@ -5,6 +5,7 @@ from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
 from ...i18n import iface as _
+from ...services.face_cap_service import get_face_cap_backend_service
 from ...ui.base import RIG2_PT_PanelBase
 from .props import ensure_face_cap_binding_items
 from ..rig_controls.props import FRIENDLY_NAMES
@@ -30,6 +31,20 @@ def _format_transport_label(status):
 
 class FaceCapUIDrawer:
     INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
+
+    @staticmethod
+    def _is_backend_unlocked():
+        return get_face_cap_backend_service().is_feature_unlocked()
+
+    @staticmethod
+    def _draw_backend_lock_hint(layout):
+        backend_service = get_face_cap_backend_service()
+        if backend_service.is_feature_unlocked():
+            return False
+
+        layout.label(text=_("Face Capture C++ backend is not unlocked"), icon="LOCKED")
+        layout.label(text=backend_service.get_lock_reason(), icon="INFO")
+        return True
 
     @staticmethod
     def _draw_info_line(layout, label, value, *, icon="NONE"):
@@ -102,7 +117,10 @@ class FaceCapUIDrawer:
 
     @staticmethod
     def draw_import_section(layout, context):
-        layout.operator("rig2.face_cap_import_json", text=_("Import Face Capture JSON"), icon="IMPORT")
+        is_locked = FaceCapUIDrawer._draw_backend_lock_hint(layout)
+        row = layout.row()
+        row.enabled = not is_locked
+        row.operator("rig2.face_cap_import_json", text=_("Import Face Capture JSON"), icon="IMPORT")
         layout.label(
             text=_("Import starts at the current scene frame and follows the binding list"),
             icon="INFO",
@@ -150,21 +168,30 @@ class FaceCapUIDrawer:
 
     @staticmethod
     def draw_receiver_section(layout, context):
+        is_locked = FaceCapUIDrawer._draw_backend_lock_hint(layout)
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings:
             layout.prop(settings, "listen_host")
             layout.prop(settings, "listen_port")
 
         row = layout.row(align=True)
+        row.enabled = not is_locked
         row.operator("rig2.face_cap_start_server", icon="PLAY")
         row.operator("rig2.face_cap_stop_server", icon="PAUSE")
 
     @staticmethod
     def draw_status_section(layout):
+        backend_service = get_face_cap_backend_service()
         service = get_runtime_service()
         status = service.get_status_snapshot()
         enabled_rigs = service.count_enabled_rigs()
 
+        layout.label(
+            text=_("Face Capture backend unlocked")
+            if backend_service.is_feature_unlocked()
+            else _("Face Capture C++ backend is not unlocked"),
+            icon="CHECKMARK" if backend_service.is_feature_unlocked() else "LOCKED",
+        )
         layout.label(
             text=status["status_message"],
             icon="INFO" if not status["last_error"] else "ERROR",
@@ -199,11 +226,12 @@ class FaceCapUIDrawer:
 
     @staticmethod
     def draw_data_section(layout, context):
+        is_locked = FaceCapUIDrawer._draw_backend_lock_hint(layout)
         obj = get_context_object(context)
         face_bone = obj.pose.bones.get("Face_BlendShapes") if obj else None
 
         row = layout.row(align=True)
-        row.enabled = bool(face_bone)
+        row.enabled = bool(face_bone) and not is_locked
         row.operator("rig2.face_cap_apply_now", icon="IMPORT")
         row.operator("rig2.face_cap_clear_keys", icon="TRASH")
 

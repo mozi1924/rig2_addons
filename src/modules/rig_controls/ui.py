@@ -5,6 +5,7 @@ from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import iface as _
 from ...preferences import get_preferences
+from ...services.miframes_service import get_miframes_backend_service
 from ...ui.base import RIG2_PT_PanelBase, RIG2_PT_SidePanelBase
 
 
@@ -261,7 +262,7 @@ class Rig2UIDrawer:
         logic_props = [
             key
             for key in bone.keys()
-            if key not in Rig2UIDrawer.INTERNAL_KEYS and key != "mi_mapping_mode"
+            if key not in INTERNAL_KEYS and key != "mi_mapping_mode"
         ]
         if not logic_props:
             layout.label(text=_("No logic properties found."))
@@ -354,6 +355,8 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
 
         layout = self.layout
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
+        miframes_service = get_miframes_backend_service()
+        is_miframes_unlocked = miframes_service.is_feature_unlocked()
 
         settings_box = layout.box()
         settings_box.label(text=_("Settings"), icon="PREFERENCES")
@@ -368,10 +371,12 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
         action_box = layout.box()
         action_box.label(text=_("Action"), icon="ACTION_TWEAK")
         row = action_box.row()
-        row.enabled = has_mi2bl
+        row.enabled = has_mi2bl and is_miframes_unlocked
         row.operator("mi.import_action", text=_("Load Anim (.mi*)"), icon="IMPORT")
         if not has_mi2bl:
             action_box.label(text=_("Requires mi2bl addon"), icon="INFO")
+        elif not is_miframes_unlocked:
+            action_box.label(text=_("MIFrames C++ backend is not unlocked"), icon="LOCKED")
 
         mi_active = bool(logic_bone and logic_bone.get("mi_mapping_mode", 0) > 0)
         if mi_active:
