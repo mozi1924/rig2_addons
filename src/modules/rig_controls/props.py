@@ -1,5 +1,6 @@
 import bpy
 from bpy.props import EnumProperty, PointerProperty
+from ...core.utils import refresh_rig_drivers
 from ...services.miframes_service import get_miframes_backend_service
 
 # Property mapping and friendly names for Rig Controls
@@ -80,10 +81,7 @@ def set_bone_val(bone_name, prop_name, val):
     if obj and bone_name in obj.pose.bones:
         if obj.pose.bones[bone_name].get(prop_name) != val:
             obj.pose.bones[bone_name][prop_name] = val
-            try:
-                obj.update_tag(refresh={'OBJECT', 'DATA'})
-            except Exception:
-                pass
+            refresh_rig_drivers(obj, context=bpy.context)
 
 class Rig2ControlProperties(bpy.types.PropertyGroup):
     def get_lash(self): return int(get_bone_val("prop.head", "lash", 0))

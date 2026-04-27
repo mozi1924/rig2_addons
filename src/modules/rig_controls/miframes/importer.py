@@ -5,6 +5,7 @@ import os
 import re
 from mathutils import Euler
 from ....services.miframes_service import get_miframes_backend_service
+from ....core.utils import refresh_rig_drivers
 
 # Rig2 depends on mi2bl for the core MI parsing and easing logic.
 # This fulfills the "Rig2 needs mi2bl" requirement and merges duplicate code.
@@ -146,6 +147,8 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
         # --- Set Mapping Mode ---
         if "logic" in arm.pose.bones:
             arm.pose.bones["logic"]["mi_mapping_mode"] = 1.0
+
+        refresh_rig_drivers(arm, context=context)
 
         self.report({'INFO'}, "Imported successfully via Rig2 + mi2bl core")
         return {'FINISHED'}

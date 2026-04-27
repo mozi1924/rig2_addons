@@ -4,7 +4,7 @@ import time
 import bpy
 from bpy.app.handlers import persistent
 
-from ...core.utils import is_rig2_armature
+from ...core.utils import is_rig2_armature, refresh_rig_driver_batch
 from ...services.face_cap_service import get_face_cap_backend_service
 from .props import get_face_cap_bindings, get_face_cap_settings
 
@@ -393,23 +393,8 @@ class FaceCapRuntimeService:
             if changed:
                 changed_objects.append(obj)
 
-        for obj in changed_objects:
-            try:
-                obj.update_tag(refresh={"OBJECT", "DATA"})
-            except Exception:
-                pass
-
         if changed_objects:
-            window_manager = getattr(bpy.context, "window_manager", None)
-            for window in getattr(window_manager, "windows", []):
-                screen = getattr(window, "screen", None)
-                if not screen:
-                    continue
-                for area in screen.areas:
-                    try:
-                        area.tag_redraw()
-                    except Exception:
-                        pass
+            refresh_rig_driver_batch(changed_objects, context=bpy.context, redraw=True)
 
         with self._lock:
             self._latest_faces = list(faces_payload)

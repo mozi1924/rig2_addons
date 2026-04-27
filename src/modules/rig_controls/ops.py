@@ -2,6 +2,7 @@ import bpy
 from .props import PROPERTY_MAP
 from ...core.constants import INTERNAL_KEYS
 from ...core.registration import register_classes, unregister_classes
+from ...core.utils import refresh_rig_drivers
 from ...i18n import format_text as _f
 
 # miframes imports are handled in the miframes module subdirectory
@@ -61,10 +62,7 @@ class Rig2Controller:
                     except:
                         pass
         
-        try:
-            obj.update_tag(refresh={'OBJECT', 'DATA'})
-        except Exception:
-            pass
+        refresh_rig_drivers(obj, context=context)
 
     @staticmethod
     def keyframe_all_props(context):

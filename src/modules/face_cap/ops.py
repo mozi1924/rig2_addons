@@ -3,7 +3,12 @@ from bpy_extras.io_utils import ImportHelper
 
 from ...core.constants import IDENTITY_QUATERNION, INTERNAL_KEYS
 from ...core.registration import register_classes, unregister_classes
-from ...core.utils import get_context_object, is_rig2_armature
+from ...core.utils import (
+    get_context_object,
+    is_rig2_armature,
+    refresh_rig_driver_batch,
+    refresh_rig_drivers,
+)
 from ...i18n import format_text as _f
 from ...services.face_cap_service import get_face_cap_backend_service
 from .props import (
@@ -233,15 +238,13 @@ class RIG2_OT_FaceCapImportJson(bpy.types.Operator, ImportHelper):
                 face_bone.rotation_quaternion = target_head_quaternion or IDENTITY_QUATERNION
                 face_bone.keyframe_insert("rotation_quaternion", frame=frame_number)
 
-                try:
-                    obj.update_tag(refresh={"OBJECT", "DATA"})
-                except Exception:
-                    pass
-
             inserted_frames += 1
 
-        if context.view_layer:
-            context.view_layer.update()
+        refresh_rig_driver_batch(
+            [target["obj"] for target in targets],
+            context=context,
+            redraw=True,
+        )
 
         self.report(
             {"INFO"},
@@ -347,11 +350,6 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
         face_bone.rotation_mode = "QUATERNION"
         face_bone.rotation_quaternion = IDENTITY_QUATERNION
 
-        try:
-            obj.update_tag(refresh={"OBJECT", "DATA"})
-        except Exception:
-            pass
-
         removed_curves = 0
         prop_prefix = 'pose.bones["Face_BlendShapes"]["'
         rotation_path = 'pose.bones["Face_BlendShapes"].rotation_quaternion'
@@ -363,8 +361,7 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
 
         get_runtime_service().clear_cached_packet()
 
-        if context.view_layer:
-            context.view_layer.update()
+        refresh_rig_drivers(obj, context=context)
 
         self.report(
             {"INFO"},
