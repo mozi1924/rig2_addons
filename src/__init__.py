@@ -1,10 +1,9 @@
-from . import preferences, i18n
+from . import preferences, i18n, licensing
 from .modules import rig_controls, binding, face_cap
-
-# Future modules can be added here
 
 modules = [
     i18n,
+    licensing,
     preferences,
     rig_controls,
     face_cap,

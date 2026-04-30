@@ -1,12 +1,13 @@
 from ..native.face_cap_wrapper import backend as face_cap_backend
 from ..native.face_cap_wrapper import is_native_backend as face_cap_is_native_backend
-from ..native.face_cap_wrapper import is_feature_unlocked as face_cap_is_feature_unlocked
-from ..native.face_cap_wrapper import get_lock_reason as face_cap_get_lock_reason
+from ..native.face_cap_wrapper import is_feature_unlocked as _face_cap_binary_available
+from ..native.face_cap_wrapper import get_lock_reason as _face_cap_binary_lock_reason
+from ..licensing.config import FEATURE_FACE_CAP
 from .errors import FeatureLockedError
 
 
 class _LockedFaceCapBackend:
-    """Safe backend shim used when Face Capture native binary is unavailable."""
+    """Safe backend shim used when Face Capture native backend is unavailable."""
 
     BINARY_SUBPROTOCOL = "r2fmc.bin.v1"
     JSON_SUBPROTOCOL = "r2fmc.json.v1"
@@ -115,37 +116,53 @@ class _LockedFaceCapBackend:
         }
 
 
+def _is_license_valid():
+    try:
+        from ..licensing.manager import get_license_manager
+        return get_license_manager().is_feature_licensed(FEATURE_FACE_CAP)
+    except Exception:
+        return False
+
+
+def _is_license_activated():
+    try:
+        from ..licensing.manager import get_license_manager
+        return get_license_manager().is_activated()
+    except Exception:
+        return False
+
+
 class FaceCapBackendService:
-    """
-    Centralized backend access for FaceCap logic.
+    """Centralized backend access for FaceCap logic.
 
-    This is the intended seam for future:
-    - entitlement checks
-    - binary availability checks
-    - on-demand downloads
-    - version compatibility checks
+    Combines native binary availability and Orbisauth license checks
+    to gate the commercial Face Capture feature.
     """
-
-    def __init__(self):
-        self._backend = None
 
     def get_backend(self):
-        if self._backend is None:
-            if self.is_feature_unlocked():
-                self._backend = face_cap_backend()
-            else:
-                self._backend = _LockedFaceCapBackend(self.get_lock_reason())
-        return self._backend
+        if self.is_feature_unlocked():
+            return face_cap_backend()
+        return _LockedFaceCapBackend(self.get_lock_reason())
 
     def is_native_backend(self):
         return face_cap_is_native_backend()
 
     def is_feature_unlocked(self):
-        return face_cap_is_feature_unlocked()
+        if not _face_cap_binary_available():
+            return False
+        return _is_license_valid()
 
     def get_lock_reason(self):
-        reason = face_cap_get_lock_reason()
-        return reason or "Face Capture native backend is not unlocked."
+        if not _face_cap_binary_available():
+            return (
+                _face_cap_binary_lock_reason()
+                or "Face Capture native backend is not installed."
+            )
+        if not _is_license_activated():
+            return "License not activated. Activate your license in Addon Preferences."
+        if not _is_license_valid():
+            return "Face Capture is not included in your license tier."
+        return "Face Capture is not unlocked."
 
     def require_feature_unlocked(self):
         if self.is_feature_unlocked():

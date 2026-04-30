@@ -103,3 +103,38 @@ jobs:
           name: native-binaries
           path: native_dist/**
           if-no-files-found: error
+
+  upload-r2:
+    name: Upload to Cloudflare R2
+    runs-on: ubuntu-22.04
+    needs: package-native
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download native binaries artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-binaries
+          path: native_dist
+
+      - name: Install upload dependencies
+        run: pip install boto3
+
+      - name: Upload to R2
+        env:
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          python scripts/upload_to_r2.py \
+            --binary-dir native_dist \
+            --storage-prefix rig2
