@@ -64,10 +64,16 @@ def get_session_dir():
         normalized = os.path.normpath(candidate)
         try:
             os.makedirs(normalized, exist_ok=True)
-        except OSError:
+            # Test if the directory is actually writable
+            test_file = os.path.join(normalized, ".rig2_write_test")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+        except (OSError, PermissionError):
             continue
         return normalized
     raise OSError("Unable to create a writable session directory for rig2_addons")
+
 
 
 def get_session_path():

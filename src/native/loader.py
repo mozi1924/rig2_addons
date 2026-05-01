@@ -11,7 +11,8 @@ from typing import Optional, Sequence
 
 def get_native_root():
     """Return the directory where downloaded native modules should live."""
-    return os.path.join(os.path.dirname(__file__), "binaries")
+    return os.environ.get("RIG2_NATIVE_ROOT") or os.path.join(os.path.dirname(__file__), "binaries")
+
 
 
 def get_platform_tag():

@@ -35,47 +35,64 @@ def _empty_state():
     }
 
 
+import threading
+
+_state_lock = threading.RLock()
+
+
+
 def _load_persisted_state():
-    path = get_feature_status_path()
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict):
-            merged = _empty_state()
-            merged.update(data)
-            feature_data = merged.get("features", {})
-            merged["features"] = {
-                feature_name: {
-                    **_empty_state()["features"][feature_name],
-                    **(feature_data.get(feature_name, {}) if isinstance(feature_data, dict) else {}),
+    with _state_lock:
+        path = get_feature_status_path()
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                merged = _empty_state()
+                merged.update(data)
+                feature_data = merged.get("features", {})
+                merged["features"] = {
+                    feature_name: {
+                        **_empty_state()["features"][feature_name],
+                        **(feature_data.get(feature_name, {}) if isinstance(feature_data, dict) else {}),
+                    }
+                    for feature_name in FEATURE_DEFS
                 }
-                for feature_name in FEATURE_DEFS
-            }
-            return merged
-    except FileNotFoundError:
-        pass
-    except Exception as exc:
-        _log.debug("Failed to load feature status state: %s", exc)
-    return _empty_state()
+                return merged
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            _log.debug("Failed to load feature status state: %s", exc)
+        return _empty_state()
 
 
 def _save_persisted_state(state):
-    path = get_feature_status_path()
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    temp_path = path + ".part"
-    with open(temp_path, "w", encoding="utf-8") as handle:
-        json.dump(state, handle, indent=2, sort_keys=True)
-    os.replace(temp_path, path)
+    with _state_lock:
+        path = get_feature_status_path()
+        directory = os.path.dirname(path)
+        os.makedirs(directory, exist_ok=True)
+        temp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.part"
+        try:
+            with open(temp_path, "w", encoding="utf-8") as handle:
+                json.dump(state, handle, indent=2, sort_keys=True)
+            os.replace(temp_path, path)
+        except Exception:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            raise
 
 
 def _update_feature_state(feature_name, **updates):
-    state = _load_persisted_state()
-    feature_state = dict(state["features"].get(feature_name, {}))
-    feature_state.update(updates)
-    state["features"][feature_name] = feature_state
-    _save_persisted_state(state)
-    return feature_state
+    with _state_lock:
+        state = _load_persisted_state()
+        feature_state = dict(state["features"].get(feature_name, {}))
+        feature_state.update(updates)
+        state["features"][feature_name] = feature_state
+        _save_persisted_state(state)
+        return feature_state
+
 
 
 def clear_feature_state():

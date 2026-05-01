@@ -77,7 +77,11 @@ class OrbisAuthClient:
         self.refresh_skew_seconds = refresh_skew_seconds
         self.timeout_seconds = timeout_seconds
 
+        import threading
+
         self.session: Session | None = None
+        self._lock = threading.RLock()
+
 
     # ------------------------------------------------------------------
     # Activation / Session Lifecycle
@@ -153,34 +157,36 @@ class OrbisAuthClient:
             OrbisAuthAPIError: TOKEN_INVALID, TOKEN_REVOKED, TOKEN_EXPIRED,
                                LICENSE_BANNED, LICENSE_EXPIRED, etc.
         """
-        if self.session is None:
-            raise OrbisAuthError("Cannot refresh: no active session.")
+        with self._lock:
+            if self.session is None:
+                raise OrbisAuthError("Cannot refresh: no active session.")
 
-        body: dict[str, str] = {"refresh_token": self.session.tokens.refresh_token}
+            body: dict[str, str] = {"refresh_token": self.session.tokens.refresh_token}
 
-        url = f"{self.server_url}/api/v1/refresh"
-        data = _api_request("POST", url, json_body=body, timeout=self.timeout_seconds)
+            url = f"{self.server_url}/api/v1/refresh"
+            data = _api_request("POST", url, json_body=body, timeout=self.timeout_seconds)
 
-        tokens = TokenSet(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            token_type=data["token_type"],
-            expires_in=data["expires_in"],
-            refresh_expires_in=data["refresh_expires_in"],
-        )
+            tokens = TokenSet(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                token_type=data["token_type"],
+                expires_in=data["expires_in"],
+                refresh_expires_in=data["refresh_expires_in"],
+            )
 
-        heartbeat_raw = data.get("heartbeat", {})
-        heartbeat = HeartbeatPolicy(
-            interval_seconds=heartbeat_raw.get("interval_seconds", 300),
-            grace_period_seconds=heartbeat_raw.get("grace_period_seconds", 3600),
-        )
+            heartbeat_raw = data.get("heartbeat", {})
+            heartbeat = HeartbeatPolicy(
+                interval_seconds=heartbeat_raw.get("interval_seconds", 300),
+                grace_period_seconds=heartbeat_raw.get("grace_period_seconds", 3600),
+            )
 
-        self.session.tokens = tokens
-        self.session.heartbeat = heartbeat
-        self.session.activated_at = time.time()
+            self.session.tokens = tokens
+            self.session.heartbeat = heartbeat
+            self.session.activated_at = time.time()
 
-        self._persist()
-        return self.session
+            self._persist()
+            return self.session
+
 
     def heartbeat(self) -> HeartbeatResponse:
         """Send a heartbeat to keep the device session alive.
@@ -470,18 +476,20 @@ class OrbisAuthClient:
 
     def _ensure_authenticated(self) -> None:
         """Check session and optionally auto-refresh before API calls."""
-        if self.session is None:
-            raise OrbisAuthError("Not activated. Call activate() or load_session() first.")
+        with self._lock:
+            if self.session is None:
+                raise OrbisAuthError("Not activated. Call activate() or load_session() first.")
 
-        if not self.auto_refresh:
-            return
+            if not self.auto_refresh:
+                return
 
-        if self.session.access_token_expired(skew_seconds=self.refresh_skew_seconds):
-            if self.session.refresh_token_expired(skew_seconds=self.refresh_skew_seconds):
-                raise OrbisAuthTokenError(
-                    "Session expired: refresh token has expired. Re-activation required."
-                )
-            self.refresh()
+            if self.session.access_token_expired(skew_seconds=self.refresh_skew_seconds):
+                if self.session.refresh_token_expired(skew_seconds=self.refresh_skew_seconds):
+                    raise OrbisAuthTokenError(
+                        "Session expired: refresh token has expired. Re-activation required."
+                    )
+                self.refresh()
+
 
     def _persist(self) -> None:
         """Persist session to disk if session_path is configured."""
