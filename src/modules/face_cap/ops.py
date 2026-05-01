@@ -22,6 +22,20 @@ from .runtime import get_runtime_service
 _face_cap_backend_service = get_face_cap_backend_service()
 _load_offline_face_cap_payload = _face_cap_backend_service.load_offline_face_cap_payload
 
+
+def _check_critical_license_warnings(operator):
+    """Return True if a CRITICAL/ERROR license warning prevents execution."""
+    try:
+        from ...licensing.manager import get_license_manager
+        status = get_license_manager().get_status()
+        for w in status.get("warnings", []):
+            if w.get("level") in ("CRITICAL", "ERROR"):
+                operator.report({"ERROR"}, w.get("message", ""))
+                return True
+    except Exception:
+        pass
+    return False
+
 # Constants moved to core.constants
 
 
@@ -188,6 +202,8 @@ class RIG2_OT_FaceCapImportJson(bpy.types.Operator, ImportHelper):
     )
 
     def execute(self, context):
+        if _check_critical_license_warnings(self):
+            return {"CANCELLED"}
         if not _face_cap_backend_service.is_feature_unlocked():
             self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
             return {"CANCELLED"}
@@ -264,6 +280,8 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     bl_description = "Start the local face capture WebSocket receiver"
 
     def execute(self, context):
+        if _check_critical_license_warnings(self):
+            return {"CANCELLED"}
         if not _face_cap_backend_service.is_feature_unlocked():
             self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
             return {"CANCELLED"}

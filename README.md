@@ -86,6 +86,10 @@ Then converts wheels to addon runtime layout using:
 
 - [extract_native_from_wheels.py](/Users/jaxlocke/rig2_ecosystem/rig2_addons/scripts/extract_native_from_wheels.py)
 
+For licensing, Orbisauth, Cloudflare R2 upload flow, and project maintenance notes, see:
+
+- [docs/ORBISAUTH_R2_MAINTENANCE.md](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/ORBISAUTH_R2_MAINTENANCE.md)
+
 ### VSCode Blender Addon Link Issue
 
 If Blender VSCode startup throws:

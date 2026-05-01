@@ -8,9 +8,25 @@ _log = logging.getLogger(__name__)
 __all__ = [
     "LicenseManager",
     "get_license_manager",
+    "sync_license_to_native_modules",
 ]
 
 _HEARTBEAT_TIMER_ACTIVE = False
+
+
+def sync_license_to_native_modules():
+    """Propagate the current license state to all native C++ modules."""
+    try:
+        from ..services.face_cap_service import get_face_cap_backend_service
+        get_face_cap_backend_service().sync_license_to_native()
+    except Exception as exc:
+        _log.debug("sync face_cap license: %s", exc)
+
+    try:
+        from ..services.miframes_service import get_miframes_backend_service
+        get_miframes_backend_service().sync_license_to_native()
+    except Exception as exc:
+        _log.debug("sync miframes license: %s", exc)
 
 
 def _heartbeat_timer():
@@ -19,10 +35,28 @@ def _heartbeat_timer():
     if not _HEARTBEAT_TIMER_ACTIVE:
         return  # timer was cancelled
 
+    mgr = get_license_manager()
     try:
-        get_license_manager().heartbeat()
+        mgr.heartbeat()
     except Exception:
         pass  # heartbeat is best-effort
+
+    # After heartbeat, refresh the native module license state.
+    # This keeps the HMAC proofs current.
+    try:
+        if mgr.is_activated():
+            sync_license_to_native_modules()
+    except Exception:
+        pass
+
+    # Stop the timer if the refresh token has expired.
+    try:
+        status = mgr.get_status()
+        if status.get("is_refresh_expired"):
+            _log.warning("Refresh token expired, stopping heartbeat timer.")
+            return None
+    except Exception:
+        pass
 
     return HEARTBEAT_INTERVAL_SECONDS
 
@@ -33,6 +67,8 @@ def register():
 
     try:
         get_license_manager()
+        # Sync any existing session to native modules on startup.
+        sync_license_to_native_modules()
     except Exception as exc:
         _log.warning("License manager init failed (non-fatal): %s", exc)
 

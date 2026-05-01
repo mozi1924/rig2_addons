@@ -1,9 +1,16 @@
+import logging
+
 from ..native.miframes_wrapper import backend as miframes_backend
 from ..native.miframes_wrapper import is_native_backend as miframes_is_native_backend
 from ..native.miframes_wrapper import is_feature_unlocked as _miframes_binary_available
 from ..native.miframes_wrapper import get_lock_reason as _miframes_binary_lock_reason
+from ..native.miframes_wrapper import set_license_state as _miframes_set_license_state
+from ..native.miframes_wrapper import verify_integrity as _miframes_verify_integrity
 from ..licensing.config import FEATURE_MIFRAMES
+from ..licensing._hmac_proof import compute_miframes_proof
 from .errors import FeatureLockedError
+
+_log = logging.getLogger(__name__)
 
 
 def _is_license_valid():
@@ -22,6 +29,28 @@ def _is_license_activated():
         return False
 
 
+class _LockedMiframesBackend:
+    """Safe backend shim used when MIFrames native backend is unavailable."""
+
+    def __init__(self, lock_reason):
+        self._lock_reason = str(lock_reason or "").strip()
+
+    def backend_name(self):
+        return "locked"
+
+    def _raise_locked(self):
+        raise FeatureLockedError("MIFrames", self._lock_reason)
+
+    def get_models(self):
+        return {}
+
+    def get_model_config(self, _model_key=None):
+        return None
+
+    def plan_miframes_keyframe_ops(self, _data, _config, _start_frame, _fps_scale):
+        self._raise_locked()
+
+
 class MiframesBackendService:
     """Centralized backend access for miframes planning logic.
 
@@ -32,8 +61,7 @@ class MiframesBackendService:
     def get_backend(self):
         if self.is_feature_unlocked():
             return miframes_backend()
-        # MIFrames has no locked-stub — return None.
-        return None
+        return _LockedMiframesBackend(self.get_lock_reason())
 
     def is_native_backend(self):
         return miframes_is_native_backend()
@@ -54,6 +82,49 @@ class MiframesBackendService:
         if not _is_license_valid():
             return "MIFrames is not included in your license tier."
         return "MIFrames is not unlocked."
+
+    def sync_license_to_native(self):
+        """Propagate the current license state to the C++ native module."""
+        try:
+            from ..licensing.manager import get_license_manager
+            mgr = get_license_manager()
+            device_id = mgr.get_device_id()
+
+            self._verify_source_integrity()
+
+            if self.is_feature_unlocked():
+                expires_at, hmac_proof = compute_miframes_proof(device_id)
+                _miframes_set_license_state(device_id, expires_at, hmac_proof)
+            else:
+                _miframes_set_license_state(device_id, 0, "invalid")
+        except Exception as exc:
+            _log.debug("Failed to sync license to native miframes: %s", exc)
+
+    @staticmethod
+    def _verify_source_integrity():
+        """Compute SHA-256 hashes of critical Python files and verify in C++."""
+        import hashlib
+        import os
+
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        files = {
+            "face_cap_service.py": os.path.join(base_dir, "services", "face_cap_service.py"),
+            "miframes_service.py": os.path.join(base_dir, "services", "miframes_service.py"),
+            "manager.py": os.path.join(base_dir, "licensing", "manager.py"),
+        }
+
+        hashes = {}
+        for fname, fpath in files.items():
+            try:
+                with open(fpath, "rb") as fh:
+                    hashes[fname] = hashlib.sha256(fh.read()).hexdigest()
+            except Exception:
+                hashes[fname] = ""
+
+        try:
+            _miframes_verify_integrity(hashes)
+        except Exception:
+            pass
 
     def require_feature_unlocked(self):
         if self.is_feature_unlocked():

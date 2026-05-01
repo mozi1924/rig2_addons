@@ -40,7 +40,177 @@
 
 namespace {
 
-constexpr int kApiVersion = 2;
+constexpr int kApiVersion = 3;
+
+// Embedded license secret shared with the Python licensing layer.
+// Each native module has an independent secret.
+static const unsigned char kLicenseSecret[32] = {
+    0xa3, 0xf7, 0xb2, 0xc9, 0xd1, 0xe4, 0x58, 0x07,
+    0x6f, 0x32, 0x19, 0xac, 0x4b, 0x6d, 0x0e, 0x87,
+    0x15, 0xc2, 0xf9, 0x3a, 0x8b, 0x4e, 0x76, 0x12,
+    0xd5, 0xa0, 0x98, 0xc3, 0xf7, 0xe1, 0xb6, 0x49,
+};
+
+// License state — set via set_license_state(), checked by sensitive methods.
+static int g_license_ok = 0;
+static int64_t g_license_expires_at = 0;
+
+// Expected SHA-256 hashes of critical Python files (hex).
+// Updated when the corresponding .py files are legitimately modified.
+static const char* kExpectedPyHashes[] = {
+    "face_cap_service.py", "aca7edb7d99e2776d5cb6f68c4022b7d4ee6b5469a870e1cc309733888d8dd19",
+    "miframes_service.py", "8ce27abca43927439266ef9f0f360ad55b2aa1c167e4bd999b4687b439f4e9c2",
+    "manager.py", "15051e4d56dd33e6c6bc10eceeae31d4c9629a2d403d9d7844a7d52fad4eb6fb",
+    nullptr,
+};
+
+// ---- License HMAC verification using Python's hashlib ----
+
+static bool _hmac_sha256_verify(const char* device_id, int64_t expires_at,
+                                const char* hmac_hex) {
+    if (!device_id || !hmac_hex) return false;
+
+    // Build the message: device_id + ":" + expires_at
+    char msg[512];
+    int msg_len = snprintf(msg, sizeof(msg), "%s:%lld", device_id,
+                           (long long)expires_at);
+    if (msg_len <= 0 || msg_len >= (int)sizeof(msg)) return false;
+
+    // Import hashlib
+    PyObject* hashlib_mod = PyImport_ImportModule("hashlib");
+    if (!hashlib_mod) {
+        PyErr_Clear();
+        return false;
+    }
+
+    // Build the secret bytes object
+    PyObject* secret_bytes = PyBytes_FromStringAndSize(
+        reinterpret_cast<const char*>(kLicenseSecret), 32);
+    if (!secret_bytes) {
+        Py_DECREF(hashlib_mod);
+        PyErr_Clear();
+        return false;
+    }
+
+    // Build the message bytes object
+    PyObject* msg_bytes = PyBytes_FromStringAndSize(msg, msg_len);
+    if (!msg_bytes) {
+        Py_DECREF(secret_bytes);
+        Py_DECREF(hashlib_mod);
+        PyErr_Clear();
+        return false;
+    }
+
+    // Call hashlib.hmac.new(key=secret, msg=msg, digestmod='sha256')
+    PyObject* hmac_new = PyObject_GetAttrString(hashlib_mod, "hmac");
+    if (!hmac_new) {
+        Py_DECREF(msg_bytes);
+        Py_DECREF(secret_bytes);
+        Py_DECREF(hashlib_mod);
+        PyErr_Clear();
+        return false;
+    }
+
+    PyObject* sha256_str = PyUnicode_FromString("sha256");
+    if (!sha256_str) {
+        Py_DECREF(hmac_new);
+        Py_DECREF(msg_bytes);
+        Py_DECREF(secret_bytes);
+        Py_DECREF(hashlib_mod);
+        PyErr_Clear();
+        return false;
+    }
+
+    PyObject* new_args = Py_BuildValue("(O,O)", secret_bytes, msg_bytes);
+    PyObject* new_kw = Py_BuildValue("{s:O}", "digestmod", sha256_str);
+    PyObject* hmac_obj = PyObject_Call(hmac_new, new_args, new_kw);
+    Py_DECREF(new_kw);
+    Py_DECREF(new_args);
+    Py_DECREF(sha256_str);
+    Py_DECREF(hmac_new);
+    Py_DECREF(msg_bytes);
+    Py_DECREF(secret_bytes);
+
+    if (!hmac_obj) {
+        Py_DECREF(hashlib_mod);
+        PyErr_Clear();
+        return false;
+    }
+
+    // Call .hexdigest()
+    PyObject* computed_hex = PyObject_CallMethod(hmac_obj, "hexdigest", nullptr);
+    Py_DECREF(hmac_obj);
+    Py_DECREF(hashlib_mod);
+
+    if (!computed_hex) {
+        PyErr_Clear();
+        return false;
+    }
+
+    const char* computed_str = PyUnicode_AsUTF8(computed_hex);
+    bool match = computed_str && (strcmp(computed_str, hmac_hex) == 0);
+    Py_DECREF(computed_hex);
+    return match;
+}
+
+static PyObject* method_set_license_state(PyObject*, PyObject* args) {
+    const char* device_id = nullptr;
+    const char* hmac_hex = nullptr;
+    uint64_t expires_at = 0;
+    if (!PyArg_ParseTuple(args, "sKs:set_license_state",
+                          &device_id, &expires_at, &hmac_hex))
+        return nullptr;
+
+    if (_hmac_sha256_verify(device_id, (int64_t)expires_at, hmac_hex)) {
+        g_license_ok = 1;
+        g_license_expires_at = (int64_t)expires_at;
+    } else {
+        g_license_ok = 0;
+        g_license_expires_at = 0;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
+    PyObject* hashes_dict = nullptr;
+    if (!PyArg_ParseTuple(args, "O!:verify_integrity", &PyDict_Type,
+                          &hashes_dict))
+        return nullptr;
+
+    int ok = 1;
+    for (int i = 0; kExpectedPyHashes[i] != nullptr; i += 2) {
+        const char* fname = kExpectedPyHashes[i];
+        const char* expected = kExpectedPyHashes[i + 1];
+        if (!expected || !expected[0]) continue;  // no hash stored yet
+
+        PyObject* actual = PyDict_GetItemString(hashes_dict, fname);
+        if (!actual) {
+            ok = 0;
+            break;
+        }
+        const char* actual_str = PyUnicode_AsUTF8(actual);
+        if (!actual_str || strcmp(actual_str, expected) != 0) {
+            ok = 0;
+            break;
+        }
+    }
+
+    if (!ok) {
+        g_license_ok = 0;
+        g_license_expires_at = 0;
+    }
+    Py_RETURN_NONE;
+}
+
+#define CHECK_LICENSE()                                          \
+    do {                                                         \
+        if (!g_license_ok) {                                     \
+            PyErr_SetString(PyExc_PermissionError,               \
+                "License required. Activate your license in "    \
+                "Addon Preferences.");                           \
+            return nullptr;                                      \
+        }                                                        \
+    } while (0)
 constexpr const char* kWebsocketMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr const char* kJsonSubprotocol = "r2fmc.json.v1";
 constexpr const char* kBinarySubprotocol = "r2fmc.bin.v1";
@@ -1590,6 +1760,7 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
 }
 
 PyObject* method_load_offline_face_cap_payload(PyObject*, PyObject* args) {
+  CHECK_LICENSE();
   PyObject* filepath_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:load_offline_face_cap_payload", &filepath_obj)) {
     return nullptr;
@@ -1736,6 +1907,10 @@ PyMethodDef kMethods[] = {
     {"stop_receiver", method_stop_receiver, METH_NOARGS, "Stop native websocket receiver."},
     {"poll_latest_packet", method_poll_latest_packet, METH_NOARGS, "Poll latest packet from receiver."},
     {"get_receiver_stats", method_get_receiver_stats, METH_NOARGS, "Get receiver runtime stats."},
+    {"set_license_state", method_set_license_state, METH_VARARGS,
+     "Set internal license state (device_id, expires_at, hmac_proof)."},
+    {"verify_integrity", method_verify_integrity, METH_VARARGS,
+     "Verify integrity of critical Python source files."},
     {nullptr, nullptr, 0, nullptr},
 };
 

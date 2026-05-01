@@ -66,6 +66,17 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
     )
 
     def execute(self, context):
+        # Check for critical license warnings first.
+        try:
+            from ....licensing.manager import get_license_manager
+            status = get_license_manager().get_status()
+            for w in status.get("warnings", []):
+                if w.get("level") in ("CRITICAL", "ERROR"):
+                    self.report({"ERROR"}, w.get("message", ""))
+                    return {"CANCELLED"}
+        except Exception:
+            pass
+
         miframes_service = get_miframes_backend_service()
         if not miframes_service.is_feature_unlocked():
             self.report({'ERROR'}, miframes_service.get_lock_reason())

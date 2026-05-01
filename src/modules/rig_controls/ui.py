@@ -354,6 +354,21 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
             return
 
         layout = self.layout
+
+        # Show license warnings.
+        try:
+            from ...licensing.manager import get_license_manager
+            status = get_license_manager().get_status()
+            for w in status.get("warnings", []):
+                row = layout.row()
+                row.alert = True
+                row.label(
+                    text=w.get("message", ""),
+                    icon="ERROR" if w.get("level") == "ERROR" else "WARNING",
+                )
+        except Exception:
+            pass
+
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
         miframes_service = get_miframes_backend_service()
         is_miframes_unlocked = miframes_service.is_feature_unlocked()

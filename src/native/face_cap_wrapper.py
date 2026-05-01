@@ -1,6 +1,6 @@
 from .loader import load_native_extension_result
 
-FACE_CAP_NATIVE_API_VERSION = 2
+FACE_CAP_NATIVE_API_VERSION = 3
 
 _REQUIRED_CALLABLES = (
     "backend_name",
@@ -19,6 +19,8 @@ _REQUIRED_CALLABLES = (
     "stop_receiver",
     "poll_latest_packet",
     "get_receiver_stats",
+    "set_license_state",
+    "verify_integrity",
 )
 
 _REQUIRED_ATTRIBUTES = (
@@ -57,3 +59,21 @@ def get_lock_reason():
 
 def backend_path():
     return _LOAD_RESULT.module_path
+
+
+def set_license_state(device_id, expires_at, hmac_proof):
+    """Propagate license state into the native module."""
+    if MODULE is None:
+        return
+    setter = getattr(MODULE, "set_license_state", None)
+    if callable(setter):
+        setter(device_id, expires_at, hmac_proof)
+
+
+def verify_integrity(file_hashes):
+    """Verify Python source file integrity against native module expectations."""
+    if MODULE is None:
+        return
+    verifier = getattr(MODULE, "verify_integrity", None)
+    if callable(verifier):
+        verifier(file_hashes)

@@ -1,25 +1,18 @@
 import logging
 import platform
-import uuid
+import time
 
 from ..orbisauth import OrbisAuthClient, OrbisAuthError, OrbisAuthTokenError
+from ..orbisauth._jwt import get_token_expiry
 from .config import (
     DEFAULT_SERVER_URL,
     HTTP_TIMEOUT_SECONDS,
     REFRESH_SKEW_SECONDS,
 )
+from .device_id import get_or_create_device_id
 from .paths import get_session_path
 
 _log = logging.getLogger(__name__)
-
-
-def _generate_device_id():
-    """Generate a stable device identifier."""
-    try:
-        node = uuid.getnode()
-        return uuid.uuid5(uuid.NAMESPACE_DNS, f"rig2-blender-{node}").hex[:16]
-    except Exception:
-        return uuid.uuid4().hex[:16]
 
 
 def _generate_device_name():
@@ -44,8 +37,10 @@ class LicenseManager:
     """
 
     def __init__(self):
-        self._device_id = _generate_device_id()
+        self._device_id = get_or_create_device_id()
         self._device_name = _generate_device_name()
+        self._last_heartbeat_time: float = 0.0
+        self._consecutive_heartbeat_failures: int = 0
         session_path = get_session_path()
         self._client = OrbisAuthClient(
             server_url=DEFAULT_SERVER_URL,
@@ -71,6 +66,13 @@ class LicenseManager:
                     session.tier,
                     session.device_id,
                 )
+                if session.device_id and session.device_id != self._device_id:
+                    _log.warning(
+                        "Session device_id %s differs from current device_id %s",
+                        session.device_id,
+                        self._device_id,
+                    )
+                self._last_heartbeat_time = time.time()
         except Exception as exc:
             _log.warning("Failed to load license session: %s", exc)
 
@@ -87,6 +89,8 @@ class LicenseManager:
             device_id=self._device_id,
             device_name=self._device_name,
         )
+        self._last_heartbeat_time = time.time()
+        self._consecutive_heartbeat_failures = 0
         _log.info(
             "License activated: product=%s tier=%s license=%s",
             session.product,
@@ -98,6 +102,8 @@ class LicenseManager:
     def deactivate(self):
         """Deactivate the current session and clear persisted data."""
         self._client.deactivate()
+        self._last_heartbeat_time = 0.0
+        self._consecutive_heartbeat_failures = 0
         _log.info("License deactivated.")
 
     # ------------------------------------------------------------------
@@ -144,6 +150,10 @@ class LicenseManager:
     # Status & UI helpers
     # ------------------------------------------------------------------
 
+    def get_device_id(self):
+        """Return the current device ID."""
+        return self._device_id
+
     def get_status(self):
         """Return a dict describing the current license state for UI display."""
         session = self._client.session
@@ -154,17 +164,113 @@ class LicenseManager:
                 "tier": "",
                 "license_id": "",
                 "device_name": "",
+                "device_id": self._device_id,
                 "features": {},
+                "access_token_expires_at": 0,
+                "access_token_expires_in_seconds": 0,
+                "refresh_token_expires_at": 0,
+                "session_activated_at": 0.0,
+                "last_heartbeat_at": self._last_heartbeat_time,
+                "consecutive_heartbeat_failures": self._consecutive_heartbeat_failures,
+                "is_access_expired": True,
+                "is_refresh_expired": True,
+                "needs_heartbeat": False,
+                "heartbeat_interval": 0,
+                "heartbeat_grace": 0,
+                "warnings": [],
             }
 
+        now = time.time()
+        try:
+            access_exp = get_token_expiry(session.tokens.access_token)
+        except Exception:
+            access_exp = 0
+        try:
+            refresh_exp = get_token_expiry(session.tokens.refresh_token)
+        except Exception:
+            refresh_exp = session.activated_at + session.tokens.refresh_expires_in
+
         is_valid = self.is_activated()
+        access_expires_in = max(0, access_exp - now) if access_exp else 0
+        is_access_expired = access_exp > 0 and now >= access_exp
+        is_refresh_expired = refresh_exp > 0 and now >= refresh_exp
+
+        heartbeat_interval = session.heartbeat.interval_seconds if session.heartbeat else 0
+        grace = session.heartbeat.grace_period_seconds if session.heartbeat else 0
+        seconds_since_heartbeat = now - self._last_heartbeat_time if self._last_heartbeat_time else 0
+        needs_heartbeat = (
+            heartbeat_interval > 0
+            and seconds_since_heartbeat > heartbeat_interval
+            and not is_refresh_expired
+        )
+
+        # Build warnings
+        warnings = []
+        if is_valid and not is_refresh_expired:
+            # Access token expiring within 1 hour AND no recent heartbeat success
+            if 0 < access_expires_in <= 3600 and needs_heartbeat:
+                warnings.append({
+                    "level": "WARNING",
+                    "message": (
+                        f"License session expires in {int(access_expires_in // 60)} minutes. "
+                        "Connect to the internet to refresh."
+                    ),
+                    "action_required": True,
+                })
+            elif access_expires_in <= 300 and not is_access_expired:
+                warnings.append({
+                    "level": "CRITICAL",
+                    "message": (
+                        f"License session expires in {int(access_expires_in // 60)} minutes. "
+                        "Please connect to the internet immediately."
+                    ),
+                    "action_required": True,
+                })
+
+        if is_access_expired and not is_refresh_expired:
+            warnings.append({
+                "level": "WARNING",
+                "message": "Access token expired. A heartbeat refresh is needed.",
+                "action_required": True,
+            })
+
+        if is_refresh_expired:
+            warnings.append({
+                "level": "ERROR",
+                "message": "License session has expired. Please re-activate your license.",
+                "action_required": True,
+            })
+
+        if self._consecutive_heartbeat_failures >= 3 and not is_refresh_expired:
+            warnings.append({
+                "level": "WARNING",
+                "message": (
+                    f"Unable to reach license server ({self._consecutive_heartbeat_failures} "
+                    "failed attempts). Check your internet connection."
+                ),
+                "action_required": True,
+            })
+
         return {
             "activated": is_valid,
             "product": session.product or "",
             "tier": session.tier or "",
             "license_id": session.license_id or "",
             "device_name": session.device_name or "",
+            "device_id": self._device_id,
             "features": self.get_features() if is_valid else {},
+            "access_token_expires_at": access_exp,
+            "access_token_expires_in_seconds": int(access_expires_in),
+            "refresh_token_expires_at": refresh_exp,
+            "session_activated_at": session.activated_at,
+            "last_heartbeat_at": self._last_heartbeat_time,
+            "consecutive_heartbeat_failures": self._consecutive_heartbeat_failures,
+            "is_access_expired": is_access_expired,
+            "is_refresh_expired": is_refresh_expired,
+            "needs_heartbeat": needs_heartbeat,
+            "heartbeat_interval": heartbeat_interval,
+            "heartbeat_grace": grace,
+            "warnings": warnings,
         }
 
     # ------------------------------------------------------------------
@@ -182,8 +288,12 @@ class LicenseManager:
             return
         try:
             self._client.heartbeat()
+            self._last_heartbeat_time = time.time()
+            self._consecutive_heartbeat_failures = 0
         except Exception as exc:
-            _log.debug("Heartbeat failed (non-fatal): %s", exc)
+            self._consecutive_heartbeat_failures += 1
+            _log.debug("Heartbeat failed (non-fatal, attempt %d): %s",
+                        self._consecutive_heartbeat_failures, exc)
 
     # ------------------------------------------------------------------
     # Download (for on-demand binary delivery)

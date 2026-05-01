@@ -35,6 +35,44 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
         if status["activated"]:
             box.label(text=f"Product: {status['product']}", icon="CHECKMARK")
             box.label(text=f"Tier: {status['tier']}")
+            if status.get("license_id"):
+                box.label(text=f"License: {status['license_id']}")
+            if status.get("device_id"):
+                box.label(text=f"Device: {status['device_id']}")
+
+            # Token expiry info
+            access_exp = status.get("access_token_expires_in_seconds", 0)
+            if access_exp > 0:
+                if status.get("is_access_expired"):
+                    box.label(text="Access Token: EXPIRED", icon="ERROR")
+                else:
+                    hours = access_exp // 3600
+                    mins = (access_exp % 3600) // 60
+                    box.label(
+                        text=f"Access Token: {hours}h {mins}m remaining",
+                        icon="TIME",
+                    )
+
+            # Heartbeat status
+            hb_failures = status.get("consecutive_heartbeat_failures", 0)
+            last_hb = status.get("last_heartbeat_at", 0)
+            if last_hb and hb_failures == 0:
+                box.label(text="Heartbeat: OK", icon="CHECKMARK")
+            elif hb_failures > 0:
+                box.label(
+                    text=f"Heartbeat: {hb_failures} failures",
+                    icon="WARNING",
+                )
+            else:
+                box.label(text="Heartbeat: pending", icon="TIME")
+
+            # Warnings
+            for w in status.get("warnings", []):
+                row = box.row()
+                row.alert = True
+                icon = "ERROR" if w["level"] == "ERROR" else "WARNING"
+                row.label(text=w["message"], icon=icon)
+
             licensed_features = [
                 f for f, v in status.get("features", {}).items() if v
             ]
@@ -61,11 +99,23 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
                 icon="PLAY",
             )
 
+        # -- Native Binaries section --
+        box = layout.box()
+        box.label(text="Native Binaries", icon="FILE_CACHE")
+        _draw_binary_status(box, "rig2_face_cap", "Face Capture")
+        _draw_binary_status(box, "rig2_miframes", "MIFrames")
+
         box.separator()
         box.label(text="Settings", icon="PREFERENCES")
         column = box.column()
         column.prop(self, "show_n_panel")
         column.prop(self, "show_logic_props")
+
+
+# Simple local rate limiter for activation attempts.
+_activate_attempts: list[float] = []
+_ACTIVATE_MAX_ATTEMPTS = 3
+_ACTIVATE_WINDOW_SECONDS = 60
 
 
 class RIG2_OT_activate_license(bpy.types.Operator):
@@ -75,16 +125,30 @@ class RIG2_OT_activate_license(bpy.types.Operator):
     bl_options = {"REGISTER", "INTERNAL"}
 
     def execute(self, context):
+        import time
+        global _activate_attempts
+        now = time.time()
+        _activate_attempts = [t for t in _activate_attempts if now - t < _ACTIVATE_WINDOW_SECONDS]
+        if len(_activate_attempts) >= _ACTIVATE_MAX_ATTEMPTS:
+            self.report(
+                {"ERROR"},
+                f"Too many activation attempts. Please wait {_ACTIVATE_WINDOW_SECONDS} seconds.",
+            )
+            return {"CANCELLED"}
+        _activate_attempts.append(now)
+
         prefs = get_preferences()
         if not prefs or not prefs.license_key.strip():
             self.report({"ERROR"}, "Please enter a license key.")
             return {"CANCELLED"}
 
         from .licensing.manager import get_license_manager
+        from .licensing import sync_license_to_native_modules
 
         manager = get_license_manager()
         try:
             session = manager.activate(prefs.license_key.strip())
+            sync_license_to_native_modules()
             self.report(
                 {"INFO"},
                 f"License activated: {session.product} ({session.tier})",
@@ -106,9 +170,11 @@ class RIG2_OT_deactivate_license(bpy.types.Operator):
 
     def execute(self, context):
         from .licensing.manager import get_license_manager
+        from .licensing import sync_license_to_native_modules
 
         manager = get_license_manager()
         manager.deactivate()
+        sync_license_to_native_modules()
         self.report({"INFO"}, "License deactivated.")
         _refresh_ui()
         return {"FINISHED"}
@@ -130,6 +196,53 @@ def _get_license_status():
         }
 
 
+def _draw_binary_status(box, module_name, label):
+    """Draw the status and download button for a native binary."""
+    try:
+        from .native.downloader import get_download_status
+        status = get_download_status(module_name)
+    except Exception:
+        status = "unknown"
+
+    row = box.row()
+    if status == "available":
+        row.label(text=f"{label}: Installed", icon="CHECKMARK")
+    elif status == "downloadable":
+        row.label(text=f"{label}: Not installed", icon="WARNING")
+        row.operator(
+            RIG2_OT_download_native.bl_idname,
+            text="Download",
+            icon="IMPORT",
+        ).module_name = module_name
+    else:
+        row.label(text=f"{label}: Unavailable (activate license first)", icon="LOCKED")
+
+
+class RIG2_OT_download_native(bpy.types.Operator):
+    bl_idname = "rig2.download_native"
+    bl_label = "Download Native Binary"
+    bl_description = "Download a native binary via your license"
+    bl_options = {"REGISTER", "INTERNAL"}
+
+    module_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        from .native.downloader import ensure_native_binary
+
+        try:
+            ok = ensure_native_binary(self.module_name)
+            if ok:
+                self.report({"INFO"}, f"Downloaded {self.module_name}. Restart Blender or reload the addon.")
+            else:
+                self.report({"ERROR"}, f"Could not download {self.module_name}.")
+        except Exception as exc:
+            self.report({"ERROR"}, f"Download failed: {exc}")
+            return {"CANCELLED"}
+
+        _refresh_ui()
+        return {"FINISHED"}
+
+
 def _refresh_ui():
     """Tag all windows for redraw so the preferences panel updates."""
     for window in bpy.context.window_manager.windows:
@@ -149,6 +262,7 @@ classes = (
     Rig2AddonPreferences,
     RIG2_OT_activate_license,
     RIG2_OT_deactivate_license,
+    RIG2_OT_download_native,
 )
 
 
