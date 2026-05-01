@@ -147,6 +147,11 @@ class FaceCapBackendService:
         status = self.get_feature_status()
         return status.get("effective_state") in {"ready", "session_warning"}
 
+    @staticmethod
+    def _is_license_session_ready_for_native():
+        status = get_feature_status(FEATURE_FACE_CAP)
+        return status.get("effective_state") in {"ready", "session_warning"}
+
     def get_feature_status(self):
         status = get_feature_status(FEATURE_FACE_CAP)
         native_status = self.get_native_authorization_status()
@@ -214,7 +219,7 @@ class FaceCapBackendService:
         sync_license_state_to_native(
             logger=_log,
             backend_label="face_cap",
-            feature_unlocked=self.is_feature_unlocked,
+            feature_unlocked=self._is_license_session_ready_for_native,
             compute_proof=compute_face_cap_proof,
             set_license_state=_face_cap_set_license_state,
             verify_func=_face_cap_verify_integrity,

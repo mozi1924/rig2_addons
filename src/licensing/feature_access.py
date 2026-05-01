@@ -206,6 +206,42 @@ def _build_action(effective_state):
     return "none"
 
 
+def _build_post_download_error(*, label, status, had_loaded_backend=False):
+    effective_state = str(status.get("effective_state", "") or "")
+    detail = (
+        str(status.get("native_reason", "") or "").strip()
+        or str(status.get("load_error", "") or "").strip()
+        or str(status.get("message", "") or "").strip()
+    )
+
+    if effective_state in {"ready", "session_warning"}:
+        return ""
+
+    if "integrity check failed" in detail.lower():
+        message = (
+            f"{label} binary downloaded, but it does not match the installed addon source. "
+            "Update the addon and native binary from the same build."
+        )
+    elif effective_state == "needs_redownload":
+        message = (
+            f"{label} binary downloaded, but validation still failed. "
+            "Update the binary again after confirming the addon version matches."
+        )
+    else:
+        message = f"{label} binary downloaded, but it is still not ready."
+
+    if detail:
+        message = f"{message} {detail}"
+
+    if had_loaded_backend:
+        message = (
+            f"{message} Blender may still be holding a previously loaded native module in memory. "
+            "Restart Blender before retrying."
+        )
+
+    return message
+
+
 def get_feature_status(feature_name):
     feature_def = get_feature_definition(feature_name)
     persisted_state = _load_persisted_state()["features"].get(feature_name, {})
@@ -334,6 +370,8 @@ def download_feature_binary(feature_name, force=False):
     from ..native.downloader import ensure_native_binary
 
     feature_def = get_feature_definition(feature_name)
+    pre_status = get_feature_status(feature_name)
+    had_loaded_backend = bool(pre_status.get("module_path"))
     try:
         ok = ensure_native_binary(feature_def["module_name"], force=force)
         if not ok:
@@ -343,8 +381,22 @@ def download_feature_binary(feature_name, force=False):
                 "feature_name": feature_name,
                 "error": "Download not available for this feature.",
             }
-        _mark_download_success(feature_name)
         refresh_feature_runtime(feature_name)
+        post_status = get_feature_status(feature_name)
+        post_error = _build_post_download_error(
+            label=feature_def["label"],
+            status=post_status,
+            had_loaded_backend=had_loaded_backend,
+        )
+        if post_error:
+            _mark_download_failure(feature_name, post_error)
+            return {
+                "ok": False,
+                "feature_name": feature_name,
+                "error": post_error,
+            }
+
+        _mark_download_success(feature_name)
         return {
             "ok": True,
             "feature_name": feature_name,

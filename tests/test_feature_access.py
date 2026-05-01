@@ -276,6 +276,37 @@ class FeatureAccessTest(unittest.TestCase):
             self.assertGreaterEqual(runtime_service.refresh_count, 1)
             self.assertGreaterEqual(wrapper_states["face_cap"].refresh_count, 1)
 
+    def test_download_feature_binary_fails_when_post_download_validation_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                with open(wrapper_states["face_cap"].path, "wb") as handle:
+                    handle.write(b"bin")
+                wrapper_states["face_cap"].load_ok = False
+                wrapper_states["face_cap"].error = (
+                    "Face Capture integrity check failed: manager.py hash mismatch."
+                )
+                return True
+
+            feature_access, _wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            result = feature_access.download_feature_binary("face_cap", force=True)
+
+            self.assertFalse(result["ok"])
+            self.assertIn("does not match the installed addon source", result["error"])
+            status = feature_access.get_feature_status("face_cap")
+            self.assertEqual(status["effective_state"], "needs_redownload")
+            self.assertIn("does not match the installed addon source", status["download_error"])
+
 
 if __name__ == "__main__":
     unittest.main()

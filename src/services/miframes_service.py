@@ -59,6 +59,11 @@ class MiframesBackendService:
         status = self.get_feature_status()
         return status.get("effective_state") in {"ready", "session_warning"}
 
+    @staticmethod
+    def _is_license_session_ready_for_native():
+        status = get_feature_status(FEATURE_MIFRAMES)
+        return status.get("effective_state") in {"ready", "session_warning"}
+
     def get_feature_status(self):
         status = get_feature_status(FEATURE_MIFRAMES)
         native_status = self.get_native_authorization_status()
@@ -126,7 +131,7 @@ class MiframesBackendService:
         sync_license_state_to_native(
             logger=_log,
             backend_label="miframes",
-            feature_unlocked=self.is_feature_unlocked,
+            feature_unlocked=self._is_license_session_ready_for_native,
             compute_proof=compute_miframes_proof,
             set_license_state=_miframes_set_license_state,
             verify_func=_miframes_verify_integrity,
