@@ -4,6 +4,7 @@ from ...core.constants import INTERNAL_KEYS
 from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import iface as _
+from ...licensing.api import FEATURE_MIFRAMES, get_feature_access
 from ...preferences import get_preferences
 from ...services.miframes_service import get_miframes_backend_service
 from ...ui.base import RIG2_PT_PanelBase, RIG2_PT_SidePanelBase
@@ -370,6 +371,10 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
             pass
 
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
+        miframes_access = get_feature_access(FEATURE_MIFRAMES)
+        if not miframes_access.get("licensed"):
+            return
+
         miframes_service = get_miframes_backend_service()
         is_miframes_unlocked = miframes_service.is_feature_unlocked()
         miframes_status = miframes_service.get_feature_status()
@@ -388,11 +393,14 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
         action_box.label(text=_("Action"), icon="ACTION_TWEAK")
         row = action_box.row()
         row.enabled = has_mi2bl and is_miframes_unlocked
-        row.operator("mi.import_action", text=_("Load Anim (.mi*)"), icon="IMPORT")
+        if is_miframes_unlocked:
+            row.operator("mi.import_action", text=_("Load Anim (.mi*)"), icon="IMPORT")
+        else:
+            row.label(text=_("Load Anim (.mi*)"), icon="IMPORT")
         if not has_mi2bl:
             action_box.label(text=_("Requires mi2bl addon"), icon="INFO")
         elif not is_miframes_unlocked:
-            action_box.label(text=miframes_status.get("message", _("MIFrames is unavailable")), icon="LOCKED")
+            action_box.label(text=miframes_status.get("message", _("MIFrames is unavailable")), icon="ERROR")
 
         mi_active = bool(logic_bone and logic_bone.get("mi_mapping_mode", 0) > 0)
         if mi_active:
@@ -400,7 +408,11 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
             convert_box.label(text=_("Convert"), icon="ANIM_DATA")
             row = convert_box.row()
             row.scale_y = 1.4
-            row.operator("mi.bake_to_fk", text=_("Bake MI → FK"), icon="EXPORT")
+            row.enabled = is_miframes_unlocked
+            if is_miframes_unlocked:
+                row.operator("mi.bake_to_fk", text=_("Bake MI → FK"), icon="EXPORT")
+            else:
+                row.label(text=_("Bake MI → FK"), icon="EXPORT")
 
 
 class RIG2_PT_MIIKPanel(RIG2_PT_PanelBase, bpy.types.Panel):

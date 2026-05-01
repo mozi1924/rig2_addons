@@ -328,6 +328,13 @@ def refresh_feature_runtime(feature_id=None):
     except Exception as exc:
         _log.debug("Failed to refresh face_cap runtime: %s", exc)
 
+    try:
+        from ..feature_registration import reconcile_feature_modules
+
+        reconcile_feature_modules()
+    except Exception as exc:
+        _log.debug("Failed to reconcile feature modules: %s", exc)
+
     return refreshed
 
 

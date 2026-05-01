@@ -1,10 +1,11 @@
 """Embedded license secrets shared with native modules."""
 
 try:
-    from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES, iter_feature_specs
+    from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB, iter_feature_specs
 except ImportError:
     FEATURE_FACE_CAP = "face_cap"
     FEATURE_MIFRAMES = "miframes"
+    FEATURE_R2BB = "r2bb"
 
     class _CompatSpec:
         def __init__(self, feature_id, shared_secret):
@@ -26,6 +27,13 @@ except ImportError:
                 "f9318c4d2e7a5b06f1d3c8e9a4b7f205"
             ),
         ),
+        _CompatSpec(
+            FEATURE_R2BB,
+            bytes.fromhex(
+                "4ab8f03d1c275a6eb9940d8b6f3a1245"
+                "72ef39acb54168d0c2e77fab90431de6"
+            ),
+        ),
     )
 
     def iter_feature_specs():
@@ -40,3 +48,4 @@ FEATURE_SHARED_SECRETS = {
 # Compatibility exports for existing tests/tools.
 FACE_CAP_SECRET = FEATURE_SHARED_SECRETS[FEATURE_FACE_CAP]
 MIFRAMES_SECRET = FEATURE_SHARED_SECRETS[FEATURE_MIFRAMES]
+R2BB_SECRET = FEATURE_SHARED_SECRETS[FEATURE_R2BB]

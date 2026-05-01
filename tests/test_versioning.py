@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,14 +44,28 @@ class VersioningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             init_path = Path(temp_dir) / "__init__.py"
             init_path.write_text(
-                'bl_info = {\n    "version": BL_INFO_VERSION,\n}\n',
+                'bl_info = {\n    "version": (1, 1, 0),\n}\n',
                 encoding="utf-8",
             )
             package_addon.inject_bl_info_version(init_path, (1, 2, 3))
 
             content = init_path.read_text(encoding="utf-8")
         self.assertIn('"version": (1, 2, 3),', content)
-        self.assertNotIn("BL_INFO_VERSION", content)
+
+    def test_sync_bl_info_version_updates_literal_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_path = Path(temp_dir) / "__init__.py"
+            init_path.write_text(
+                'bl_info = {\n    "version": (1, 1, 0),\n}\n',
+                encoding="utf-8",
+            )
+            script_versioning.sync_bl_info_version(
+                {"major": 2, "minor": 3, "patch": 4},
+                init_file=init_path,
+            )
+
+            content = init_path.read_text(encoding="utf-8")
+        self.assertIn('"version": (2, 3, 4),', content)
 
 
 if __name__ == "__main__":

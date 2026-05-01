@@ -23,10 +23,12 @@ class FeatureSpec:
 
 FACE_CAP = "face_cap"
 MIFRAMES = "miframes"
+R2BB = "r2bb"
 
 # Keep compatibility exports; registry is the primary source of truth.
 FEATURE_FACE_CAP = FACE_CAP
 FEATURE_MIFRAMES = MIFRAMES
+FEATURE_R2BB = R2BB
 
 
 _FEATURE_SPECS = {
@@ -102,6 +104,38 @@ _FEATURE_SPECS = {
         download_module_name="rig2_miframes",
         service_kind="miframes",
         service_getter="rig2_addons.src.services.miframes_service:get_miframes_backend_service",
+    ),
+    R2BB: FeatureSpec(
+        feature_id=R2BB,
+        label="R2BB",
+        product_feature_name=R2BB,
+        native_module_name="rig2_r2bb",
+        native_api_version_attr="RIG2_R2BB_API_VERSION",
+        expected_native_api_version=1,
+        required_callables=(
+            "backend_name",
+            "normalize_mapping_entries",
+            "mapping_entries_to_pairs",
+            "mapping_entries_to_export_bones",
+            "mapping_entries_to_export_name_map",
+            "mapping_entries_to_rotation_axis_signs",
+            "mapping_entries_to_transform_axis_signs",
+            "set_license_state",
+            "verify_integrity",
+        ),
+        required_attributes=("RIG2_R2BB_API_VERSION",),
+        shared_secret=bytes.fromhex(
+            "4ab8f03d1c275a6eb9940d8b6f3a1245"
+            "72ef39acb54168d0c2e77fab90431de6"
+        ),
+        integrity_targets=(
+            ("mapping.py", "modules/r2bb/mapping.py"),
+            ("r2bb_service.py", "services/r2bb_service.py"),
+            ("manager.py", "licensing/manager.py"),
+        ),
+        download_module_name="rig2_r2bb",
+        service_kind="r2bb",
+        service_getter="rig2_addons.src.services.r2bb_service:get_r2bb_backend_service",
     ),
 }
 

@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_FILE = ROOT / "version.json"
+INIT_FILE = ROOT / "__init__.py"
 VERSION_KEYS = ("major", "minor", "patch")
 
 
@@ -30,6 +32,20 @@ def save_version_info(version: dict[str, int], version_file: Path = VERSION_FILE
     with version_file.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
         handle.write("\n")
+
+
+def sync_bl_info_version(version: dict[str, int], init_file: Path = INIT_FILE) -> None:
+    content = init_file.read_text(encoding="utf-8")
+    replacement = f'"version": {version_tuple(version)},'
+    updated, count = re.subn(
+        r'"version":\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\),',
+        replacement,
+        content,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError(f"Could not locate literal bl_info version in {init_file}")
+    init_file.write_text(updated, encoding="utf-8")
 
 
 def version_tuple(version: dict[str, int]) -> tuple[int, int, int]:
@@ -97,6 +113,7 @@ def main() -> int:
         updated = bump_version(current, args.part)
 
     save_version_info(updated)
+    sync_bl_info_version(updated)
     print(semver(updated))
     return 0
 

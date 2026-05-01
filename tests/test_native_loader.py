@@ -50,6 +50,14 @@ class NativeLoaderTest(unittest.TestCase):
             loader = load_loader_module(temp_dir)
             self.assertIn(".abi3.", loader.get_preferred_extension_suffix())
 
+    def test_r2bb_missing_binary_reports_locked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            loader = load_loader_module(temp_dir)
+            result = loader.load_native_extension_result("rig2_r2bb")
+
+            self.assertFalse(result.is_available)
+            self.assertIn("missing binary", result.error)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,8 @@ from pathlib import Path
 WATCH_FILES = [
     "src/services/face_cap_service.py",
     "src/services/miframes_service.py",
+    "src/services/r2bb_service.py",
+    "src/modules/r2bb/mapping.py",
     "src/licensing/manager.py",
 ]
 

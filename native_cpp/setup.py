@@ -43,6 +43,11 @@ extensions = [
         sources=["src/rig2_face_cap.cpp"],
         **extension_kwargs,
     ),
+    Extension(
+        "rig2_r2bb",
+        sources=["src/rig2_r2bb.cpp"],
+        **extension_kwargs,
+    ),
 ]
 
 setup_kwargs = {}

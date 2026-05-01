@@ -1,6 +1,6 @@
 import bpy
 
-from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES
+from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB
 from .services.registry import get_feature_service
 from .licensing.ui_helpers import (
     format_expiry_label,
@@ -147,15 +147,21 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
                 icon="PLAY",
             )
 
-        # -- Native Binaries section --
-        box = layout.box()
-        box.label(text="Feature Access", icon="FILE_CACHE")
-        _draw_feature_status(box, FEATURE_FACE_CAP)
-        _draw_feature_status(box, FEATURE_MIFRAMES)
+        entitled_features = [
+            feature_name
+            for feature_name in (FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB)
+            if has_session and bool(status.get("features", {}).get(feature_name, False))
+        ]
 
-        box.separator()
-        box.label(text="Settings", icon="PREFERENCES")
-        column = box.column()
+        if entitled_features:
+            feature_box = layout.box()
+            feature_box.label(text="Feature Access", icon="FILE_CACHE")
+            for feature_name in entitled_features:
+                _draw_feature_status(feature_box, feature_name)
+
+        settings_box = layout.box()
+        settings_box.label(text="Settings", icon="PREFERENCES")
+        column = settings_box.column()
         column.prop(self, "show_n_panel")
         column.prop(self, "show_logic_props")
 
@@ -332,8 +338,9 @@ def _get_feature_status(feature_name):
 def _draw_feature_status(box, feature_name):
     status = _get_feature_status(feature_name)
     row = box.row()
+    state_label = _feature_label(status["effective_state"])
     row.label(
-        text=f"{status['label']}: {status['effective_state'].replace('_', ' ').title()}",
+        text=f"{status['label']}: {state_label}",
         icon=_feature_icon(status["effective_state"]),
     )
 
@@ -379,6 +386,14 @@ def _feature_icon(effective_state):
     }:
         return "ERROR"
     return "LOCKED"
+
+
+def _feature_label(effective_state):
+    if effective_state in {"binary_missing", "download_failed", "needs_redownload"}:
+        return "Disabled"
+    if effective_state == "session_warning":
+        return "Needs Attention"
+    return effective_state.replace("_", " ").title()
 
 
 class RIG2_OT_download_native(bpy.types.Operator):

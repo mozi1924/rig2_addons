@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 import tempfile
@@ -81,11 +82,14 @@ def overlay_native_binaries(package_root: Path, native_dir: Path) -> None:
 
 def inject_bl_info_version(init_file: Path, version_literal: tuple[int, int, int]) -> None:
     content = init_file.read_text(encoding="utf-8")
-    content = content.replace(
-        '"version": BL_INFO_VERSION,',
+    content, count = re.subn(
+        r'"version":\s*(BL_INFO_VERSION|\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)),',
         f'"version": {version_literal},',
-        1,
+        content,
+        count=1,
     )
+    if count != 1:
+        raise ValueError(f"Could not inject bl_info version into {init_file}")
     init_file.write_text(content, encoding="utf-8")
 
 

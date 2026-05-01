@@ -68,6 +68,8 @@ def compute_source_hashes():
     watched = {
         "face_cap_service.py": os.path.join(ROOT, "src", "services", "face_cap_service.py"),
         "miframes_service.py": os.path.join(ROOT, "src", "services", "miframes_service.py"),
+        "r2bb_service.py": os.path.join(ROOT, "src", "services", "r2bb_service.py"),
+        "mapping.py": os.path.join(ROOT, "src", "modules", "r2bb", "mapping.py"),
         "manager.py": os.path.join(ROOT, "src", "licensing", "manager.py"),
     }
     result = {}
@@ -128,6 +130,23 @@ class NativeContractTest(unittest.TestCase):
             "stop_receiver",
             "poll_latest_packet",
             "get_receiver_stats",
+            "get_license_status",
+        )
+        for name in required:
+            self.assertTrue(callable(getattr(native, name, None)), name)
+
+    def test_r2bb_required_symbols(self):
+        native = load_native_module("rig2_r2bb")
+        self.assertEqual(native.RIG2_R2BB_API_VERSION, 1)
+
+        required = (
+            "backend_name",
+            "normalize_mapping_entries",
+            "mapping_entries_to_pairs",
+            "mapping_entries_to_export_bones",
+            "mapping_entries_to_export_name_map",
+            "mapping_entries_to_rotation_axis_signs",
+            "mapping_entries_to_transform_axis_signs",
             "get_license_status",
         )
         for name in required:
@@ -195,6 +214,29 @@ class NativeContractTest(unittest.TestCase):
         self.assertEqual(result["schema_names"], ["jawOpen", "eyeBlinkLeft"])
         self.assertGreater(len(result["frames"]), 0)
         self.assertGreater(result["video_fps"], 0.0)
+
+    def test_r2bb_mapping_smoke(self):
+        native = load_native_module("rig2_r2bb")
+        unlock_native_module(native, "r2bb")
+        self.assertTrue(native.get_license_status()["authorized"])
+
+        entries = [
+            {
+                "base_bone": " Head root ",
+                "mi_bone": " MI_Head ",
+                "export_name": " head ",
+                "rotation_axis_signs": {"X": 2.0, "Y": -1.0},
+                "transform_axis_signs": {"Z": -9.0},
+            },
+            {"base_bone": "", "mi_bone": "", "export_name": ""},
+        ]
+        normalized = native.normalize_mapping_entries(entries)
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["base_bone"], "Head root")
+        self.assertEqual(normalized[0]["rotation_axis_signs"]["Y"], -1.0)
+        self.assertEqual(native.mapping_entries_to_pairs(entries), [("Head root", "MI_Head")])
+        self.assertEqual(native.mapping_entries_to_export_bones(entries), ["MI_Head"])
+        self.assertEqual(native.mapping_entries_to_export_name_map(entries), {"MI_Head": "head"})
 
 
 if __name__ == "__main__":

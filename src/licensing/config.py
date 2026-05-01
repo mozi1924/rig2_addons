@@ -1,6 +1,6 @@
 import os
 
-from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES
+from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB
 
 # Orbisauth license server URL.
 # Override with the RIG2_LICENSE_SERVER_URL environment variable.

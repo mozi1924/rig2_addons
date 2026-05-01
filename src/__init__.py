@@ -1,13 +1,13 @@
-from . import preferences, i18n, licensing
-from .modules import rig_controls, binding, face_cap
+from . import feature_registration, preferences, i18n, licensing
+from .modules import rig_controls, binding
 
 modules = [
     i18n,
     licensing,
     preferences,
     rig_controls,
-    face_cap,
     binding,
+    feature_registration,
 ]
 
 def register():

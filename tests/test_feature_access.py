@@ -14,7 +14,12 @@ FEATURE_ACCESS_PATH = ROOT / "src" / "licensing" / "feature_access.py"
 class WrapperState:
     def __init__(self, feature_name, temp_dir):
         self.feature_name = feature_name
-        self.module_name = "rig2_face_cap" if feature_name == "face_cap" else "rig2_miframes"
+        if feature_name == "face_cap":
+            self.module_name = "rig2_face_cap"
+        elif feature_name == "miframes":
+            self.module_name = "rig2_miframes"
+        else:
+            self.module_name = "rig2_r2bb"
         self.path = os.path.join(temp_dir, self.module_name + ".abi3.so")
         self.load_ok = False
         self.error = ""
@@ -101,11 +106,13 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     wrapper_states = {
         "face_cap": WrapperState("face_cap", temp_dir),
         "miframes": WrapperState("miframes", temp_dir),
+        "r2bb": WrapperState("r2bb", temp_dir),
     }
 
     config_mod = types.ModuleType(config_name)
     config_mod.FEATURE_FACE_CAP = "face_cap"
     config_mod.FEATURE_MIFRAMES = "miframes"
+    config_mod.FEATURE_R2BB = "r2bb"
 
     registry_mod = types.ModuleType(registry_name)
 
@@ -120,9 +127,11 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     specs = {
         "face_cap": FeatureSpec("face_cap", "Face Capture", "rig2_face_cap", "rig2_face_cap"),
         "miframes": FeatureSpec("miframes", "MIFrames", "rig2_miframes", "rig2_miframes"),
+        "r2bb": FeatureSpec("r2bb", "R2BB", "rig2_r2bb", "rig2_r2bb"),
     }
     registry_mod.FEATURE_FACE_CAP = "face_cap"
     registry_mod.FEATURE_MIFRAMES = "miframes"
+    registry_mod.FEATURE_R2BB = "r2bb"
     registry_mod.get_feature_spec = lambda feature_id: specs[feature_id]
     registry_mod.iter_feature_specs = lambda: tuple(specs.values())
 
@@ -257,6 +266,35 @@ class FeatureAccessTest(unittest.TestCase):
             failed_status = feature_access.get_feature_status("face_cap")
             self.assertEqual(failed_status["effective_state"], "download_failed")
             self.assertIn("Retry from Addon Preferences", failed_status["message"])
+
+    def test_r2bb_unlicensed_hidden_but_binary_states_still_work(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"r2bb": True, "face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                state = wrapper_states["r2bb"]
+                with open(state.path, "wb") as handle:
+                    handle.write(b"bin")
+                state.load_ok = True
+                return True
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            missing_status = feature_access.get_feature_status("r2bb")
+            self.assertEqual(missing_status["effective_state"], "binary_missing")
+
+            result = feature_access.download_feature_binary("r2bb")
+            self.assertTrue(result["ok"])
+            ready_status = feature_access.get_feature_status("r2bb")
+            self.assertEqual(ready_status["effective_state"], "ready")
 
             with open(wrapper_states["face_cap"].path, "wb") as handle:
                 handle.write(b"bin")

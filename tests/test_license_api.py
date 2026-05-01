@@ -37,6 +37,7 @@ def _load_api_modules(*, manager, runtime_ready):
     config_mod.HEARTBEAT_INTERVAL_SECONDS = 300
     config_mod.FEATURE_FACE_CAP = "face_cap"
     config_mod.FEATURE_MIFRAMES = "miframes"
+    config_mod.FEATURE_R2BB = "r2bb"
 
     sys.modules[package_name] = pkg
     sys.modules[licensing_name] = licensing_pkg
@@ -83,7 +84,7 @@ class LicenseApiTest(unittest.TestCase):
                 "activated": True,
                 "product": "Rig2",
                 "tier": "Pro",
-                "features": {"miframes": True, "face_cap": False},
+                "features": {"miframes": True, "face_cap": False, "r2bb": True},
                 "warnings": [{"level": "INFO", "message": "Heartbeat healthy", "action_required": False}],
             },
         )
@@ -96,11 +97,12 @@ class LicenseApiTest(unittest.TestCase):
         self.assertTrue(hasattr(api_mod, "is_feature_licensed"))
         self.assertEqual(api_mod.FEATURE_FACE_CAP, "face_cap")
         self.assertEqual(api_mod.FEATURE_MIFRAMES, "miframes")
+        self.assertEqual(api_mod.FEATURE_R2BB, "r2bb")
         self.assertTrue(status["provider_available"])
         self.assertTrue(status["provider_ready"])
         self.assertTrue(status["activated"])
         self.assertEqual(status["reason"], "ok")
-        self.assertEqual(status["features"], {"miframes": True, "face_cap": False})
+        self.assertEqual(status["features"], {"miframes": True, "face_cap": False, "r2bb": True})
         _assert_primitives_only(self, status)
 
     def test_feature_access_reports_unactivated_when_no_session(self):

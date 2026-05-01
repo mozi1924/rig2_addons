@@ -1,4 +1,4 @@
-from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES, iter_public_api_feature_specs
+from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB, iter_public_api_feature_specs
 
 _EMPTY_PROVIDER_STATUS = {
     "provider_available": False,
