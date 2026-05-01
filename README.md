@@ -53,6 +53,19 @@ Disable ABI3 if needed:
 RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
 ```
 
+Build the distributable addon zip:
+
+```bash
+python3 scripts/package_addon.py
+```
+
+Version source is centralized in `version.json`:
+
+```bash
+python3 scripts/versioning.py show
+python3 scripts/versioning.py bump patch
+```
+
 Runtime loader search order:
 
 1. `src/native/binaries/<sys.platform>-<arch>-abi3/`

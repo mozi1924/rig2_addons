@@ -26,6 +26,45 @@ python3 scripts/extract_native_from_wheels.py --wheelhouse wheelhouse --output n
 
 `native_dist/` is a packaging artifact, not part of the long-lived workspace structure.
 
+## Addon Packaging
+
+Build the Blender addon zip into `dist/`:
+
+```bash
+python3 scripts/package_addon.py
+```
+
+The packaging script rewrites the packaged `__init__.py` so `bl_info["version"]`
+is injected from the central semantic version source at build time.
+
+## Version Management
+
+The addon version source lives in `version.json` and is split into:
+
+- `major`
+- `minor`
+- `patch`
+
+Show the current version:
+
+```bash
+python3 scripts/versioning.py show
+```
+
+Bump a version part:
+
+```bash
+python3 scripts/versioning.py bump patch
+python3 scripts/versioning.py bump minor
+python3 scripts/versioning.py bump major
+```
+
+Set an explicit version:
+
+```bash
+python3 scripts/versioning.py set --major 1 --minor 2 --patch 0
+```
+
 ## Integrity Hashes
 
 Refresh generated integrity hashes before rebuilding protected native binaries:

@@ -1,7 +1,12 @@
+try:
+    from .src.core.versioning import BL_INFO_VERSION
+except ImportError:
+    from src.core.versioning import BL_INFO_VERSION
+
 bl_info = {
     "name": "Rig2",
     "author": "mozi1924",
-    "version": (1, 1),
+    "version": BL_INFO_VERSION,
     "blender": (4, 5, 0),
     "location": "Properties > Data, 3D View > Side Panel",
     "description": "A modular binding tool for Rig2 Armatures with Face/MoCap support ready",

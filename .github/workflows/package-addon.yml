@@ -1,0 +1,52 @@
+name: Package Blender Addon
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "__init__.py"
+      - "assets/**"
+      - "src/**"
+      - "version.json"
+      - "scripts/package_addon.py"
+      - "scripts/versioning.py"
+      - ".github/workflows/package-addon.yml"
+  pull_request:
+    paths:
+      - "__init__.py"
+      - "assets/**"
+      - "src/**"
+      - "version.json"
+      - "scripts/package_addon.py"
+      - "scripts/versioning.py"
+      - ".github/workflows/package-addon.yml"
+
+jobs:
+  package-addon:
+    name: Package Addon
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve addon version
+        id: version
+        run: |
+          echo "semver=$(python scripts/versioning.py show --format semver)" >> "$GITHUB_OUTPUT"
+
+      - name: Build addon zip
+        run: python scripts/package_addon.py
+
+      - name: Upload addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rig2-addon-${{ steps.version.outputs.semver }}
+          path: dist/*.zip
+          if-no-files-found: error
