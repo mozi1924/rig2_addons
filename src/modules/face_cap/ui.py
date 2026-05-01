@@ -30,12 +30,6 @@ def _format_transport_label(status):
 
 
 class FaceCapUIDrawer:
-    INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
-
-    @staticmethod
-    def _is_backend_unlocked():
-        return get_face_cap_backend_service().is_feature_unlocked()
-
     @staticmethod
     def _draw_license_warnings(layout):
         """Draw license-related warnings at the top of panels."""
@@ -256,7 +250,7 @@ class FaceCapUIDrawer:
         row.operator("rig2.face_cap_clear_keys", icon="TRASH")
 
         if face_bone:
-            mapped_count = len([key for key in face_bone.keys() if key not in FaceCapUIDrawer.INTERNAL_KEYS])
+            mapped_count = len([key for key in face_bone.keys() if key not in INTERNAL_KEYS])
             layout.label(
                 text=_f("{label}: {count}", label=_("Mapped Blendshapes"), count=mapped_count),
                 icon="SHAPEKEY_DATA",

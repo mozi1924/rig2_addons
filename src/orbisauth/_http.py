@@ -5,6 +5,27 @@ from typing import Any
 
 from ._errors import OrbisAuthAPIError, OrbisAuthNetworkError
 
+USER_AGENT = "OrbisAuth/1.0 (Rig2; Blender)"
+
+
+def _decode_error_body(status: int, body: bytes, fallback_message: str = "Unknown error") -> OrbisAuthAPIError:
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return OrbisAuthAPIError(status, "UNKNOWN", body.decode("utf-8", errors="replace"))
+
+    error_obj = payload.get("error")
+    if isinstance(error_obj, dict):
+        error_code = error_obj.get("code", "UNKNOWN")
+        error_message = error_obj.get("message", fallback_message)
+    elif isinstance(error_obj, str):
+        error_code = "UNKNOWN"
+        error_message = error_obj
+    else:
+        error_code = "UNKNOWN"
+        error_message = payload.get("message") or payload.get("detail") or fallback_message
+    return OrbisAuthAPIError(status, error_code, error_message)
+
 
 def _api_request(
     method: str,
@@ -21,7 +42,7 @@ def _api_request(
     """
     req_headers: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": "OrbisAuth/1.0 (Rig2; Blender)",
+        "User-Agent": USER_AGENT,
     }
     if headers:
         req_headers.update(headers)
@@ -48,27 +69,11 @@ def _api_request(
     try:
         payload: dict[str, Any] = json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        raise OrbisAuthAPIError(status, "UNKNOWN", body.decode("utf-8", errors="replace"))
+        raise _decode_error_body(status, body)
 
     if 200 <= status < 300:
         return payload
-
-    # Parse error response. The server may return:
-    #   {"error": {"code": "...", "message": "..."}}
-    #   {"message": "..."}  (top-level message)
-    #   {"detail": "..."}  (RFC 7807 style)
-    #   or just a plain string body.
-    error_obj = payload.get("error")
-    if isinstance(error_obj, dict):
-        error_code = error_obj.get("code", "UNKNOWN")
-        error_message = error_obj.get("message", "Unknown error")
-    elif isinstance(error_obj, str):
-        error_code = "UNKNOWN"
-        error_message = error_obj
-    else:
-        error_code = "UNKNOWN"
-        error_message = payload.get("message") or payload.get("detail") or "Unknown error"
-    raise OrbisAuthAPIError(status, error_code, error_message)
+    raise _decode_error_body(status, body)
 
 
 def _stream_request(
@@ -78,7 +83,7 @@ def _stream_request(
 ) -> tuple[Any, int | None]:
     """Make a streaming HTTP GET and return (response, content_length)."""
     req_headers: dict[str, str] = {
-        "User-Agent": "OrbisAuth/1.0 (Rig2; Blender)",
+        "User-Agent": USER_AGENT,
     }
     if headers:
         req_headers.update(headers)
@@ -92,12 +97,7 @@ def _stream_request(
         return response, length
     except urllib.error.HTTPError as e:
         body = e.read()
-        try:
-            payload = json.loads(body)
-            error_obj = payload.get("error", {})
-            raise OrbisAuthAPIError(e.code, error_obj.get("code", "UNKNOWN"), error_obj.get("message", str(e)))
-        except (json.JSONDecodeError, ValueError):
-            raise OrbisAuthAPIError(e.code, "UNKNOWN", body.decode("utf-8", errors="replace"))
+        raise _decode_error_body(e.code, body, fallback_message=str(e))
     except urllib.error.URLError as e:
         raise OrbisAuthNetworkError(str(e.reason)) from e
     except OSError as e:

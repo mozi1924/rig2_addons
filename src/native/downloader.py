@@ -174,28 +174,3 @@ def ensure_native_binary(module_name, force=False):
                 pass
         _log.error("Failed to download '%s': %s", module_name, exc)
         raise
-
-
-def get_download_status(module_name):
-    """Return a status string describing the binary availability for UI.
-
-    Returns:
-        "available" — binary is present and loadable.
-        "downloadable" — binary is missing but user has license to download.
-        "unavailable" — binary is missing and user cannot download (no license).
-        "unknown" — status could not be determined.
-    """
-    from .loader import build_native_module_path
-
-    for path in build_native_module_path(module_name):
-        if os.path.exists(path):
-            return "available"
-
-    try:
-        from ..licensing.manager import get_license_manager
-        mgr = get_license_manager()
-        if mgr.is_activated():
-            return "downloadable"
-        return "unavailable"
-    except Exception:
-        return "unknown"

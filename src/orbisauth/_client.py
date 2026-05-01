@@ -50,6 +50,62 @@ class DownloadInfo:
     expires_in: int
 
 
+_DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 300
+_DEFAULT_HEARTBEAT_GRACE_SECONDS = 3600
+
+
+def _api_url(server_url: str, endpoint: str) -> str:
+    return f"{server_url.rstrip('/')}/api/v1/{endpoint.lstrip('/')}"
+
+
+def _coerce_features(raw: Any, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    return dict(fallback or {})
+
+
+def _build_heartbeat_policy(
+    heartbeat_raw: Any,
+    fallback: HeartbeatPolicy | None = None,
+) -> HeartbeatPolicy:
+    if not isinstance(heartbeat_raw, dict):
+        heartbeat_raw = {}
+    return HeartbeatPolicy(
+        interval_seconds=int(
+            heartbeat_raw.get(
+                "interval_seconds",
+                fallback.interval_seconds if fallback is not None else _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+            ) or 0
+        ),
+        grace_period_seconds=int(
+            heartbeat_raw.get(
+                "grace_period_seconds",
+                fallback.grace_period_seconds if fallback is not None else _DEFAULT_HEARTBEAT_GRACE_SECONDS,
+            ) or 0
+        ),
+    )
+
+
+def _build_token_set(data: dict[str, Any], fallback: TokenSet | None = None) -> TokenSet:
+    if fallback is None:
+        return TokenSet(
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"],
+            token_type=data.get("token_type", "Bearer"),
+            expires_in=int(data.get("expires_in", 0) or 0),
+            refresh_expires_in=int(data.get("refresh_expires_in", 0) or 0),
+        )
+    return TokenSet(
+        access_token=data.get("access_token", fallback.access_token) or fallback.access_token,
+        refresh_token=data.get("refresh_token", fallback.refresh_token) or fallback.refresh_token,
+        token_type=data.get("token_type", fallback.token_type) or fallback.token_type,
+        expires_in=int(data.get("expires_in", fallback.expires_in) or fallback.expires_in),
+        refresh_expires_in=int(
+            data.get("refresh_expires_in", fallback.refresh_expires_in) or fallback.refresh_expires_in
+        ),
+    )
+
+
 class OrbisAuthClient:
     """Client for the OrbisAuth license activation and verification server.
 
@@ -109,22 +165,11 @@ class OrbisAuthClient:
         if device_name.strip():
             body["device_name"] = device_name.strip()
 
-        url = f"{self.server_url}/api/v1/activate"
+        url = _api_url(self.server_url, "activate")
         data = _api_request("POST", url, json_body=body, timeout=self.timeout_seconds)
 
-        tokens = TokenSet(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            token_type=data["token_type"],
-            expires_in=data["expires_in"],
-            refresh_expires_in=data["refresh_expires_in"],
-        )
-
-        heartbeat_raw = data.get("heartbeat", {})
-        heartbeat = HeartbeatPolicy(
-            interval_seconds=heartbeat_raw.get("interval_seconds", 300),
-            grace_period_seconds=heartbeat_raw.get("grace_period_seconds", 3600),
-        )
+        tokens = _build_token_set(data)
+        heartbeat = _build_heartbeat_policy(data.get("heartbeat"))
 
         license_id = self._extract_sub(tokens.access_token)
 
@@ -132,7 +177,7 @@ class OrbisAuthClient:
             tokens=tokens,
             product=data["product"],
             tier=data["tier"],
-            features=data.get("features", {}),
+            features=_coerce_features(data.get("features")),
             heartbeat=heartbeat,
             device_id=device_id.strip(),
             device_name=device_name.strip(),
@@ -163,22 +208,11 @@ class OrbisAuthClient:
 
             body: dict[str, str] = {"refresh_token": self.session.tokens.refresh_token}
 
-            url = f"{self.server_url}/api/v1/refresh"
+            url = _api_url(self.server_url, "refresh")
             data = _api_request("POST", url, json_body=body, timeout=self.timeout_seconds)
 
-            tokens = TokenSet(
-                access_token=data["access_token"],
-                refresh_token=data["refresh_token"],
-                token_type=data["token_type"],
-                expires_in=data["expires_in"],
-                refresh_expires_in=data["refresh_expires_in"],
-            )
-
-            heartbeat_raw = data.get("heartbeat", {})
-            heartbeat = HeartbeatPolicy(
-                interval_seconds=heartbeat_raw.get("interval_seconds", 300),
-                grace_period_seconds=heartbeat_raw.get("grace_period_seconds", 3600),
-            )
+            tokens = _build_token_set(data)
+            heartbeat = _build_heartbeat_policy(data.get("heartbeat"), fallback=self.session.heartbeat)
 
             self.session.tokens = tokens
             self.session.heartbeat = heartbeat
@@ -203,7 +237,7 @@ class OrbisAuthClient:
         self._ensure_authenticated()
         assert self.session is not None
 
-        url = f"{self.server_url}/api/v1/heartbeat"
+        url = _api_url(self.server_url, "heartbeat")
         data = _api_request(
             "POST",
             url,
@@ -211,11 +245,7 @@ class OrbisAuthClient:
             timeout=self.timeout_seconds,
         )
 
-        heartbeat_raw = data.get("heartbeat", {})
-        heartbeat = HeartbeatPolicy(
-            interval_seconds=heartbeat_raw.get("interval_seconds", 300),
-            grace_period_seconds=heartbeat_raw.get("grace_period_seconds", 3600),
-        )
+        heartbeat = _build_heartbeat_policy(data.get("heartbeat"), fallback=self.session.heartbeat)
         self.session.heartbeat = heartbeat
 
         access_token = data.get("access_token", "")
@@ -223,17 +253,10 @@ class OrbisAuthClient:
         expires_in = int(data.get("expires_in", 0) or 0)
         refresh_expires_in = int(data.get("refresh_expires_in", 0) or 0)
         if access_token:
-            self.session.tokens = TokenSet(
-                access_token=access_token,
-                refresh_token=refresh_token or self.session.tokens.refresh_token,
-                token_type=data.get("token_type", self.session.tokens.token_type),
-                expires_in=expires_in or self.session.tokens.expires_in,
-                refresh_expires_in=refresh_expires_in or self.session.tokens.refresh_expires_in,
-            )
+            self.session.tokens = _build_token_set(data, fallback=self.session.tokens)
             self.session.product = str(data.get("product", self.session.product) or self.session.product)
             self.session.tier = str(data.get("tier", self.session.tier) or self.session.tier)
-            features = data.get("features", self.session.features)
-            self.session.features = features if isinstance(features, dict) else self.session.features
+            self.session.features = _coerce_features(data.get("features"), fallback=self.session.features)
             self.session.activated_at = time.time()
             self._persist()
 
@@ -315,7 +338,7 @@ class OrbisAuthClient:
         self._ensure_authenticated()
         assert self.session is not None
 
-        url = f"{self.server_url}/api/v1/devices"
+        url = _api_url(self.server_url, "devices")
         data = _api_request(
             "GET",
             url,
@@ -369,7 +392,7 @@ class OrbisAuthClient:
         if artifact:
             params.append(f"artifact={_urlencode(artifact)}")
 
-        url = f"{self.server_url}/api/v1/download?{'&'.join(params)}"
+        url = _api_url(self.server_url, f"download?{'&'.join(params)}")
         data = _api_request(
             "GET",
             url,

@@ -14,6 +14,8 @@ from .device_id import get_or_create_device_id
 from .paths import get_session_path
 
 _log = logging.getLogger(__name__)
+_SESSION_EXPIRY_WARNING_SECONDS = 3600
+_SESSION_EXPIRY_CRITICAL_SECONDS = 300
 
 
 def _generate_device_name():
@@ -40,16 +42,8 @@ class LicenseManager:
     def __init__(self):
         self._device_id = get_or_create_device_id()
         self._device_name = _generate_device_name()
-        self._last_heartbeat_time: float = 0.0
-        self._last_heartbeat_attempt_time: float = 0.0
-        self._consecutive_heartbeat_failures: int = 0
-        self._last_heartbeat_error: str = ""
         self._heartbeat_lock = threading.RLock()
-        self._heartbeat_thread: threading.Thread | None = None
-        self._heartbeat_in_flight: bool = False
-        self._heartbeat_result_pending: dict | None = None
-        self._native_sync_pending: bool = False
-        self._runtime_refresh_pending: bool = False
+        self._reset_heartbeat_tracking()
         session_path = get_session_path()
         self._client = OrbisAuthClient(
             server_url=DEFAULT_SERVER_URL,
@@ -64,82 +58,33 @@ class LicenseManager:
     # Session lifecycle
     # ------------------------------------------------------------------
 
-    def _load_existing_session(self):
-        """Try to load a previously persisted session."""
-        try:
-            session = self._client.load_session()
-            if session is not None:
-                _log.info(
-                    "Loaded license session: product=%s tier=%s device=%s",
-                    session.product,
-                    session.tier,
-                    session.device_id,
-                )
-                if session.device_id and session.device_id != self._device_id:
-                    _log.warning(
-                        "Session device_id %s differs from current device_id %s",
-                        session.device_id,
-                        self._device_id,
-                    )
-                now = time.time()
-                self._last_heartbeat_time = now
-                self._last_heartbeat_attempt_time = now
-        except Exception as exc:
-            _log.warning("Failed to load license session: %s", exc)
-
-    def activate(self, license_key):
-        """Activate a license key on this device.
-
-        Returns the Session on success.
-
-        Raises:
-            OrbisAuthError: if activation fails
-        """
-        session = self._client.activate(
-            license_key=license_key,
-            device_id=self._device_id,
-            device_name=self._device_name,
-        )
-        now = time.time()
+    def _reset_heartbeat_tracking(self, *, now: float = 0.0):
         self._last_heartbeat_time = now
         self._last_heartbeat_attempt_time = now
         self._consecutive_heartbeat_failures = 0
         self._last_heartbeat_error = ""
-        _log.info(
-            "License activated: product=%s tier=%s license=%s",
-            session.product,
-            session.tier,
-            session.license_id,
-        )
-        return session
-
-    def deactivate(self):
-        """Deactivate the current session and clear persisted data."""
-        self._client.deactivate()
-        self._last_heartbeat_time = 0.0
-        self._last_heartbeat_attempt_time = 0.0
-        self._consecutive_heartbeat_failures = 0
-        self._last_heartbeat_error = ""
         with self._heartbeat_lock:
-            self._heartbeat_in_flight = False
             self._heartbeat_thread = None
+            self._heartbeat_in_flight = False
             self._heartbeat_result_pending = None
             self._native_sync_pending = False
             self._runtime_refresh_pending = False
+
+    def _safe_token_expiry(self, token, fallback_expiry):
         try:
-            from .feature_access import clear_feature_state
-
-            clear_feature_state()
+            return get_token_expiry(token)
         except Exception:
-            pass
-        _log.info("License deactivated.")
+            return fallback_expiry
 
-    # ------------------------------------------------------------------
-    # Feature gating
-    # ------------------------------------------------------------------
+    def _verified_features(self):
+        if self._client.session is None:
+            return {}
+        try:
+            return self._client.get_features()
+        except (OrbisAuthTokenError, OrbisAuthError):
+            return {}
 
-    def is_activated(self):
-        """Check if a valid license session exists (offline check)."""
+    def _has_verified_session(self):
         if self._client.session is None:
             return False
         try:
@@ -148,110 +93,50 @@ class LicenseManager:
         except (OrbisAuthTokenError, OrbisAuthError):
             return False
 
-    def is_feature_licensed(self, feature_name):
-        """Check if a specific feature is licensed.
+    def _build_inactive_status(self):
+        return {
+            "activated": False,
+            "product": "",
+            "tier": "",
+            "license_id": "",
+            "device_name": "",
+            "device_id": self._device_id,
+            "features": {},
+            "access_token_expires_at": 0,
+            "access_token_expires_in_seconds": 0,
+            "refresh_token_expires_at": 0,
+            "offline_valid_until": 0,
+            "offline_valid_remaining_seconds": 0,
+            "session_valid_until": 0,
+            "session_valid_remaining_seconds": 0,
+            "session_activated_at": 0.0,
+            "last_heartbeat_at": self._last_heartbeat_time,
+            "last_heartbeat_attempt_at": self._last_heartbeat_attempt_time,
+            "last_heartbeat_error": self._last_heartbeat_error,
+            "consecutive_heartbeat_failures": self._consecutive_heartbeat_failures,
+            "is_access_expired": True,
+            "is_refresh_expired": True,
+            "needs_heartbeat": False,
+            "should_auto_heartbeat_now": False,
+            "heartbeat_in_flight": False,
+            "heartbeat_interval": 0,
+            "heartbeat_grace": 0,
+            "heartbeat_due_at": 0,
+            "heartbeat_overdue_seconds": 0,
+            "warnings": [],
+        }
 
-        Performs local JWT verification — no server call.
-        Returns False if the session is invalid or the feature is not in the token.
-        """
-        if self._client.session is None:
-            return False
-        try:
-            features = self._client.get_features()
-        except (OrbisAuthTokenError, OrbisAuthError):
-            return False
-
-        if not features:
-            return False
-        return bool(features.get(feature_name, False))
-
-    def get_features(self):
-        """Return the features dict from the current license (offline check)."""
-        try:
-            if self._client.session is None:
-                return {}
-            return self._client.get_features()
-        except (OrbisAuthTokenError, OrbisAuthError):
-            return {}
-
-    # ------------------------------------------------------------------
-    # Status & UI helpers
-    # ------------------------------------------------------------------
-
-    def get_device_id(self):
-        """Return the current device ID."""
-        return self._device_id
-
-    def get_status(self):
-        """Return a dict describing the current license state for UI display."""
-        self.consume_heartbeat_result()
-        session = self._client.session
-        if session is None:
-            return {
-                "activated": False,
-                "product": "",
-                "tier": "",
-                "license_id": "",
-                "device_name": "",
-                "device_id": self._device_id,
-                "features": {},
-                "access_token_expires_at": 0,
-                "access_token_expires_in_seconds": 0,
-                "refresh_token_expires_at": 0,
-                "offline_valid_until": 0,
-                "offline_valid_remaining_seconds": 0,
-                "session_valid_until": 0,
-                "session_valid_remaining_seconds": 0,
-                "session_activated_at": 0.0,
-                "last_heartbeat_at": self._last_heartbeat_time,
-                "last_heartbeat_attempt_at": self._last_heartbeat_attempt_time,
-                "last_heartbeat_error": self._last_heartbeat_error,
-                "consecutive_heartbeat_failures": self._consecutive_heartbeat_failures,
-                "is_access_expired": True,
-                "is_refresh_expired": True,
-                "needs_heartbeat": False,
-                "should_auto_heartbeat_now": False,
-                "heartbeat_in_flight": False,
-                "heartbeat_interval": 0,
-                "heartbeat_grace": 0,
-                "heartbeat_due_at": 0,
-                "heartbeat_overdue_seconds": 0,
-                "warnings": [],
-            }
-
-        now = time.time()
-        try:
-            access_exp = get_token_expiry(session.tokens.access_token)
-        except Exception:
-            access_exp = 0
-        try:
-            refresh_exp = get_token_expiry(session.tokens.refresh_token)
-        except Exception:
-            refresh_exp = session.activated_at + session.tokens.refresh_expires_in
-
-        is_valid = self.is_activated()
-        access_expires_in = max(0, access_exp - now) if access_exp else 0
-        is_access_expired = access_exp > 0 and now >= access_exp
-        is_refresh_expired = refresh_exp > 0 and now >= refresh_exp
-        offline_valid_until = int(access_exp) if access_exp else 0
-        session_valid_until = int(refresh_exp) if refresh_exp else 0
-        offline_valid_remaining_seconds = int(access_expires_in)
-        session_valid_remaining_seconds = int(max(0, refresh_exp - now) if refresh_exp else 0)
-
-        heartbeat_interval = session.heartbeat.interval_seconds if session.heartbeat else 0
-        grace = session.heartbeat.grace_period_seconds if session.heartbeat else 0
-        heartbeat_due_at = self._get_heartbeat_due_at(session)
-        heartbeat_overdue_seconds = max(0, int(now - heartbeat_due_at)) if heartbeat_due_at else 0
-        needs_heartbeat = (
-            heartbeat_interval > 0
-            and heartbeat_due_at > 0
-            and now >= heartbeat_due_at
-            and not is_refresh_expired
-        )
-        heartbeat_in_flight = self.is_heartbeat_in_flight()
-        should_auto_heartbeat_now = self.should_trigger_immediate_heartbeat(now=now)
-
-        # Build warnings
+    def _build_status_warnings(
+        self,
+        *,
+        is_valid,
+        is_refresh_expired,
+        is_access_expired,
+        access_expires_in,
+        needs_heartbeat,
+        heartbeat_in_flight,
+        should_auto_heartbeat_now,
+    ):
         warnings = []
         if heartbeat_in_flight and not is_refresh_expired:
             warnings.append({
@@ -269,7 +154,11 @@ class LicenseManager:
             })
 
         if is_valid and not is_refresh_expired:
-            if 0 < access_expires_in <= 3600 and needs_heartbeat and not heartbeat_in_flight:
+            if (
+                0 < access_expires_in <= _SESSION_EXPIRY_WARNING_SECONDS
+                and needs_heartbeat
+                and not heartbeat_in_flight
+            ):
                 warnings.append({
                     "level": "WARNING",
                     "message": (
@@ -278,7 +167,7 @@ class LicenseManager:
                     ),
                     "action_required": True,
                 })
-            elif access_expires_in <= 300 and not is_access_expired:
+            elif access_expires_in <= _SESSION_EXPIRY_CRITICAL_SECONDS and not is_access_expired:
                 warnings.append({
                     "level": "CRITICAL",
                     "message": (
@@ -320,6 +209,151 @@ class LicenseManager:
                 "message": f"Last heartbeat attempt failed: {self._last_heartbeat_error}",
                 "action_required": False,
             })
+        return warnings
+
+    def _record_heartbeat_success(self, *, completed_at=None, refresh_runtime=False):
+        self._last_heartbeat_time = float(completed_at or time.time())
+        self._consecutive_heartbeat_failures = 0
+        self._last_heartbeat_error = ""
+        with self._heartbeat_lock:
+            self._native_sync_pending = True
+            if refresh_runtime:
+                self._runtime_refresh_pending = True
+
+    def _record_heartbeat_failure(self, error):
+        self._consecutive_heartbeat_failures += 1
+        self._last_heartbeat_error = str(error or "")
+
+    def _load_existing_session(self):
+        """Try to load a previously persisted session."""
+        try:
+            session = self._client.load_session()
+            if session is not None:
+                _log.info(
+                    "Loaded license session: product=%s tier=%s device=%s",
+                    session.product,
+                    session.tier,
+                    session.device_id,
+                )
+                if session.device_id and session.device_id != self._device_id:
+                    _log.warning(
+                        "Session device_id %s differs from current device_id %s",
+                        session.device_id,
+                        self._device_id,
+                    )
+                self._reset_heartbeat_tracking(now=time.time())
+        except Exception as exc:
+            _log.warning("Failed to load license session: %s", exc)
+
+    def activate(self, license_key):
+        """Activate a license key on this device.
+
+        Returns the Session on success.
+
+        Raises:
+            OrbisAuthError: if activation fails
+        """
+        session = self._client.activate(
+            license_key=license_key,
+            device_id=self._device_id,
+            device_name=self._device_name,
+        )
+        self._reset_heartbeat_tracking(now=time.time())
+        _log.info(
+            "License activated: product=%s tier=%s license=%s",
+            session.product,
+            session.tier,
+            session.license_id,
+        )
+        return session
+
+    def deactivate(self):
+        """Deactivate the current session and clear persisted data."""
+        self._client.deactivate()
+        self._reset_heartbeat_tracking()
+        try:
+            from .feature_access import clear_feature_state
+
+            clear_feature_state()
+        except Exception:
+            pass
+        _log.info("License deactivated.")
+
+    # ------------------------------------------------------------------
+    # Feature gating
+    # ------------------------------------------------------------------
+
+    def is_activated(self):
+        """Check if a valid license session exists (offline check)."""
+        return self._has_verified_session()
+
+    def is_feature_licensed(self, feature_name):
+        """Check if a specific feature is licensed.
+
+        Performs local JWT verification — no server call.
+        Returns False if the session is invalid or the feature is not in the token.
+        """
+        features = self._verified_features()
+        if not features:
+            return False
+        return bool(features.get(feature_name, False))
+
+    def get_features(self):
+        """Return the features dict from the current license (offline check)."""
+        return self._verified_features()
+
+    # ------------------------------------------------------------------
+    # Status & UI helpers
+    # ------------------------------------------------------------------
+
+    def get_device_id(self):
+        """Return the current device ID."""
+        return self._device_id
+
+    def get_status(self):
+        """Return a dict describing the current license state for UI display."""
+        self.consume_heartbeat_result()
+        session = self._client.session
+        if session is None:
+            return self._build_inactive_status()
+
+        now = time.time()
+        access_exp = self._safe_token_expiry(session.tokens.access_token, 0)
+        refresh_exp = self._safe_token_expiry(
+            session.tokens.refresh_token,
+            session.activated_at + session.tokens.refresh_expires_in,
+        )
+
+        is_valid = self.is_activated()
+        access_expires_in = max(0, access_exp - now) if access_exp else 0
+        is_access_expired = access_exp > 0 and now >= access_exp
+        is_refresh_expired = refresh_exp > 0 and now >= refresh_exp
+        offline_valid_until = int(access_exp) if access_exp else 0
+        session_valid_until = int(refresh_exp) if refresh_exp else 0
+        offline_valid_remaining_seconds = int(access_expires_in)
+        session_valid_remaining_seconds = int(max(0, refresh_exp - now) if refresh_exp else 0)
+
+        heartbeat_interval = session.heartbeat.interval_seconds if session.heartbeat else 0
+        grace = session.heartbeat.grace_period_seconds if session.heartbeat else 0
+        heartbeat_due_at = self._get_heartbeat_due_at(session)
+        heartbeat_overdue_seconds = max(0, int(now - heartbeat_due_at)) if heartbeat_due_at else 0
+        needs_heartbeat = (
+            heartbeat_interval > 0
+            and heartbeat_due_at > 0
+            and now >= heartbeat_due_at
+            and not is_refresh_expired
+        )
+        heartbeat_in_flight = self.is_heartbeat_in_flight()
+        should_auto_heartbeat_now = self.should_trigger_immediate_heartbeat(now=now)
+        warnings = self._build_status_warnings(
+            is_valid=is_valid,
+            is_refresh_expired=is_refresh_expired,
+            is_access_expired=is_access_expired,
+            access_expires_in=access_expires_in,
+            needs_heartbeat=needs_heartbeat,
+            heartbeat_in_flight=heartbeat_in_flight,
+            should_auto_heartbeat_now=should_auto_heartbeat_now,
+        )
 
         if should_auto_heartbeat_now:
             self.request_heartbeat(reason="status_overdue")
@@ -375,12 +409,9 @@ class LicenseManager:
         self._last_heartbeat_attempt_time = now
         try:
             self._client.heartbeat()
-            self._last_heartbeat_time = time.time()
-            self._last_heartbeat_error = ""
-            self._consecutive_heartbeat_failures = 0
+            self._record_heartbeat_success()
         except Exception as exc:
-            self._last_heartbeat_error = str(exc)
-            self._consecutive_heartbeat_failures += 1
+            self._record_heartbeat_failure(exc)
             _log.debug("Heartbeat failed (non-fatal, attempt %d): %s",
                         self._consecutive_heartbeat_failures, exc)
             if raise_on_error:
@@ -457,15 +488,12 @@ class LicenseManager:
 
         self._last_heartbeat_attempt_time = float(result.get("attempted_at", time.time()))
         if result.get("ok"):
-            self._last_heartbeat_time = float(result.get("completed_at", time.time()))
-            self._consecutive_heartbeat_failures = 0
-            self._last_heartbeat_error = ""
-            self._native_sync_pending = True
-            if result.get("refresh_runtime"):
-                self._runtime_refresh_pending = True
+            self._record_heartbeat_success(
+                completed_at=result.get("completed_at", time.time()),
+                refresh_runtime=bool(result.get("refresh_runtime")),
+            )
         else:
-            self._consecutive_heartbeat_failures += 1
-            self._last_heartbeat_error = str(result.get("error", "") or "")
+            self._record_heartbeat_failure(result.get("error", ""))
 
         return result
 

@@ -2,9 +2,21 @@
 
 This note keeps the local developer flow separate from addon runtime files.
 
+## Managed Native Feature Checklist
+
+If you add a new commercial/native module, start from
+`src/licensing/registry.py` and do not stop at just C++ code.
+The expected chain is:
+
+1. Registry entry with Orbisauth/download metadata
+2. Native C++ source under `native_cpp/src/`
+3. Runtime integrity targets and service wiring
+4. Native build/package/upload inclusion
+5. CI validation via `python3 scripts/validate_feature_chain.py`
+
 ## Local Native Build
 
-Build the two managed native modules into `src/native/binaries/`:
+Build the three managed native modules into `src/native/binaries/`:
 
 ```bash
 python3 scripts/build_native.py
@@ -25,6 +37,12 @@ python3 scripts/extract_native_from_wheels.py --wheelhouse wheelhouse --output n
 ```
 
 `native_dist/` is a packaging artifact, not part of the long-lived workspace structure.
+
+Validate the extracted layout:
+
+```bash
+python3 scripts/verify_native_dist.py native_dist --require-complete-matrix
+```
 
 ## Addon Packaging
 

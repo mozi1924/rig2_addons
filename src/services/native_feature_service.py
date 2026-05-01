@@ -37,10 +37,6 @@ class NativeLicensedFeatureService:
         status = self.get_feature_status()
         return status.get("effective_state") in {"ready", "session_warning"}
 
-    def _is_license_session_ready_for_native(self):
-        status = get_feature_status(self.feature_id)
-        return status.get("effective_state") in {"ready", "session_warning"}
-
     def get_feature_status(self):
         status = get_feature_status(self.feature_id)
         native_status = self.get_native_authorization_status()
@@ -102,13 +98,3 @@ class NativeLicensedFeatureService:
         if self.is_feature_unlocked():
             return
         raise FeatureLockedError(self.spec.label, self.get_lock_reason())
-
-    def get_backend_name(self):
-        backend = self.get_backend()
-        backend_name = getattr(backend, "backend_name", None)
-        if callable(backend_name):
-            try:
-                return str(backend_name())
-            except Exception:
-                pass
-        return "native" if self.is_native_backend() else "locked"

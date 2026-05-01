@@ -11,14 +11,6 @@ def get_feature_status(feature_name):
     return _get_feature_status(feature_name)
 
 
-def is_license_activated():
-    try:
-        from ..licensing.manager import get_license_manager
-        return get_license_manager().is_activated()
-    except Exception:
-        return False
-
-
 def is_feature_licensed(feature_name):
     try:
         from ..licensing.manager import get_license_manager

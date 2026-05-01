@@ -17,17 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-# Platform tag directory name → (platform, arch, artifact_name)
-_PLATFORM_TAG_MAP: dict[str, tuple[str, str, str]] = {
-    "darwin-x86_64-abi3": ("mac", "amd64", "mac.dylib"),
-    "darwin-arm64-abi3": ("mac", "arm64", "mac.dylib"),
-    "linux-x86_64-abi3": ("linux", "amd64", "linux.so"),
-    "linux-arm64-abi3": ("linux", "arm64", "linux.so"),
-    "win32-x86_64-abi3": ("win", "amd64", "win.dll"),
-    "win32-arm64-abi3": ("win", "arm64", "win.dll"),
-}
-
-_MODULE_NAMES = ("rig2_face_cap", "rig2_miframes", "rig2_r2bb")
+from native_artifacts import MODULE_NAMES, RUNTIME_ARTIFACT_SPECS, validate_runtime_layout
 
 
 def _find_binary(platform_dir: Path, module_name: str) -> Path | None:
@@ -100,21 +90,28 @@ def main() -> int:
     if not binary_dir.is_dir():
         raise FileNotFoundError(f"Binary directory not found: {binary_dir}")
 
+    errors = validate_runtime_layout(binary_dir, require_complete_matrix=False)
+    if errors:
+        raise RuntimeError("Invalid runtime layout:\n" + "\n".join(errors))
+
     uploaded = 0
 
-    for tag, (platform, arch, artifact_name) in _PLATFORM_TAG_MAP.items():
-        platform_dir = binary_dir / tag
+    for spec in RUNTIME_ARTIFACT_SPECS:
+        platform_dir = binary_dir / spec.runtime_tag
         if not platform_dir.is_dir():
-            print(f"[r2-upload] skip {tag}: directory not found")
+            print(f"[r2-upload] skip {spec.runtime_tag}: directory not found")
             continue
 
-        for module_name in _MODULE_NAMES:
+        for module_name in MODULE_NAMES:
             binary_path = _find_binary(platform_dir, module_name)
             if binary_path is None:
-                print(f"[r2-upload] skip {tag}/{module_name}: binary not found")
+                print(f"[r2-upload] skip {spec.runtime_tag}/{module_name}: binary not found")
                 continue
 
-            key = f"{args.storage_prefix}/{module_name}/{platform}/{arch}/{artifact_name}"
+            key = (
+                f"{args.storage_prefix}/{module_name}/"
+                f"{spec.platform}/{spec.arch}/{spec.artifact_name}"
+            )
             print(f"[r2-upload] {binary_path.name} -> s3://{args.bucket}/{key}")
             _upload_file(s3, binary_path, args.bucket, key)
             uploaded += 1

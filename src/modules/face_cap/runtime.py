@@ -4,11 +4,11 @@ import time
 import bpy
 from bpy.app.handlers import persistent
 
+from ...core.constants import INTERNAL_KEYS
 from ...core.utils import is_rig2_armature, refresh_rig_driver_batch
 from ...services.face_cap_service import get_face_cap_backend_service
 from .props import get_face_cap_bindings, get_face_cap_settings
 
-INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
 FACE_CAP_STARTUP_TIMEOUT_SECONDS = 1.0
@@ -196,12 +196,6 @@ class FaceCapRuntimeService:
             self._last_sent_at = ""
             self._packet_revision += 1
 
-    def is_running(self):
-        if not self._native_receiver_enabled:
-            return False
-        stats = self._get_native_stats()
-        return bool(stats and stats.get("is_listening") and not stats.get("bind_failed"))
-
     def start(self, host=None, port=None, settings=None):
         self.refresh_backend()
         backend_service = get_face_cap_backend_service()
@@ -329,11 +323,6 @@ class FaceCapRuntimeService:
                 self._status_message = "Receiving binary blendshape packets"
             else:
                 self._status_message = "Receiving JSON blendshape packets"
-
-    def note_invalid_packet(self, message):
-        with self._lock:
-            self._last_error = message
-            self._status_message = message
 
     def request_reapply(self):
         with self._lock:

@@ -15,9 +15,6 @@ class _LockedFaceCapBackend:
     def __init__(self, lock_reason):
         self._lock_reason = str(lock_reason or "").strip()
 
-    def backend_name(self):
-        return "locked"
-
     def _raise_locked(self):
         raise FeatureLockedError("Face Capture", self._lock_reason)
 

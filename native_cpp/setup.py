@@ -1,4 +1,13 @@
 import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS_DIR = ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from native_artifacts import MODULE_SOURCE_FILENAMES
 
 try:
     from setuptools import Extension, setup
@@ -34,20 +43,11 @@ if enable_abi3:
 
 extensions = [
     Extension(
-        "rig2_miframes",
-        sources=["src/rig2_miframes.cpp"],
+        module_name,
+        sources=[f"src/{source_filename}"],
         **extension_kwargs,
-    ),
-    Extension(
-        "rig2_face_cap",
-        sources=["src/rig2_face_cap.cpp"],
-        **extension_kwargs,
-    ),
-    Extension(
-        "rig2_r2bb",
-        sources=["src/rig2_r2bb.cpp"],
-        **extension_kwargs,
-    ),
+    )
+    for module_name, source_filename in MODULE_SOURCE_FILENAMES.items()
 ]
 
 setup_kwargs = {}

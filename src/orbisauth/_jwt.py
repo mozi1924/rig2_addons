@@ -16,6 +16,9 @@ _SHA256_DIGEST_INFO_PREFIX = bytes([
     0x04, 0x02, 0x01, 0x05, 0x00, 0x04,
     0x20,
 ])
+DEFAULT_TOKEN_AUDIENCE = "orbisauth-client"
+DEFAULT_TOKEN_ISSUER = "orbisauth-worker"
+JWKS_ENDPOINT_PATH = "/api/v1/jwks.json"
 
 # In-memory JWKS cache: {server_url: {"keys": [...], "fetched_at": float}}
 _jwks_cache: dict[str, dict[str, Any]] = {}
@@ -97,7 +100,7 @@ def fetch_jwks(server_url: str, timeout: float = 30.0) -> dict[str, Any]:
     if cached is not None:
         return cached
 
-    url = f"{server_url.rstrip('/')}/api/v1/jwks.json"
+    url = f"{server_url.rstrip('/')}{JWKS_ENDPOINT_PATH}"
     response = _api_request("GET", url, timeout=timeout)
     _jwks_cache[server_url] = response
     return response
@@ -117,8 +120,8 @@ def clear_jwks_cache(server_url: str | None = None) -> None:
 def verify_access_token(
     token: str,
     server_url: str,
-    audience: str = "orbisauth-client",
-    issuer: str = "orbisauth-worker",
+    audience: str = DEFAULT_TOKEN_AUDIENCE,
+    issuer: str = DEFAULT_TOKEN_ISSUER,
     clock_skew: int = 30,
     timeout: float = 30.0,
 ) -> AccessClaims:

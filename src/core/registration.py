@@ -26,8 +26,3 @@ def register_module(module):
     """Call register() on a module if it exists."""
     if hasattr(module, "register"):
         module.register()
-
-def unregister_module(module):
-    """Call unregister() on a module if it exists."""
-    if hasattr(module, "unregister"):
-        module.unregister()

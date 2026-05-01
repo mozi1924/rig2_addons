@@ -40,6 +40,20 @@ Commercial native backends:
 
 - `rig2_miframes`
 - `rig2_face_cap`
+- `rig2_r2bb`
+
+### Adding A Managed Native Feature
+
+Treat `[src/licensing/registry.py](/Users/jaxlocke/rig2_ecosystem/rig2_addons/src/licensing/registry.py)` as the first stop.
+A new managed module is incomplete until all of these are wired:
+
+1. Add a `FeatureSpec` with Orbisauth feature ID, download module name, integrity targets, and service getter.
+2. Add `native_cpp/src/<module>.cpp`.
+3. Ensure the module is picked up by native build/package/upload manifests.
+4. Ensure the native module exposes `backend_name`, `set_license_state`, and `verify_integrity`.
+5. Run `python3 scripts/validate_feature_chain.py`.
+
+CI now runs that validator before native compilation, so partial integration should fail early.
 
 Build locally:
 

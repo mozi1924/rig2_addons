@@ -17,10 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from native_artifacts import MODULE_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_CPP_DIR = ROOT / "native_cpp"
-MODULE_NAMES = ("rig2_miframes", "rig2_face_cap", "rig2_r2bb")
+_REEXEC_GUARD_ENV = "RIG2_BUILD_NATIVE_REEXEC"
+_BUILD_PYTHON_ENV = "RIG2_BUILD_PYTHON"
 
 
 def _run_script(rel_path: str) -> None:
@@ -73,6 +75,59 @@ def ensure_build_backend_available() -> None:
         "This Python runtime does not provide setuptools/distutils. "
         "Use a Python with build tooling (for example Blender's python3.11 or system python3.9)."
     )
+
+
+def _candidate_build_pythons() -> list[Path]:
+    candidates: list[Path] = []
+    explicit = os.environ.get(_BUILD_PYTHON_ENV, "").strip()
+    if explicit:
+        candidates.append(Path(explicit))
+    candidates.append(ROOT / ".venv-build" / "bin" / "python3")
+    candidates.append(ROOT / ".venv-build" / "bin" / "python")
+    return candidates
+
+
+def _can_use_build_python(python_path: Path) -> bool:
+    if not python_path.exists():
+        return False
+    try:
+        subprocess.check_call(
+            [
+                str(python_path),
+                "-c",
+                "import setuptools, wheel",
+            ],
+            cwd=str(ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+    return True
+
+
+def maybe_reexec_with_build_python() -> None:
+    if os.environ.get(_REEXEC_GUARD_ENV) == "1":
+        return
+    try:
+        ensure_build_backend_available()
+        return
+    except RuntimeError:
+        pass
+
+    for python_path in _candidate_build_pythons():
+        if not _can_use_build_python(python_path):
+            continue
+        env = dict(os.environ)
+        env[_REEXEC_GUARD_ENV] = "1"
+        print(f"[rig2-native] Re-running with build Python: {python_path}")
+        raise SystemExit(
+            subprocess.call(
+                [str(python_path), str(Path(__file__).resolve())],
+                cwd=str(ROOT),
+                env=env,
+            )
+        )
 
 
 def build_extensions() -> None:
@@ -135,6 +190,7 @@ def copy_to_runtime_bins(module_path: Path, module_name: str) -> list[Path]:
 
 
 def main() -> int:
+    maybe_reexec_with_build_python()
     print(f"[rig2-native] Python: {sys.executable}")
     print(f"[rig2-native] Arch tag: {arch_tag()}")
     print(f"[rig2-native] Platform tag: {platform_tag()}")

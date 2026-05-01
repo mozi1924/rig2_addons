@@ -5,10 +5,20 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class FeatureSpec:
+    """Commercial feature contract.
+
+    This registry is the primary entrypoint for any new managed native feature.
+    A new feature is not considered integrated until it is represented here with:
+    1. Orbisauth-facing identifiers and secrets
+    2. native binary contract metadata
+    3. integrity verification targets
+    4. service wiring used by runtime gating
+    """
     feature_id: str
     label: str
     product_feature_name: str
     native_module_name: str
+    native_source_filename: str
     native_api_version_attr: str
     expected_native_api_version: int
     required_callables: tuple[str, ...]
@@ -37,6 +47,7 @@ _FEATURE_SPECS = {
         label="Face Capture",
         product_feature_name=FACE_CAP,
         native_module_name="rig2_face_cap",
+        native_source_filename="rig2_face_cap.cpp",
         native_api_version_attr="RIG2_FACE_CAP_API_VERSION",
         expected_native_api_version=3,
         required_callables=(
@@ -82,6 +93,7 @@ _FEATURE_SPECS = {
         label="MIFrames",
         product_feature_name=MIFRAMES,
         native_module_name="rig2_miframes",
+        native_source_filename="rig2_miframes.cpp",
         native_api_version_attr="RIG2_MIFRAMES_API_VERSION",
         expected_native_api_version=2,
         required_callables=(
@@ -110,6 +122,7 @@ _FEATURE_SPECS = {
         label="R2BB",
         product_feature_name=R2BB,
         native_module_name="rig2_r2bb",
+        native_source_filename="rig2_r2bb.cpp",
         native_api_version_attr="RIG2_R2BB_API_VERSION",
         expected_native_api_version=1,
         required_callables=(
@@ -146,6 +159,14 @@ def get_feature_spec(feature_id: str) -> FeatureSpec:
 
 def iter_feature_specs() -> tuple[FeatureSpec, ...]:
     return tuple(_FEATURE_SPECS.values())
+
+
+def iter_native_feature_specs() -> tuple[FeatureSpec, ...]:
+    return tuple(spec for spec in _FEATURE_SPECS.values() if spec.native_module_name)
+
+
+def iter_native_module_names() -> tuple[str, ...]:
+    return tuple(spec.native_module_name for spec in iter_native_feature_specs())
 
 
 def iter_public_api_feature_specs() -> tuple[FeatureSpec, ...]:

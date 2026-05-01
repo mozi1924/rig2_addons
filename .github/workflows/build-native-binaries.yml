@@ -10,7 +10,9 @@ on:
       - "src/licensing/**"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
+      - "scripts/native_artifacts.py"
       - "scripts/upload_to_r2.py"
+      - "scripts/verify_native_dist.py"
       - ".github/workflows/build-native-binaries.yml"
   pull_request:
     paths:
@@ -19,7 +21,9 @@ on:
       - "src/licensing/**"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
+      - "scripts/native_artifacts.py"
       - "scripts/upload_to_r2.py"
+      - "scripts/verify_native_dist.py"
       - ".github/workflows/build-native-binaries.yml"
 
 jobs:
@@ -52,6 +56,9 @@ jobs:
       - name: Generate integrity hashes header
         run: python scripts/generate_integrity_hashes.py
 
+      - name: Validate managed native feature chain
+        run: python scripts/validate_feature_chain.py
+
       - name: Setup QEMU (Linux cross-arch)
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
@@ -69,7 +76,7 @@ jobs:
           CIBW_BUILD: "cp39-*"
           CIBW_SKIP: "pp* *-musllinux_* *-manylinux_i686 *-win32"
           CIBW_ENVIRONMENT: "RIG2_ENABLE_ABI3=1"
-          CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name())\""
+          CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap, rig2_r2bb; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name(), rig2_r2bb.backend_name())\""
         run: python -m cibuildwheel native_cpp --output-dir wheelhouse
 
       - name: Upload wheelhouse
@@ -109,40 +116,8 @@ jobs:
         run: find native_dist -type f | sort
 
       - name: Verify extracted runtime layout
-        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          root = Path("native_dist")
-          files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
-          print("\n".join(files))
-          allowed_tags = {
-              "darwin-x86_64-abi3",
-              "darwin-arm64-abi3",
-              "linux-x86_64-abi3",
-              "linux-arm64-abi3",
-              "win32-x86_64-abi3",
-              "win32-arm64-abi3",
-          }
-          bad = []
-          for rel in files:
-              parts = rel.split("/")
-              if len(parts) != 2:
-                  bad.append(f"unexpected depth: {rel}")
-                  continue
-              tag, name = parts
-              if tag not in allowed_tags:
-                  bad.append(f"unexpected tag: {rel}")
-              if not (name.startswith("rig2_face_cap") or name.startswith("rig2_miframes")):
-                  bad.append(f"unexpected module name: {rel}")
-              lowered = name.lower()
-              if "cpython-" in lowered or ".cp39-" in lowered or ".cp310-" in lowered or ".cp311-" in lowered:
-                  bad.append(f"version-specific filename: {rel}")
-              if not (lowered.endswith(".so") or lowered.endswith(".pyd") or lowered.endswith(".dylib")):
-                  bad.append(f"unexpected extension: {rel}")
-          if bad:
-              raise SystemExit("Invalid runtime layout:\n" + "\n".join(bad))
-          PY
+          python scripts/verify_native_dist.py native_dist --require-complete-matrix
 
       - name: Upload runtime binary artifact
         uses: actions/upload-artifact@v4

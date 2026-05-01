@@ -8,45 +8,13 @@ import re
 import zipfile
 from pathlib import Path
 
-MODULE_PREFIXES = ("rig2_miframes", "rig2_face_cap", "rig2_r2bb")
-EXTENSIONS = (".so", ".pyd", ".dylib")
-
-
-def parse_wheel_platform_tags(wheel_name: str) -> list[str]:
-    if not wheel_name.endswith(".whl"):
-        return []
-    stem = wheel_name[:-4]
-    parts = stem.split("-")
-    if len(parts) < 5:
-        return []
-    platform_part = parts[-1]
-    return [tag for tag in platform_part.split(".") if tag]
-
-
-def map_platform_tag_to_runtime_tags(platform_tag: str) -> list[str]:
-    tag = platform_tag.lower()
-
-    if "macosx" in tag:
-        if "universal2" in tag:
-            return ["darwin-x86_64-abi3", "darwin-arm64-abi3"]
-        if "x86_64" in tag:
-            return ["darwin-x86_64-abi3"]
-        if "arm64" in tag:
-            return ["darwin-arm64-abi3"]
-
-    if tag.startswith("win"):
-        if "amd64" in tag or "x86_64" in tag:
-            return ["win32-x86_64-abi3"]
-        if "arm64" in tag:
-            return ["win32-arm64-abi3"]
-
-    if any(prefix in tag for prefix in ("manylinux", "musllinux", "linux")):
-        if "x86_64" in tag or "amd64" in tag:
-            return ["linux-x86_64-abi3"]
-        if "aarch64" in tag or "arm64" in tag:
-            return ["linux-arm64-abi3"]
-
-    return []
+from native_artifacts import (
+    EXTENSIONS,
+    MODULE_NAMES,
+    detect_module_name,
+    map_wheel_platform_tag_to_runtime_tags,
+    parse_wheel_platform_tags,
+)
 
 
 def iter_extension_members(zf: zipfile.ZipFile) -> list[str]:
@@ -58,9 +26,11 @@ def iter_extension_members(zf: zipfile.ZipFile) -> list[str]:
             continue
         if not filename.endswith(EXTENSIONS):
             continue
-        if not filename.startswith(MODULE_PREFIXES):
+        if not filename.startswith(MODULE_NAMES):
             continue
-        module_name = re.split(r"[.-]", filename, maxsplit=1)[0]
+        module_name = detect_module_name(filename)
+        if not module_name:
+            continue
         if ".abi3." in filename:
             by_module[module_name] = member
         elif module_name not in by_module_fallback:
@@ -75,7 +45,7 @@ def extract_wheel(wheel_path: Path, out_dir: Path) -> list[Path]:
     platform_tags = parse_wheel_platform_tags(wheel_path.name)
     runtime_tags = []
     for plat in platform_tags:
-        runtime_tags.extend(map_platform_tag_to_runtime_tags(plat))
+        runtime_tags.extend(map_wheel_platform_tag_to_runtime_tags(plat))
     runtime_tags = list(dict.fromkeys(runtime_tags))
 
     if not runtime_tags:
