@@ -41,6 +41,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Generate integrity hashes header
+        run: python scripts/generate_integrity_hashes.py
+
       - name: Setup QEMU (Linux cross-arch)
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3

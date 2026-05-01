@@ -23,6 +23,12 @@ NATIVE_CPP_DIR = ROOT / "native_cpp"
 MODULE_NAMES = ("rig2_miframes", "rig2_face_cap")
 
 
+def _run_script(rel_path: str) -> None:
+    """Run a Python helper script from the repo root."""
+    script_path = ROOT / rel_path
+    subprocess.check_call([sys.executable, str(script_path)], cwd=str(ROOT))
+
+
 def platform_tag() -> str:
     return f"{sys.platform}-{arch_tag()}-{sys.version_info.major}{sys.version_info.minor}"
 
@@ -135,6 +141,10 @@ def main() -> int:
     print(f"[rig2-native] Legacy platform tag: {legacy_platform_tag()}")
     print(f"[rig2-native] ABI3 tag: {abi3_platform_tag()}")
     print(f"[rig2-native] Legacy ABI3 tag: {legacy_abi3_platform_tag()}")
+
+    # Generate integrity hashes header before compilation.
+    _run_script("scripts/generate_integrity_hashes.py")
+
     ensure_build_backend_available()
     build_extensions()
 

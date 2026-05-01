@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Auto-generated integrity hashes (built by scripts/generate_integrity_hashes.py)
+native_cpp/src/integrity_hashes.h
+
 # Rig2 commercial native payloads (downloaded/unpacked locally)
 /src/native/binaries/
 /src/native/**/*.pyd

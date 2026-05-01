@@ -145,6 +145,7 @@ class RIG2_OT_activate_license(bpy.types.Operator):
         from .licensing.manager import get_license_manager
         from .licensing import sync_license_to_native_modules
 
+        import traceback
         manager = get_license_manager()
         try:
             session = manager.activate(prefs.license_key.strip())
@@ -154,7 +155,15 @@ class RIG2_OT_activate_license(bpy.types.Operator):
                 f"License activated: {session.product} ({session.tier})",
             )
         except Exception as exc:
-            self.report({"ERROR"}, f"Activation failed: {exc}")
+            # Build a detailed error message including HTTP status / error code.
+            status_code = getattr(exc, "status_code", None)
+            error_code = getattr(exc, "error_code", None)
+            if status_code is not None and error_code is not None:
+                detail = f"Activation failed [{error_code}]: {exc} (HTTP {status_code})"
+            else:
+                detail = f"Activation failed: {exc}"
+            self.report({"ERROR"}, detail)
+            traceback.print_exc()
             return {"CANCELLED"}
 
         # Redraw all areas so the preferences UI reflects the new state.
@@ -227,6 +236,7 @@ class RIG2_OT_download_native(bpy.types.Operator):
     module_name: bpy.props.StringProperty()
 
     def execute(self, context):
+        import traceback
         from .native.downloader import ensure_native_binary
 
         try:
@@ -236,7 +246,14 @@ class RIG2_OT_download_native(bpy.types.Operator):
             else:
                 self.report({"ERROR"}, f"Could not download {self.module_name}.")
         except Exception as exc:
-            self.report({"ERROR"}, f"Download failed: {exc}")
+            status_code = getattr(exc, "status_code", None)
+            error_code = getattr(exc, "error_code", None)
+            if status_code is not None and error_code is not None:
+                detail = f"Download failed [{error_code}]: {exc} (HTTP {status_code})"
+            else:
+                detail = f"Download failed: {exc}"
+            self.report({"ERROR"}, detail)
+            traceback.print_exc()
             return {"CANCELLED"}
 
         _refresh_ui()

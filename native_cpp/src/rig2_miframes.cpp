@@ -21,12 +21,8 @@ static int g_license_ok = 0;
 static int64_t g_license_expires_at = 0;
 
 // Expected SHA-256 hashes of critical Python files (hex).
-static const char* kExpectedPyHashes[] = {
-    "face_cap_service.py", "aca7edb7d99e2776d5cb6f68c4022b7d4ee6b5469a870e1cc309733888d8dd19",
-    "miframes_service.py", "8ce27abca43927439266ef9f0f360ad55b2aa1c167e4bd999b4687b439f4e9c2",
-    "manager.py", "15051e4d56dd33e6c6bc10eceeae31d4c9629a2d403d9d7844a7d52fad4eb6fb",
-    nullptr,
-};
+// Generated at build time by scripts/generate_integrity_hashes.py.
+#include "integrity_hashes.h"
 
 // ---- License HMAC verification using Python's hashlib ----
 

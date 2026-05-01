@@ -19,7 +19,10 @@ def _api_request(
     On non-2xx parses the error body and raises OrbisAuthAPIError.
     On network failure raises OrbisAuthNetworkError.
     """
-    req_headers: dict[str, str] = {"Accept": "application/json"}
+    req_headers: dict[str, str] = {
+        "Accept": "application/json",
+        "User-Agent": "OrbisAuth/1.0 (Rig2; Blender)",
+    }
     if headers:
         req_headers.update(headers)
 
@@ -50,9 +53,21 @@ def _api_request(
     if 200 <= status < 300:
         return payload
 
-    error_obj = payload.get("error", {})
-    error_code = error_obj.get("code", "UNKNOWN")
-    error_message = error_obj.get("message", "Unknown error")
+    # Parse error response. The server may return:
+    #   {"error": {"code": "...", "message": "..."}}
+    #   {"message": "..."}  (top-level message)
+    #   {"detail": "..."}  (RFC 7807 style)
+    #   or just a plain string body.
+    error_obj = payload.get("error")
+    if isinstance(error_obj, dict):
+        error_code = error_obj.get("code", "UNKNOWN")
+        error_message = error_obj.get("message", "Unknown error")
+    elif isinstance(error_obj, str):
+        error_code = "UNKNOWN"
+        error_message = error_obj
+    else:
+        error_code = "UNKNOWN"
+        error_message = payload.get("message") or payload.get("detail") or "Unknown error"
     raise OrbisAuthAPIError(status, error_code, error_message)
 
 
@@ -62,7 +77,9 @@ def _stream_request(
     timeout: float = 30.0,
 ) -> tuple[Any, int | None]:
     """Make a streaming HTTP GET and return (response, content_length)."""
-    req_headers: dict[str, str] = {}
+    req_headers: dict[str, str] = {
+        "User-Agent": "OrbisAuth/1.0 (Rig2; Blender)",
+    }
     if headers:
         req_headers.update(headers)
 
