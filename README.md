@@ -59,6 +59,9 @@ Build the distributable addon zip:
 python3 scripts/package_addon.py
 ```
 
+On GitHub Actions non-PR runs, the packaged addon zip is also uploaded to
+Cloudflare R2 at `public-assets/rig2/`.
+
 Version source is centralized in `version.json`:
 
 ```bash

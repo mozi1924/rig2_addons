@@ -37,6 +37,9 @@ python3 scripts/package_addon.py
 The packaging script rewrites the packaged `__init__.py` so `bl_info["version"]`
 is injected from the central semantic version source at build time.
 
+CI also uploads the packaged addon zip to the Cloudflare R2 bucket
+`public-assets` under the `rig2/` prefix on non-PR runs.
+
 ## Version Management
 
 The addon version source lives in `version.json` and is split into:
