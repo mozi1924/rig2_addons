@@ -75,21 +75,21 @@ Blender 偏好设置界面在 `src/preferences.py`。
 
 路径逻辑在 `src/licensing/paths.py`：
 
-- 优先使用 `RIG2_NATIVE_ROOT`
-- 否则默认写到 `src/native/binaries`
-- 如果目录创建失败，再 fallback 到系统临时目录 `rig2_addons`
+- 优先使用 `RIG2_SESSION_DIR`
+- 如果在 Blender 内可拿到用户配置目录，则优先写到 Blender 用户侧的 `rig2_addons`
+- 否则写到平台用户状态目录
+- 如果这些目录都不可写，再 fallback 到 `RIG2_NATIVE_ROOT` 或 `src/native/binaries`
+- 最后才 fallback 到系统临时目录 `rig2_addons`
 
 session 文件名固定为：
 
 - `rig2_license_session.json`
 
-这意味着：
+这意味着现在默认更安全：
 
-- 原生库目录不只是放 `.so/.pyd/.dylib`
-- 它还会顺带承载许可证 session
-- 如果你手动清掉 `src/native/binaries`，许可证状态也可能一起丢
-
-这点以后很容易忘。
+- 用户许可证状态优先和源码目录分开
+- 清理 addon 工作区时，不再默认把 session 一起清掉
+- 只有在用户状态目录不可写时，session 才会回退到 addon runtime 目录
 
 ### 2.4 功能解锁条件
 
@@ -309,9 +309,10 @@ export R2_BUCKET_NAME=...
 
 ## 8. 这块以后最容易踩的坑
 
-### 8.1 清理原生库目录时顺手把 session 删了
+### 8.1 清理原生库目录时误删 fallback session
 
-`rig2_license_session.json` 跟 native binaries 放得很近，清目录时要小心。
+现在 session 默认不再和 native binaries 放在一起，但如果用户状态目录不可写，仍可能 fallback 到 addon runtime 目录。
+排查时先看 `src/licensing/paths.py` 最终选中了哪条路径。
 
 ### 8.2 改了 native API，但忘了同步版本号
 

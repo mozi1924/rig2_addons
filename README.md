@@ -4,105 +4,96 @@
 
 # Rig2 Binding Tool
 
-**Rig2 Binding Tool** is a modular rigging and binding solution for Blender, specifically designed for Rig2 Armatures. It provides a robust set of tools for management, binding, and is prepared for future Face/MoCap integration.
+Rig2 Binding Tool is a Blender addon for Rig2 armatures. This repository is also the addon root used by Blender and the VSCode Blender Development plugin, so keep the workspace root name and top-level `__init__.py` intact.
 
-## Key Features
+## Workspace Layout
 
-- 🛠️ **Modular Binding**: Optimized workflows for Rig2 Armature binding.
-- 🌐 **Multi-language Support**: Built-in i18n support for English and Simplified Chinese.
-- 🔌 **Blender 4.5+ Compatible**: Developed for latest Blender features and APIs.
-- 🚀 **Performance Focused**: Efficient rigging operations directly within the Blender UI.
-- 🎥 **Future Ready**: Architecture designed to support Face/MoCap modules.
-
-## Installation
-
-1. Download the latest release (or clone the repository).
-2. Compress the project folder into a `.zip` file if downloaded manually.
-3. In Blender, go to **Edit** > **Preferences** > **Add-ons**.
-4. Click **Install...** and select your `.zip` file.
-5. Search for "Rig2 Binding Tool" and enable it.
-
-## Quick Start
-
-- **Location**: Found in the **Properties Panel > Data Tab** or the **3D View Side Panel (N-Panel)**.
-- **Preferences**: Customize the addon via the Blender Add-on Preferences.
+- `__init__.py`: Blender addon entrypoint. Do not move or rename.
+- `src/`: addon source package and module registration.
+- `assets/`: bundled addon assets such as `rig2-remake.blend`.
+- `native_cpp/`: C++ extension sources and packaging metadata.
+- `scripts/`: build, extraction, integrity, and upload utilities.
+- `tests/`: runtime contract tests and perf helpers.
+- `docs/architecture/`: architecture plans and long-form design notes.
+- `docs/refactor/`: refactor targets, migration candidates, and optimization tasks.
+- `docs/native/`: native binary build and packaging notes.
+- `docs/licensing/`: Orbisauth and R2 maintenance notes.
+- `docs/perf/`: raw benchmark output files.
+- `docs/dev/`: developer workflow guides.
 
 ## Development
 
-This project is structured modularly:
+### VSCode Blender Development Symlink
 
-- `src/modules/rig_controls`: Tools for rig manipulation.
-- `src/modules/binding`: Core binding logic.
-- `src/i18n`: Internationalization files.
+This workspace is expected to be symlinked as the addon root, not just `src/`.
 
-### Native Backends (C++)
-
-Commercial logic backends are now provided as CPython C++ extensions:
-
-- `rig2_miframes`
-- `rig2_face_cap`
-
-Build and place binaries for the current Python runtime:
-
-```bash
-python3 scripts/build_native.py
-```
-
-Force legacy version-specific binaries (disable ABI3):
-
-```bash
-RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
-```
-
-Output location:
-
-- `src/native/binaries/<platform-tag>/`
-
-When built with `setuptools`, native modules use `abi3` (stable ABI, `Py3.9+`),
-and are copied to:
-
-- `src/native/binaries/<sys.platform>-<arch>-<pyver>/`
-- `src/native/binaries/<sys.platform>-<arch>-abi3/`
-- (compat) `src/native/binaries/<sys.platform>-<pyver>/`
-- (compat) `src/native/binaries/<sys.platform>-abi3/`
-
-Runtime loader search order is:
-
-1. `<sys.platform>-<arch>-abi3`
-2. `<sys.platform>-abi3`
-3. `<sys.platform>-<arch>-<pyver>`
-4. `<sys.platform>-<pyver>`
-
-### Cross-Platform Artifacts
-
-CI workflow [build-native-binaries.yml](/Users/jaxlocke/rig2_ecosystem/rig2_addons/.github/workflows/build-native-binaries.yml)
-builds wheels for:
-
-- Linux: `x86_64`, `aarch64`
-- macOS: `x86_64`, `arm64`
-- Windows: `AMD64`, `ARM64`
-
-Then converts wheels to addon runtime layout using:
-
-- [extract_native_from_wheels.py](/Users/jaxlocke/rig2_ecosystem/rig2_addons/scripts/extract_native_from_wheels.py)
-
-For licensing, Orbisauth, Cloudflare R2 upload flow, and project maintenance notes, see:
-
-- [docs/ORBISAUTH_R2_MAINTENANCE.md](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/ORBISAUTH_R2_MAINTENANCE.md)
-
-### VSCode Blender Addon Link Issue
-
-If Blender VSCode startup throws:
-`FileExistsError: ... scripts/addons/rig2_addons`
-it is usually caused by a broken symlink left by an old workspace path.
-
-Fix by recreating the symlink:
+If Blender startup fails with `FileExistsError: ... scripts/addons/rig2_addons`, recreate the symlink:
 
 ```bash
 rm "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
 ln -s "/absolute/path/to/rig2_addons" "/Users/<you>/Library/Application Support/Blender/4.5/scripts/addons/rig2_addons"
 ```
 
----
+### Native Backends
+
+Commercial native backends:
+
+- `rig2_miframes`
+- `rig2_face_cap`
+
+Build locally:
+
+```bash
+python3 scripts/build_native.py
+```
+
+Disable ABI3 if needed:
+
+```bash
+RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
+```
+
+Runtime loader search order:
+
+1. `src/native/binaries/<sys.platform>-<arch>-abi3/`
+2. `src/native/binaries/<sys.platform>-abi3/`
+3. `src/native/binaries/<sys.platform>-<arch>-<pyver>/`
+4. `src/native/binaries/<sys.platform>-<pyver>/`
+
+More detail:
+
+- [Native cross-platform notes](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/native/NATIVE_CROSS_PLATFORM.md)
+- [Build and release flow](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/dev/build-and-release.md)
+- [Orbisauth and R2 maintenance](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/licensing/ORBISAUTH_R2_MAINTENANCE.md)
+
+## Cleanup Rules
+
+Safe to clean:
+
+- `__pycache__/`
+- `.pytest_cache/`
+- local `dist/`
+- local wheel extraction output such as `native_dist/`
+
+Clean with care:
+
+- `src/native/binaries/`
+  Native runtime modules live here and Blender loads directly from this tree.
+- user license session directory
+  The addon now prefers a per-user writable state directory for `rig2_license_session.json`, and only falls back to the addon runtime tree if needed.
+
+## Tests
+
+Run the contract and path tests with:
+
+```bash
+python3 -m unittest tests.test_native_contract tests.test_native_downloader tests.test_licensing_paths
+```
+
+## References
+
+- [Architecture refactor plan](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/architecture/ARCHITECTURE_REFACTOR_PLAN.md)
+- [CPP refactor targets](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/refactor/CPP_REFACTOR_TARGETS.md)
+- [Migration candidates](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/refactor/MIGRATION_CANDIDATES_CPP.md)
 
 _Created by Antigravity_

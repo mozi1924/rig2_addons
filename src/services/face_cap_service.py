@@ -9,6 +9,11 @@ from ..native.face_cap_wrapper import verify_integrity as _face_cap_verify_integ
 from ..licensing.config import FEATURE_FACE_CAP
 from ..licensing._hmac_proof import compute_face_cap_proof
 from .errors import FeatureLockedError
+from ._native_feature_support import (
+    get_feature_lock_reason,
+    is_feature_licensed,
+    sync_license_state_to_native,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -122,23 +127,6 @@ class _LockedFaceCapBackend:
             "transport_encoding": None,
         }
 
-
-def _is_license_valid():
-    try:
-        from ..licensing.manager import get_license_manager
-        return get_license_manager().is_feature_licensed(FEATURE_FACE_CAP)
-    except Exception:
-        return False
-
-
-def _is_license_activated():
-    try:
-        from ..licensing.manager import get_license_manager
-        return get_license_manager().is_activated()
-    except Exception:
-        return False
-
-
 class FaceCapBackendService:
     """Centralized backend access for FaceCap logic.
 
@@ -157,63 +145,32 @@ class FaceCapBackendService:
     def is_feature_unlocked(self):
         if not _face_cap_binary_available():
             return False
-        return _is_license_valid()
+        return is_feature_licensed(FEATURE_FACE_CAP)
 
     def get_lock_reason(self):
-        if not _face_cap_binary_available():
-            return (
-                _face_cap_binary_lock_reason()
-                or "Face Capture native backend is not installed."
-            )
-        if not _is_license_activated():
-            return "License not activated. Activate your license in Addon Preferences."
-        if not _is_license_valid():
-            return "Face Capture is not included in your license tier."
-        return "Face Capture is not unlocked."
+        return get_feature_lock_reason(
+            feature_label="Face Capture",
+            binary_available=_face_cap_binary_available,
+            binary_lock_reason=_face_cap_binary_lock_reason,
+            feature_name=FEATURE_FACE_CAP,
+        )
 
     def sync_license_to_native(self):
         """Propagate the current license state to the C++ native module."""
-        try:
-            from ..licensing.manager import get_license_manager
-            mgr = get_license_manager()
-            device_id = mgr.get_device_id()
-
-            # First, verify Python source integrity in the native module.
-            self._verify_source_integrity()
-
-            if self.is_feature_unlocked():
-                expires_at, hmac_proof = compute_face_cap_proof(device_id)
-                _face_cap_set_license_state(device_id, expires_at, hmac_proof)
-            else:
-                _face_cap_set_license_state(device_id, 0, "invalid")
-        except Exception as exc:
-            _log.debug("Failed to sync license to native face_cap: %s", exc)
+        sync_license_state_to_native(
+            logger=_log,
+            backend_label="face_cap",
+            feature_unlocked=self.is_feature_unlocked,
+            compute_proof=compute_face_cap_proof,
+            set_license_state=_face_cap_set_license_state,
+            verify_func=_face_cap_verify_integrity,
+        )
 
     @staticmethod
     def _verify_source_integrity():
-        """Compute SHA-256 hashes of critical Python files and verify in C++."""
-        import hashlib
-        import os
+        from ._native_feature_support import verify_source_integrity
 
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        files = {
-            "face_cap_service.py": os.path.join(base_dir, "services", "face_cap_service.py"),
-            "miframes_service.py": os.path.join(base_dir, "services", "miframes_service.py"),
-            "manager.py": os.path.join(base_dir, "licensing", "manager.py"),
-        }
-
-        hashes = {}
-        for fname, fpath in files.items():
-            try:
-                with open(fpath, "rb") as fh:
-                    hashes[fname] = hashlib.sha256(fh.read()).hexdigest()
-            except Exception:
-                hashes[fname] = ""
-
-        try:
-            _face_cap_verify_integrity(hashes)
-        except Exception:
-            pass
+        verify_source_integrity(_face_cap_verify_integrity)
 
     def require_feature_unlocked(self):
         if self.is_feature_unlocked():

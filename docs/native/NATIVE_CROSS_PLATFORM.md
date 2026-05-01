@@ -41,3 +41,6 @@ python scripts/extract_native_from_wheels.py --wheelhouse wheelhouse --output na
 
 Resulting `native_dist` can be published as release artifacts and copied into
 `src/native/binaries/` in platform-specific packages.
+
+For the full local workflow, including cleanup expectations, see
+[`docs/dev/build-and-release.md`](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/dev/build-and-release.md).

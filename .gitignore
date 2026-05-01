@@ -21,6 +21,7 @@ native_cpp/src/integrity_hashes.h
 build/
 develop-eggs/
 dist/
+native_dist/
 downloads/
 eggs/
 .eggs/
