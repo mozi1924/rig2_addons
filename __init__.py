@@ -1,6 +1,6 @@
 bl_info = {
-    "name": "Rig2 Binding Tool",
-    "author": "Antigravity",
+    "name": "Rig2",
+    "author": "mozi1924",
     "version": (1, 1),
     "blender": (4, 5, 0),
     "location": "Properties > Data, 3D View > Side Panel",
