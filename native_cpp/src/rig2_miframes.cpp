@@ -62,6 +62,9 @@ PyObject* g_models = nullptr;
 
 using rig2_shared::PyRef;
 using rig2_shared::dict_get_item;
+using rig2_shared::get_dict_or_empty;
+using rig2_shared::json_loads;
+using rig2_shared::normalize_ascii_key;
 using rig2_shared::object_to_double_or;
 
 const char* kModelsJson = R"JSON({
@@ -154,42 +157,7 @@ const char* kModelsJson = R"JSON({
 
 
 std::string normalize_part_name_impl(PyObject* part_name_obj) {
-  if (!part_name_obj) {
-    return "root";
-  }
-
-  PyRef as_str(PyObject_Str(part_name_obj));
-  if (!as_str || !PyUnicode_Check(as_str.get())) {
-    PyErr_Clear();
-    return "root";
-  }
-
-  PyRef utf8_bytes(PyUnicode_AsUTF8String(as_str.get()));
-  if (!utf8_bytes) {
-    PyErr_Clear();
-    return "root";
-  }
-  const char* utf8 = PyBytes_AsString(utf8_bytes.get());
-  if (!utf8) {
-    PyErr_Clear();
-    return "root";
-  }
-
-  std::string normalized(utf8);
-  auto not_space = [](unsigned char c) { return !std::isspace(c); };
-  normalized.erase(normalized.begin(), std::find_if(normalized.begin(), normalized.end(), not_space));
-  normalized.erase(
-      std::find_if(normalized.rbegin(), normalized.rend(), not_space).base(),
-      normalized.end());
-
-  std::transform(
-      normalized.begin(), normalized.end(), normalized.begin(),
-      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-  if (normalized.empty()) {
-    return "root";
-  }
-  return normalized;
+  return normalize_ascii_key(part_name_obj, "root");
 }
 
 PyObject* build_transition_info(PyObject* values) {
@@ -436,29 +404,9 @@ PyObject* normalize_part_name_cached(PyObject* cache, PyObject* part_name_obj) {
   return normalized_obj.release();
 }
 
-PyObject* get_dict_or_empty(PyObject* obj, const char* key) {
-  PyObject* value = dict_get_item(obj, key);
-  if (value && PyDict_Check(value)) {
-    Py_INCREF(value);
-    return value;
-  }
-  return PyDict_New();
-}
-
 int init_models_cache() {
   if (g_models) {
     return 0;
-  }
-
-  PyRef json_module(PyImport_ImportModule("json"));
-  if (!json_module) {
-    return -1;
-  }
-
-  PyRef loads_fn(PyObject_GetAttrString(json_module.get(), "loads"));
-  if (!loads_fn || !PyCallable_Check(loads_fn.get())) {
-    PyErr_SetString(PyExc_RuntimeError, "Failed to resolve json.loads for rig2_miframes.");
-    return -1;
   }
 
   PyRef json_text(PyUnicode_FromString(kModelsJson));
@@ -466,7 +414,7 @@ int init_models_cache() {
     return -1;
   }
 
-  PyRef models(PyObject_CallFunctionObjArgs(loads_fn.get(), json_text.get(), nullptr));
+  PyRef models(json_loads(json_text.get(), "Failed to resolve json.loads for rig2_miframes."));
   if (!models || !PyDict_Check(models.get())) {
     PyErr_SetString(PyExc_RuntimeError, "Failed to parse internal model registry.");
     return -1;
@@ -736,8 +684,8 @@ PyMODINIT_FUNC PyInit_rig2_miframes(void) {
     return nullptr;
   }
 
-  if (PyModule_AddIntConstant(module, "RIG2_MIFRAMES_API_VERSION", kApiVersion) < 0) {
-    Py_DECREF(module);
+  if (rig2_shared::add_int_constant_or_cleanup(module, "RIG2_MIFRAMES_API_VERSION",
+                                               kApiVersion) < 0) {
     return nullptr;
   }
 

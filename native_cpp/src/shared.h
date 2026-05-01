@@ -2,9 +2,12 @@
 
 #include <Python.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 #include <string>
 
 namespace rig2_shared {
@@ -328,6 +331,86 @@ inline std::string py_object_to_utf8(PyObject* obj) {
     return std::string();
   }
   return std::string(utf8);
+}
+
+inline std::string trim_ascii(std::string text) {
+  const auto not_space = [](unsigned char c) { return !std::isspace(c); };
+  text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+  text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+  return text;
+}
+
+inline std::string lowercase_ascii(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return text;
+}
+
+inline std::string normalize_ascii_key(PyObject* obj, const char* fallback) {
+  const std::string fallback_value = fallback ? fallback : "";
+  if (!obj) {
+    return fallback_value;
+  }
+
+  PyRef as_str(PyObject_Str(obj));
+  if (!as_str || !PyUnicode_Check(as_str.get())) {
+    PyErr_Clear();
+    return fallback_value;
+  }
+
+  std::string normalized = py_object_to_utf8(as_str.get());
+  if (normalized.empty()) {
+    return fallback_value;
+  }
+
+  normalized = lowercase_ascii(trim_ascii(std::move(normalized)));
+  if (normalized.empty()) {
+    return fallback_value;
+  }
+  return normalized;
+}
+
+inline PyObject* get_dict_or_empty(PyObject* obj, const char* key) {
+  PyObject* value = dict_get_item(obj, key);
+  if (value && PyDict_Check(value)) {
+    Py_INCREF(value);
+    return value;
+  }
+  return PyDict_New();
+}
+
+inline PyObject* json_loads(PyObject* input_text, const char* failure_message = nullptr) {
+  PyRef json_module(PyImport_ImportModule("json"));
+  if (!json_module) {
+    return nullptr;
+  }
+
+  PyRef loads_fn(PyObject_GetAttrString(json_module.get(), "loads"));
+  if (!loads_fn || !PyCallable_Check(loads_fn.get())) {
+    PyErr_SetString(PyExc_RuntimeError,
+                    failure_message ? failure_message : "Failed to resolve json.loads");
+    return nullptr;
+  }
+
+  return PyObject_CallFunctionObjArgs(loads_fn.get(), input_text, nullptr);
+}
+
+inline int add_int_constant_or_cleanup(PyObject* module, const char* name, long value) {
+  if (!module || !name || PyModule_AddIntConstant(module, name, value) < 0) {
+    Py_XDECREF(module);
+    return -1;
+  }
+  return 0;
+}
+
+inline int add_string_constant_or_cleanup(PyObject* module, const char* name,
+                                          const char* value) {
+  if (!module || !name || !value || PyModule_AddStringConstant(module, name, value) < 0) {
+    Py_XDECREF(module);
+    return -1;
+  }
+  return 0;
 }
 
 }  // namespace rig2_shared

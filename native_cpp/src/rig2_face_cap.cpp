@@ -113,6 +113,7 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args);
 using rig2_shared::PyRef;
 using rig2_shared::dict_get_item;
 using rig2_shared::dict_set_item_string_owned;
+using rig2_shared::json_loads;
 using rig2_shared::new_none;
 using rig2_shared::object_to_double;
 using rig2_shared::object_to_double_or;
@@ -515,21 +516,6 @@ PyObject* sanitize_packet_payload(PyObject* packet) {
   }
 
   return out.release();
-}
-
-PyObject* json_loads(PyObject* input_text) {
-  PyRef json_module(PyImport_ImportModule("json"));
-  if (!json_module) {
-    return nullptr;
-  }
-
-  PyRef loads_fn(PyObject_GetAttrString(json_module.get(), "loads"));
-  if (!loads_fn || !PyCallable_Check(loads_fn.get())) {
-    PyErr_SetString(PyExc_RuntimeError, "Failed to resolve json.loads");
-    return nullptr;
-  }
-
-  return PyObject_CallFunctionObjArgs(loads_fn.get(), input_text, nullptr);
 }
 
 bool read_file_utf8(const std::string& filepath, std::string* out) {
@@ -1716,11 +1702,14 @@ PyMODINIT_FUNC PyInit_rig2_face_cap(void) {
     return nullptr;
   }
 
-  if (PyModule_AddIntConstant(module, "RIG2_FACE_CAP_API_VERSION", kApiVersion) < 0 ||
-      PyModule_AddStringConstant(module, "BINARY_SUBPROTOCOL", kBinarySubprotocol) < 0 ||
-      PyModule_AddStringConstant(module, "JSON_SUBPROTOCOL", kJsonSubprotocol) < 0 ||
-      PyModule_AddStringConstant(module, "WEBSOCKET_MAGIC", kWebsocketMagic) < 0) {
-    Py_DECREF(module);
+  if (rig2_shared::add_int_constant_or_cleanup(module, "RIG2_FACE_CAP_API_VERSION",
+                                               kApiVersion) < 0 ||
+      rig2_shared::add_string_constant_or_cleanup(module, "BINARY_SUBPROTOCOL",
+                                                  kBinarySubprotocol) < 0 ||
+      rig2_shared::add_string_constant_or_cleanup(module, "JSON_SUBPROTOCOL",
+                                                  kJsonSubprotocol) < 0 ||
+      rig2_shared::add_string_constant_or_cleanup(module, "WEBSOCKET_MAGIC",
+                                                  kWebsocketMagic) < 0) {
     return nullptr;
   }
 
