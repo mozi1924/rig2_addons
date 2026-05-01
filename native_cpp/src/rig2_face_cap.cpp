@@ -147,9 +147,12 @@ static bool _hmac_sha256_verify(const char* device_id, int64_t expires_at,
         return false;
     }
 
-    const char* computed_str = PyUnicode_AsUTF8(computed_hex);
-    bool match = computed_str && (strcmp(computed_str, hmac_hex) == 0);
+    PyObject* computed_utf8 = PyUnicode_AsEncodedString(computed_hex, "utf-8", "strict");
     Py_DECREF(computed_hex);
+    if (!computed_utf8) { return false; }
+    const char* computed_str = PyBytes_AsString(computed_utf8);
+    bool match = computed_str && (strcmp(computed_str, hmac_hex) == 0);
+    Py_DECREF(computed_utf8);
     return match;
 }
 
@@ -188,11 +191,15 @@ static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
             ok = 0;
             break;
         }
-        const char* actual_str = PyUnicode_AsUTF8(actual);
+        PyObject* actual_utf8 = PyUnicode_AsEncodedString(actual, "utf-8", "strict");
+        if (!actual_utf8) { ok = 0; break; }
+        const char* actual_str = PyBytes_AsString(actual_utf8);
         if (!actual_str || strcmp(actual_str, expected) != 0) {
+            Py_DECREF(actual_utf8);
             ok = 0;
             break;
         }
+        Py_DECREF(actual_utf8);
     }
 
     if (!ok) {
