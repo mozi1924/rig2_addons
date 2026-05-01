@@ -295,6 +295,9 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
         service.start(settings=settings)
         binding_count = len(get_face_cap_bindings(context.scene))
         status = service.get_status_snapshot()
+        if status.get("last_error") or not status.get("is_listening"):
+            self.report({"ERROR"}, status.get("last_error") or _face_cap_backend_service.get_lock_reason())
+            return {"CANCELLED"}
         local_ipv4_address = status.get("local_ipv4_address", "")
         receiver_host = local_ipv4_address or settings.listen_host
         self.report(

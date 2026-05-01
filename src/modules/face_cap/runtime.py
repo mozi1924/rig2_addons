@@ -202,6 +202,7 @@ class FaceCapRuntimeService:
 
     def start(self, host=None, port=None, settings=None):
         self.refresh_backend()
+        backend_service = get_face_cap_backend_service()
         if settings is None:
             settings = _get_scene_settings()
 
@@ -212,7 +213,7 @@ class FaceCapRuntimeService:
         self.refresh_local_ipv4(host)
 
         if not self._native_receiver_enabled:
-            self.set_error("Face Capture native receiver API is unavailable.")
+            self.set_error(backend_service.get_lock_reason())
             return
 
         self._native_host = host
@@ -470,7 +471,7 @@ class FaceCapRuntimeService:
     def refresh_backend(self):
         backend_service = get_face_cap_backend_service()
         self._runtime_bindings = backend_service.get_runtime_bindings()
-        self._native_receiver_enabled = all(
+        self._native_receiver_enabled = backend_service.is_feature_unlocked() and all(
             callable(self._runtime_bindings.get(name))
             for name in ("start_receiver", "stop_receiver", "poll_latest_packet", "get_receiver_stats")
         )

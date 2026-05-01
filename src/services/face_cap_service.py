@@ -4,11 +4,12 @@ from ..native.face_cap_wrapper import backend as face_cap_backend
 from ..native.face_cap_wrapper import is_native_backend as face_cap_is_native_backend
 from ..native.face_cap_wrapper import is_feature_unlocked as _face_cap_binary_available
 from ..native.face_cap_wrapper import get_lock_reason as _face_cap_binary_lock_reason
+from ..native.face_cap_wrapper import get_license_status as _face_cap_native_license_status
 from ..native.face_cap_wrapper import set_license_state as _face_cap_set_license_state
 from ..native.face_cap_wrapper import verify_integrity as _face_cap_verify_integrity
 from ..licensing.config import FEATURE_FACE_CAP
 from ..licensing._hmac_proof import compute_face_cap_proof
-from ..licensing.feature_access import get_feature_status, is_feature_ready
+from ..licensing.feature_access import get_feature_status
 from .errors import FeatureLockedError
 from ._native_feature_support import (
     get_feature_lock_reason,
@@ -143,17 +144,69 @@ class FaceCapBackendService:
         return face_cap_is_native_backend()
 
     def is_feature_unlocked(self):
-        return is_feature_ready(FEATURE_FACE_CAP)
+        status = self.get_feature_status()
+        return status.get("effective_state") in {"ready", "session_warning"}
 
     def get_feature_status(self):
-        return get_feature_status(FEATURE_FACE_CAP)
+        status = get_feature_status(FEATURE_FACE_CAP)
+        native_status = self.get_native_authorization_status()
+        status["native_authorized"] = bool(native_status.get("authorized", False))
+        status["native_reason"] = str(native_status.get("reason", "") or "")
+        status["native_expires_at"] = int(native_status.get("expires_at", 0) or 0)
+
+        if status["effective_state"] in {"ready", "session_warning"} and not status["native_authorized"]:
+            status["effective_state"] = "needs_redownload"
+            status["native_state"] = "validation_failed"
+            status["message"] = (
+                status["native_reason"] or "Face Capture native validation failed."
+            )
+            status["action"] = "download_binary"
+            status["can_download"] = True
+            status["can_retry"] = True
+
+        return status
+
+    def get_native_authorization_status(self):
+        if not self.is_native_backend():
+            return {
+                "authorized": False,
+                "reason": _face_cap_binary_lock_reason(),
+                "expires_at": 0,
+            }
+
+        try:
+            raw = _face_cap_native_license_status()
+        except Exception as exc:
+            return {
+                "authorized": False,
+                "reason": str(exc),
+                "expires_at": 0,
+            }
+
+        if not isinstance(raw, dict) or not raw:
+            return {
+                "authorized": True,
+                "reason": "",
+                "expires_at": 0,
+            }
+
+        return {
+            "authorized": bool(raw.get("authorized", False)),
+            "reason": str(raw.get("reason", "") or ""),
+            "expires_at": int(raw.get("expires_at", 0) or 0),
+        }
 
     def get_lock_reason(self):
-        return get_feature_lock_reason(
-            feature_label="Face Capture",
-            binary_available=_face_cap_binary_available,
-            binary_lock_reason=_face_cap_binary_lock_reason,
-            feature_name=FEATURE_FACE_CAP,
+        status = self.get_feature_status()
+        return (
+            status.get("native_reason")
+            or status.get("message")
+            or get_feature_lock_reason(
+                feature_label="Face Capture",
+                binary_available=_face_cap_binary_available,
+                binary_lock_reason=_face_cap_binary_lock_reason,
+                feature_name=FEATURE_FACE_CAP,
+            )
         )
 
     def sync_license_to_native(self):

@@ -4,6 +4,8 @@
 #include <cctype>
 #include <string>
 
+#include "shared.h"
+
 namespace {
 
 constexpr int kApiVersion = 2;
@@ -17,69 +19,11 @@ static const unsigned char kLicenseSecret[32] = {
 };
 
 // License state — set via set_license_state(), checked by plan_miframes_keyframe_ops.
-static int g_license_ok = 0;
-static int64_t g_license_expires_at = 0;
+static rig2_shared::LicenseState g_license_state;
 
 // Expected SHA-256 hashes of critical Python files (hex).
 // Generated at build time by scripts/generate_integrity_hashes.py.
 #include "integrity_hashes.h"
-
-// ---- License HMAC verification using Python's hashlib ----
-
-static bool _hmac_sha256_verify(const char* device_id, int64_t expires_at,
-                                const char* hmac_hex) {
-    if (!device_id || !hmac_hex) return false;
-
-    char msg[512];
-    int msg_len = snprintf(msg, sizeof(msg), "%s:%lld", device_id,
-                           (long long)expires_at);
-    if (msg_len <= 0 || msg_len >= (int)sizeof(msg)) return false;
-
-    PyObject* hashlib_mod = PyImport_ImportModule("hashlib");
-    if (!hashlib_mod) { PyErr_Clear(); return false; }
-
-    PyObject* secret_bytes = PyBytes_FromStringAndSize(
-        reinterpret_cast<const char*>(kLicenseSecret), 32);
-    if (!secret_bytes) { Py_DECREF(hashlib_mod); PyErr_Clear(); return false; }
-
-    PyObject* msg_bytes = PyBytes_FromStringAndSize(msg, msg_len);
-    if (!msg_bytes) {
-        Py_DECREF(secret_bytes); Py_DECREF(hashlib_mod); PyErr_Clear(); return false;
-    }
-
-    PyObject* hmac_new = PyObject_GetAttrString(hashlib_mod, "hmac");
-    if (!hmac_new) {
-        Py_DECREF(msg_bytes); Py_DECREF(secret_bytes);
-        Py_DECREF(hashlib_mod); PyErr_Clear(); return false;
-    }
-
-    PyObject* sha256_str = PyUnicode_FromString("sha256");
-    if (!sha256_str) {
-      Py_DECREF(hmac_new); Py_DECREF(msg_bytes);
-      Py_DECREF(secret_bytes); Py_DECREF(hashlib_mod); PyErr_Clear(); return false;
-    }
-
-    PyObject* new_args = Py_BuildValue("(O,O)", secret_bytes, msg_bytes);
-    PyObject* new_kw = Py_BuildValue("{s:O}", "digestmod", sha256_str);
-    PyObject* hmac_obj = PyObject_Call(hmac_new, new_args, new_kw);
-    Py_DECREF(new_kw); Py_DECREF(new_args); Py_DECREF(sha256_str);
-    Py_DECREF(hmac_new); Py_DECREF(msg_bytes); Py_DECREF(secret_bytes);
-
-    if (!hmac_obj) { Py_DECREF(hashlib_mod); PyErr_Clear(); return false; }
-
-    PyObject* computed_hex = PyObject_CallMethod(hmac_obj, "hexdigest", nullptr);
-    Py_DECREF(hmac_obj); Py_DECREF(hashlib_mod);
-
-    if (!computed_hex) { PyErr_Clear(); return false; }
-
-    PyObject* computed_utf8 = PyUnicode_AsEncodedString(computed_hex, "utf-8", "strict");
-    Py_DECREF(computed_hex);
-    if (!computed_utf8) { return false; }
-    const char* computed_str = PyBytes_AsString(computed_utf8);
-    bool match = computed_str && (strcmp(computed_str, hmac_hex) == 0);
-    Py_DECREF(computed_utf8);
-    return match;
-}
 
 static PyObject* method_set_license_state(PyObject*, PyObject* args) {
     const char* device_id = nullptr;
@@ -89,13 +33,13 @@ static PyObject* method_set_license_state(PyObject*, PyObject* args) {
                           &device_id, &expires_at, &hmac_hex))
         return nullptr;
 
-    if (_hmac_sha256_verify(device_id, (int64_t)expires_at, hmac_hex)) {
-        g_license_ok = 1;
-        g_license_expires_at = (int64_t)expires_at;
-    } else {
-        g_license_ok = 0;
-        g_license_expires_at = 0;
-    }
+    rig2_shared::apply_license_state(
+        &g_license_state,
+        rig2_shared::hmac_sha256_verify(kLicenseSecret, device_id, (int64_t)expires_at,
+                                        hmac_hex),
+        (int64_t)expires_at,
+        "MIFrames native license verification failed. "
+        "Re-sync the license or reinstall the binary.");
     Py_RETURN_NONE;
 }
 
@@ -105,70 +49,20 @@ static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
                           &hashes_dict))
         return nullptr;
 
-    int ok = 1;
-    for (int i = 0; kExpectedPyHashes[i] != nullptr; i += 2) {
-        const char* fname = kExpectedPyHashes[i];
-        const char* expected = kExpectedPyHashes[i + 1];
-        if (!expected || !expected[0]) continue;
-
-        PyObject* actual = PyDict_GetItemString(hashes_dict, fname);
-        if (!actual) { ok = 0; break; }
-        PyObject* actual_utf8 = PyUnicode_AsEncodedString(actual, "utf-8", "strict");
-        if (!actual_utf8) { ok = 0; break; }
-        const char* actual_str = PyBytes_AsString(actual_utf8);
-        if (!actual_str || strcmp(actual_str, expected) != 0) { Py_DECREF(actual_utf8); ok = 0; break; }
-        Py_DECREF(actual_utf8);
-    }
-
-    if (!ok) {
-        g_license_ok = 0;
-        g_license_expires_at = 0;
-    }
+    rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes, "MIFrames",
+                                         &g_license_state);
     Py_RETURN_NONE;
 }
 
-#define CHECK_LICENSE()                                          \
-    do {                                                         \
-        if (!g_license_ok) {                                     \
-            PyErr_SetString(PyExc_PermissionError,               \
-                "License required. Activate your license in "    \
-                "Addon Preferences.");                           \
-            return nullptr;                                      \
-        }                                                        \
-    } while (0)
+static PyObject* method_get_license_status(PyObject*, PyObject*) {
+    return rig2_shared::build_license_status(g_license_state);
+}
 
 PyObject* g_models = nullptr;
 
-class PyRef {
- public:
-  explicit PyRef(PyObject* obj = nullptr) : obj_(obj) {}
-  ~PyRef() { Py_XDECREF(obj_); }
-
-  PyRef(const PyRef&) = delete;
-  PyRef& operator=(const PyRef&) = delete;
-
-  PyRef(PyRef&& other) noexcept : obj_(other.obj_) { other.obj_ = nullptr; }
-  PyRef& operator=(PyRef&& other) noexcept {
-    if (this != &other) {
-      Py_XDECREF(obj_);
-      obj_ = other.obj_;
-      other.obj_ = nullptr;
-    }
-    return *this;
-  }
-
-  PyObject* get() const { return obj_; }
-  PyObject* release() {
-    PyObject* out = obj_;
-    obj_ = nullptr;
-    return out;
-  }
-
-  explicit operator bool() const { return obj_ != nullptr; }
-
- private:
-  PyObject* obj_;
-};
+using rig2_shared::PyRef;
+using rig2_shared::dict_get_item;
+using rig2_shared::object_to_double_or;
 
 const char* kModelsJson = R"JSON({
   "steve": {
@@ -258,24 +152,6 @@ const char* kModelsJson = R"JSON({
   }
 })JSON";
 
-PyObject* dict_get_item(PyObject* dict_obj, const char* key) {
-  if (!dict_obj || !PyDict_Check(dict_obj)) {
-    return nullptr;
-  }
-  return PyDict_GetItemString(dict_obj, key);
-}
-
-double object_to_double_or(PyObject* value, double fallback) {
-  if (!value) {
-    return fallback;
-  }
-  double out = PyFloat_AsDouble(value);
-  if (PyErr_Occurred()) {
-    PyErr_Clear();
-    return fallback;
-  }
-  return out;
-}
 
 std::string normalize_part_name_impl(PyObject* part_name_obj) {
   if (!part_name_obj) {
@@ -635,7 +511,7 @@ PyObject* method_get_model_config(PyObject*, PyObject* args) {
 }
 
 PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
-  CHECK_LICENSE();
+  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* data = nullptr;
   PyObject* config = nullptr;
   double start_frame = 0.0;
@@ -839,6 +715,8 @@ PyMethodDef kMethods[] = {
      "Set internal license state (device_id, expires_at, hmac_proof)."},
     {"verify_integrity", method_verify_integrity, METH_VARARGS,
      "Verify integrity of critical Python source files."},
+    {"get_license_status", method_get_license_status, METH_NOARGS,
+     "Return native authorization status."},
     {nullptr, nullptr, 0, nullptr},
 };
 

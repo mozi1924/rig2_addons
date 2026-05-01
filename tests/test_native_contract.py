@@ -1,10 +1,13 @@
 import importlib.machinery
 import importlib.util
+import hashlib
+import hmac
 import json
 import os
 import platform
 import struct
 import sys
+import time
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -51,23 +54,63 @@ def load_native_module(module_name: str):
     raise FileNotFoundError(f"Native module {module_name} not found under {NATIVE_BIN_CANDIDATES}")
 
 
+def load_native_secret_module():
+    module_path = os.path.join(ROOT, "src", "licensing", "_native_secret.py")
+    spec = importlib.util.spec_from_file_location("rig2_native_secret_test", module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def compute_source_hashes():
+    watched = {
+        "face_cap_service.py": os.path.join(ROOT, "src", "services", "face_cap_service.py"),
+        "miframes_service.py": os.path.join(ROOT, "src", "services", "miframes_service.py"),
+        "manager.py": os.path.join(ROOT, "src", "licensing", "manager.py"),
+    }
+    result = {}
+    for name, path in watched.items():
+        with open(path, "rb") as handle:
+            result[name] = hashlib.sha256(handle.read()).hexdigest()
+    return result
+
+
+def unlock_native_module(native, feature_name: str):
+    secrets = load_native_secret_module()
+    source_hashes = compute_source_hashes()
+    native.verify_integrity(source_hashes)
+
+    secret = (
+        secrets.FACE_CAP_SECRET
+        if feature_name == "face_cap"
+        else secrets.MIFRAMES_SECRET
+    )
+    device_id = "native-contract-test-device"
+    expires_at = int(time.time()) + 3600
+    msg = f"{device_id}:{expires_at}".encode("utf-8")
+    proof = hmac.new(secret, msg, hashlib.sha256).hexdigest()
+    native.set_license_state(device_id, expires_at, proof)
+
+
 class NativeContractTest(unittest.TestCase):
     def test_miframes_required_symbols(self):
         native = load_native_module("rig2_miframes")
-        self.assertEqual(native.RIG2_MIFRAMES_API_VERSION, 1)
+        self.assertEqual(native.RIG2_MIFRAMES_API_VERSION, 2)
 
         required = (
             "backend_name",
             "get_models",
             "get_model_config",
             "plan_miframes_keyframe_ops",
+            "get_license_status",
         )
         for name in required:
             self.assertTrue(callable(getattr(native, name, None)), name)
 
     def test_face_cap_required_symbols(self):
         native = load_native_module("rig2_face_cap")
-        self.assertEqual(native.RIG2_FACE_CAP_API_VERSION, 2)
+        self.assertEqual(native.RIG2_FACE_CAP_API_VERSION, 3)
         self.assertEqual(native.BINARY_SUBPROTOCOL, "r2fmc.bin.v1")
         self.assertEqual(native.JSON_SUBPROTOCOL, "r2fmc.json.v1")
         self.assertEqual(native.WEBSOCKET_MAGIC, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
@@ -89,12 +132,15 @@ class NativeContractTest(unittest.TestCase):
             "stop_receiver",
             "poll_latest_packet",
             "get_receiver_stats",
+            "get_license_status",
         )
         for name in required:
             self.assertTrue(callable(getattr(native, name, None)), name)
 
     def test_miframes_planner_smoke(self):
         native = load_native_module("rig2_miframes")
+        unlock_native_module(native, "miframes")
+        self.assertTrue(native.get_license_status()["authorized"])
 
         data = {
             "keyframes": [
@@ -120,6 +166,8 @@ class NativeContractTest(unittest.TestCase):
 
     def test_face_cap_parse_binary_smoke(self):
         native = load_native_module("rig2_face_cap")
+        native.set_license_state("native-contract-test-device", 0, "invalid")
+        self.assertFalse(native.get_license_status()["authorized"])
 
         schema = ["jawOpen", "eyeBlinkLeft"]
         header = bytearray(24)
@@ -143,6 +191,8 @@ class NativeContractTest(unittest.TestCase):
 
     def test_face_cap_offline_fixture_smoke(self):
         native = load_native_module("rig2_face_cap")
+        unlock_native_module(native, "face_cap")
+        self.assertTrue(native.get_license_status()["authorized"])
         fixture = os.path.join(ROOT, "tests", "fixtures", "face_cap", "offline_sample.json")
         result = native.load_offline_face_cap_payload(fixture)
 

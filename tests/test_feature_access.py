@@ -188,7 +188,7 @@ class FeatureAccessTest(unittest.TestCase):
             self.assertEqual(warning_status["effective_state"], "session_warning")
             self.assertTrue(feature_access.is_feature_ready("face_cap"))
 
-    def test_binary_missing_download_failed_and_binary_invalid(self):
+    def test_binary_missing_download_failed_and_needs_redownload(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = FakeManager()
             manager._client.session = types.SimpleNamespace(features={"face_cap": True})
@@ -219,8 +219,10 @@ class FeatureAccessTest(unittest.TestCase):
             wrapper_states["face_cap"].load_ok = False
             wrapper_states["face_cap"].error = "validation failed"
             invalid_status = feature_access.get_feature_status("face_cap")
-            self.assertEqual(invalid_status["effective_state"], "binary_invalid")
+            self.assertEqual(invalid_status["effective_state"], "needs_redownload")
             self.assertEqual(invalid_status["load_error"], "validation failed")
+            self.assertTrue(invalid_status["can_download"])
+            self.assertTrue(invalid_status["can_retry"])
 
     def test_activate_and_prepare_features_allows_partial_download_failures(self):
         with tempfile.TemporaryDirectory() as temp_dir:

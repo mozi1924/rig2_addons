@@ -64,8 +64,11 @@ def extension_suffixes() -> list[str]:
 def ensure_build_backend_available() -> None:
     if importlib.util.find_spec("setuptools") is not None:
         return
-    if importlib.util.find_spec("distutils.core") is not None:
-        return
+    try:
+        if importlib.util.find_spec("distutils.core") is not None:
+            return
+    except ModuleNotFoundError:
+        pass
     raise RuntimeError(
         "This Python runtime does not provide setuptools/distutils. "
         "Use a Python with build tooling (for example Blender's python3.11 or system python3.9)."

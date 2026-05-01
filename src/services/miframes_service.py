@@ -4,11 +4,12 @@ from ..native.miframes_wrapper import backend as miframes_backend
 from ..native.miframes_wrapper import is_native_backend as miframes_is_native_backend
 from ..native.miframes_wrapper import is_feature_unlocked as _miframes_binary_available
 from ..native.miframes_wrapper import get_lock_reason as _miframes_binary_lock_reason
+from ..native.miframes_wrapper import get_license_status as _miframes_native_license_status
 from ..native.miframes_wrapper import set_license_state as _miframes_set_license_state
 from ..native.miframes_wrapper import verify_integrity as _miframes_verify_integrity
 from ..licensing.config import FEATURE_MIFRAMES
 from ..licensing._hmac_proof import compute_miframes_proof
-from ..licensing.feature_access import get_feature_status, is_feature_ready
+from ..licensing.feature_access import get_feature_status
 from .errors import FeatureLockedError
 from ._native_feature_support import (
     get_feature_lock_reason,
@@ -55,17 +56,69 @@ class MiframesBackendService:
         return miframes_is_native_backend()
 
     def is_feature_unlocked(self):
-        return is_feature_ready(FEATURE_MIFRAMES)
+        status = self.get_feature_status()
+        return status.get("effective_state") in {"ready", "session_warning"}
 
     def get_feature_status(self):
-        return get_feature_status(FEATURE_MIFRAMES)
+        status = get_feature_status(FEATURE_MIFRAMES)
+        native_status = self.get_native_authorization_status()
+        status["native_authorized"] = bool(native_status.get("authorized", False))
+        status["native_reason"] = str(native_status.get("reason", "") or "")
+        status["native_expires_at"] = int(native_status.get("expires_at", 0) or 0)
+
+        if status["effective_state"] in {"ready", "session_warning"} and not status["native_authorized"]:
+            status["effective_state"] = "needs_redownload"
+            status["native_state"] = "validation_failed"
+            status["message"] = (
+                status["native_reason"] or "MIFrames native validation failed."
+            )
+            status["action"] = "download_binary"
+            status["can_download"] = True
+            status["can_retry"] = True
+
+        return status
+
+    def get_native_authorization_status(self):
+        if not self.is_native_backend():
+            return {
+                "authorized": False,
+                "reason": _miframes_binary_lock_reason(),
+                "expires_at": 0,
+            }
+
+        try:
+            raw = _miframes_native_license_status()
+        except Exception as exc:
+            return {
+                "authorized": False,
+                "reason": str(exc),
+                "expires_at": 0,
+            }
+
+        if not isinstance(raw, dict) or not raw:
+            return {
+                "authorized": True,
+                "reason": "",
+                "expires_at": 0,
+            }
+
+        return {
+            "authorized": bool(raw.get("authorized", False)),
+            "reason": str(raw.get("reason", "") or ""),
+            "expires_at": int(raw.get("expires_at", 0) or 0),
+        }
 
     def get_lock_reason(self):
-        return get_feature_lock_reason(
-            feature_label="MIFrames",
-            binary_available=_miframes_binary_available,
-            binary_lock_reason=_miframes_binary_lock_reason,
-            feature_name=FEATURE_MIFRAMES,
+        status = self.get_feature_status()
+        return (
+            status.get("native_reason")
+            or status.get("message")
+            or get_feature_lock_reason(
+                feature_label="MIFrames",
+                binary_available=_miframes_binary_available,
+                binary_lock_reason=_miframes_binary_lock_reason,
+                feature_name=FEATURE_MIFRAMES,
+            )
         )
 
     def sync_license_to_native(self):

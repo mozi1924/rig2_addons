@@ -109,3 +109,13 @@ def verify_integrity(file_hashes):
     verifier = getattr(MODULE, "verify_integrity", None)
     if callable(verifier):
         verifier(file_hashes)
+
+
+def get_license_status():
+    """Return native authorization status when supported by the module."""
+    if MODULE is None:
+        return {}
+    getter = getattr(MODULE, "get_license_status", None)
+    if callable(getter):
+        return getter() or {}
+    return {}

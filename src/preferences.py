@@ -289,8 +289,16 @@ def _has_license_session():
 
 
 def _get_feature_status(feature_name):
-    from .licensing.feature_access import get_feature_status
+    if feature_name == FEATURE_FACE_CAP:
+        from .services.face_cap_service import get_face_cap_backend_service
 
+        return get_face_cap_backend_service().get_feature_status()
+    if feature_name == FEATURE_MIFRAMES:
+        from .services.miframes_service import get_miframes_backend_service
+
+        return get_miframes_backend_service().get_feature_status()
+
+    from .licensing.feature_access import get_feature_status
     return get_feature_status(feature_name)
 
 
@@ -306,10 +314,15 @@ def _draw_feature_status(box, feature_name):
     message_row.scale_y = 0.9
     message_row.label(text=status["message"], icon="INFO")
 
-    if status.get("load_error") and status["effective_state"] == "binary_invalid":
+    if status.get("load_error") and status["effective_state"] == "needs_redownload":
         error_row = box.row()
         error_row.alert = True
         error_row.label(text=status["load_error"], icon="ERROR")
+
+    if status.get("native_reason") and status["effective_state"] == "needs_redownload":
+        error_row = box.row()
+        error_row.alert = True
+        error_row.label(text=status["native_reason"], icon="ERROR")
 
     if status["can_download"]:
         action_row = box.row()
@@ -325,7 +338,12 @@ def _feature_icon(effective_state):
         return "CHECKMARK"
     if effective_state == "session_warning":
         return "INFO"
-    if effective_state in {"download_failed", "binary_missing", "binary_invalid", "session_error"}:
+    if effective_state in {
+        "download_failed",
+        "binary_missing",
+        "needs_redownload",
+        "session_error",
+    }:
         return "ERROR"
     return "LOCKED"
 

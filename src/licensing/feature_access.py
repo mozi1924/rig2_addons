@@ -166,8 +166,11 @@ def _build_message(*, label, effective_state, download_error=""):
         return f"{label} is not included in your current license tier. Check Addon Preferences."
     if effective_state == "binary_missing":
         return f"{label} binary is missing. Download it in Addon Preferences."
-    if effective_state == "binary_invalid":
-        return f"{label} binary is installed but could not be loaded. Reinstall it from Addon Preferences."
+    if effective_state == "needs_redownload":
+        return (
+            f"{label} binary is outdated or incompatible with this addon version. "
+            "Update the binary in Addon Preferences."
+        )
     if effective_state == "download_failed":
         if download_error:
             return (
@@ -185,7 +188,7 @@ def _build_message(*, label, effective_state, download_error=""):
 def _build_action(effective_state):
     if effective_state == "unactivated":
         return "activate_license"
-    if effective_state in {"binary_missing", "binary_invalid"}:
+    if effective_state in {"binary_missing", "needs_redownload"}:
         return "download_binary"
     if effective_state == "download_failed":
         return "retry_download"
@@ -221,7 +224,7 @@ def get_feature_status(feature_name):
         )
         license_state = "licensed"
     elif not wrapper.is_native_backend():
-        effective_state = "binary_invalid"
+        effective_state = "needs_redownload"
         license_state = "licensed"
     elif status.get("warnings"):
         effective_state = "session_warning"
@@ -233,7 +236,7 @@ def get_feature_status(feature_name):
     binary_state = "installed" if binary_snapshot["binary_present"] else "missing"
     if effective_state == "download_failed":
         binary_state = "download_failed"
-    elif effective_state == "binary_invalid":
+    elif effective_state == "needs_redownload":
         binary_state = "invalid"
 
     native_state = "loaded" if wrapper.is_native_backend() else "unavailable"
@@ -258,8 +261,8 @@ def get_feature_status(feature_name):
         "effective_state": effective_state,
         "message": message,
         "action": action,
-        "can_download": effective_state in {"binary_missing", "binary_invalid", "download_failed"},
-        "can_retry": effective_state == "download_failed",
+        "can_download": effective_state in {"binary_missing", "needs_redownload", "download_failed"},
+        "can_retry": effective_state in {"needs_redownload", "download_failed"},
         "download_error": persisted_state.get("last_download_error", ""),
         "warnings": list(status.get("warnings", [])),
         "module_path": binary_snapshot["load_state"].get("module_path", ""),
