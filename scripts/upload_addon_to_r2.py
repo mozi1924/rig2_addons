@@ -40,6 +40,11 @@ def main() -> int:
         help="R2 bucket name.",
     )
     parser.add_argument(
+        "--latest-key",
+        default="",
+        help="Optional additional object key for a stable latest alias, for example 'rig2/latest.zip'.",
+    )
+    parser.add_argument(
         "--endpoint-url",
         default=os.environ.get("R2_ENDPOINT_URL", ""),
         help="Cloudflare R2 S3 endpoint URL.",
@@ -82,6 +87,10 @@ def main() -> int:
 
     print(f"[r2-addon-upload] {artifact.name} -> s3://{args.bucket}/{key}")
     _upload_file(s3, artifact, args.bucket, key)
+    if args.latest_key:
+        latest_key = args.latest_key.lstrip("/")
+        print(f"[r2-addon-upload] {artifact.name} -> s3://{args.bucket}/{latest_key}")
+        _upload_file(s3, artifact, args.bucket, latest_key)
     print("[r2-addon-upload] upload complete")
     return 0
 

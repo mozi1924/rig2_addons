@@ -67,4 +67,5 @@ jobs:
         run: |
           python scripts/upload_addon_to_r2.py \
             --artifact "dist/rig2_addons-${{ steps.version.outputs.semver }}.zip" \
-            --storage-prefix rig2
+            --storage-prefix rig2 \
+            --latest-key rig2/latest.zip

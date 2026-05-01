@@ -40,6 +40,11 @@ is injected from the central semantic version source at build time.
 CI also uploads the packaged addon zip to the Cloudflare R2 bucket
 `public-assets` under the `rig2/` prefix on non-PR runs.
 
+Uploaded addon objects include:
+
+- `rig2/rig2_addons-<semver>.zip`
+- `rig2/latest.zip`
+
 ## Version Management
 
 The addon version source lives in `version.json` and is split into:

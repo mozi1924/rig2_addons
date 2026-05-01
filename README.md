@@ -60,7 +60,8 @@ python3 scripts/package_addon.py
 ```
 
 On GitHub Actions non-PR runs, the packaged addon zip is also uploaded to
-Cloudflare R2 at `public-assets/rig2/`.
+Cloudflare R2 at `public-assets/rig2/`, including a stable
+`public-assets/rig2/latest.zip` object for website downloads.
 
 Version source is centralized in `version.json`:
 
