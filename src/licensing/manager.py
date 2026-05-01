@@ -299,7 +299,7 @@ class LicenseManager:
     # Download (for on-demand binary delivery)
     # ------------------------------------------------------------------
 
-    def request_download(self, module, platform_tag="", arch=""):
+    def request_download(self, module, platform_tag="", arch="", artifact=""):
         """Request a scoped download URL for a native binary artifact.
 
         Returns a DownloadInfo or None if not activated.
@@ -310,6 +310,7 @@ class LicenseManager:
             module=module,
             platform=platform_tag,
             arch=arch,
+            artifact=artifact,
         )
 
     def download_file(self, download_info, dest_path, progress_callback=None):

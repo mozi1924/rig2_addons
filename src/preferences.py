@@ -61,7 +61,7 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
             elif hb_failures > 0:
                 box.label(
                     text=f"Heartbeat: {hb_failures} failures",
-                    icon="WARNING",
+                    icon="INFO",
                 )
             else:
                 box.label(text="Heartbeat: pending", icon="TIME")
@@ -70,7 +70,7 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
             for w in status.get("warnings", []):
                 row = box.row()
                 row.alert = True
-                icon = "ERROR" if w["level"] == "ERROR" else "WARNING"
+                icon = "ERROR" if w["level"] == "ERROR" else "INFO"
                 row.label(text=w["message"], icon=icon)
 
             licensed_features = [
@@ -217,7 +217,7 @@ def _draw_binary_status(box, module_name, label):
     if status == "available":
         row.label(text=f"{label}: Installed", icon="CHECKMARK")
     elif status == "downloadable":
-        row.label(text=f"{label}: Not installed", icon="WARNING")
+        row.label(text=f"{label}: Not installed", icon="ERROR")
         row.operator(
             RIG2_OT_download_native.bl_idname,
             text="Download",
