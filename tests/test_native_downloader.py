@@ -31,15 +31,33 @@ def load_downloader_module(*, manager, native_root, arch_tag="arm64", suffixes=N
 
     loader_mod = types.ModuleType(loader_name)
     abi3_dir = os.path.join(native_root, "darwin-arm64-abi3")
+    legacy_dir = os.path.join(native_root, "darwin-abi3")
 
     def build_native_module_path(module_name):
         active_suffixes = suffixes or [".abi3.so"]
-        return [os.path.join(abi3_dir, module_name + suffix) for suffix in active_suffixes]
+        return [
+            os.path.join(base_dir, module_name + suffix)
+            for base_dir in (abi3_dir, legacy_dir)
+            for suffix in active_suffixes
+        ]
 
     loader_mod.get_arch_tag = lambda: arch_tag
     loader_mod.get_native_root = lambda: native_root
     loader_mod.get_abi3_platform_tag = lambda: "darwin-arm64-abi3"
     loader_mod.build_native_module_path = build_native_module_path
+    loader_mod.get_preferred_extension_suffix = lambda: ".abi3.so"
+
+    def list_existing_native_module_paths(module_name):
+        matches = []
+        for base_dir in (abi3_dir, legacy_dir):
+            if not os.path.isdir(base_dir):
+                continue
+            for entry in os.listdir(base_dir):
+                if entry.startswith(module_name):
+                    matches.append(os.path.join(base_dir, entry))
+        return tuple(sorted(matches))
+
+    loader_mod.list_existing_native_module_paths = list_existing_native_module_paths
 
     manager_mod = types.ModuleType(manager_name)
     manager_mod.get_license_manager = lambda: manager
@@ -95,7 +113,7 @@ class NativeDownloaderTest(unittest.TestCase):
             dest_path = os.path.join(
                 temp_dir,
                 "darwin-arm64-abi3",
-                "rig2_face_cap" + importlib.machinery.EXTENSION_SUFFIXES[0],
+                "rig2_face_cap.abi3.so",
             )
             self.assertTrue(os.path.exists(dest_path))
             self.assertEqual(
@@ -129,6 +147,26 @@ class NativeDownloaderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "runtime-tag request failed"):
                 downloader.ensure_native_binary("rig2_miframes")
+
+    def test_ensure_native_binary_removes_residual_variants_before_download(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager(
+                responses=[
+                    types.SimpleNamespace(download_url="https://example.invalid/file"),
+                ]
+            )
+            downloader = load_downloader_module(manager=manager, native_root=temp_dir)
+            os.makedirs(os.path.join(temp_dir, "darwin-arm64-abi3"), exist_ok=True)
+            os.makedirs(os.path.join(temp_dir, "darwin-abi3"), exist_ok=True)
+            with open(os.path.join(temp_dir, "darwin-abi3", "rig2_face_cap.cpython-311-darwin.so"), "wb") as handle:
+                handle.write(b"old")
+
+            ok = downloader.ensure_native_binary("rig2_face_cap", force=True)
+
+            self.assertTrue(ok)
+            self.assertFalse(
+                os.path.exists(os.path.join(temp_dir, "darwin-abi3", "rig2_face_cap.cpython-311-darwin.so"))
+            )
 
 
 if __name__ == "__main__":

@@ -145,17 +145,26 @@ def _get_license_snapshot():
 
 def _get_binary_snapshot(feature_name):
     wrapper = _get_wrapper_module(feature_name)
+    wrapper.refresh_native_backend()
     load_state = wrapper.get_load_state()
-    binary_present = bool(load_state.get("module_path")) and os.path.exists(load_state["module_path"])
-    if not binary_present:
-        for path in load_state.get("candidate_paths", ()):
-            if os.path.exists(path):
-                binary_present = True
-                break
+    from ..native.loader import (
+        get_primary_native_module_path,
+        get_residual_native_module_paths,
+        list_existing_native_module_paths,
+    )
+
+    module_name = get_feature_definition(feature_name)["module_name"]
+    primary_path = get_primary_native_module_path(module_name)
+    existing_paths = list_existing_native_module_paths(module_name)
+    residual_paths = get_residual_native_module_paths(module_name)
+    binary_present = bool(existing_paths)
     return {
         "wrapper": wrapper,
         "load_state": load_state,
         "binary_present": binary_present,
+        "primary_path": primary_path,
+        "existing_paths": existing_paths,
+        "residual_paths": residual_paths,
     }
 
 
@@ -223,6 +232,9 @@ def get_feature_status(feature_name):
             else "binary_missing"
         )
         license_state = "licensed"
+    elif binary_snapshot["residual_paths"]:
+        effective_state = "needs_redownload"
+        license_state = "licensed"
     elif not wrapper.is_native_backend():
         effective_state = "needs_redownload"
         license_state = "licensed"
@@ -250,6 +262,11 @@ def get_feature_status(feature_name):
         effective_state=effective_state,
         download_error=persisted_state.get("last_download_error", ""),
     )
+    if effective_state == "needs_redownload" and binary_snapshot["residual_paths"]:
+        message = (
+            f"{feature_def['label']} has leftover or duplicate native binaries. "
+            "Update the binary in Addon Preferences."
+        )
     action = _build_action(effective_state)
     return {
         "feature_name": feature_name,
@@ -267,6 +284,9 @@ def get_feature_status(feature_name):
         "warnings": list(status.get("warnings", [])),
         "module_path": binary_snapshot["load_state"].get("module_path", ""),
         "load_error": binary_snapshot["load_state"].get("error", ""),
+        "primary_module_path": binary_snapshot["primary_path"],
+        "existing_module_paths": binary_snapshot["existing_paths"],
+        "residual_module_paths": binary_snapshot["residual_paths"],
     }
 
 

@@ -6,12 +6,20 @@ on:
     branches: ["main", "master"]
     paths:
       - "native_cpp/**"
+      - "src/services/**"
+      - "src/licensing/**"
       - "scripts/extract_native_from_wheels.py"
+      - "scripts/generate_integrity_hashes.py"
+      - "scripts/upload_to_r2.py"
       - ".github/workflows/build-native-binaries.yml"
   pull_request:
     paths:
       - "native_cpp/**"
+      - "src/services/**"
+      - "src/licensing/**"
       - "scripts/extract_native_from_wheels.py"
+      - "scripts/generate_integrity_hashes.py"
+      - "scripts/upload_to_r2.py"
       - ".github/workflows/build-native-binaries.yml"
 
 jobs:
@@ -99,6 +107,39 @@ jobs:
 
       - name: Show extracted layout
         run: find native_dist -type f | sort
+
+      - name: Verify extracted runtime layout
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root = Path("native_dist")
+          files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+          print("\n".join(files))
+          allowed_tags = {
+              "darwin-x86_64-abi3",
+              "darwin-arm64-abi3",
+              "linux-x86_64-abi3",
+              "linux-arm64-abi3",
+              "win32-x86_64-abi3",
+              "win32-arm64-abi3",
+          }
+          bad = []
+          for rel in files:
+              parts = rel.split("/")
+              if len(parts) != 2:
+                  bad.append(f"unexpected depth: {rel}")
+                  continue
+              tag, name = parts
+              if tag not in allowed_tags:
+                  bad.append(f"unexpected tag: {rel}")
+              if ".abi3." not in name:
+                  bad.append(f"non-abi3 filename: {rel}")
+              if not (name.startswith("rig2_face_cap") or name.startswith("rig2_miframes")):
+                  bad.append(f"unexpected module name: {rel}")
+          if bad:
+              raise SystemExit("Invalid runtime layout:\n" + "\n".join(bad))
+          PY
 
       - name: Upload runtime binary artifact
         uses: actions/upload-artifact@v4

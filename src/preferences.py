@@ -324,6 +324,12 @@ def _draw_feature_status(box, feature_name):
         error_row.alert = True
         error_row.label(text=status["native_reason"], icon="ERROR")
 
+    if status.get("residual_module_paths") and status["effective_state"] == "needs_redownload":
+        for residual_path in status["residual_module_paths"]:
+            residual_row = box.row()
+            residual_row.alert = True
+            residual_row.label(text=residual_path, icon="FILE")
+
     if status["can_download"]:
         action_row = box.row()
         action_row.operator(

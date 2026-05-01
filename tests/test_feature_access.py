@@ -73,6 +73,7 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     paths_name = f"{package_name}.licensing.paths"
     manager_name = f"{package_name}.licensing.manager"
     downloader_name = f"{package_name}.native.downloader"
+    loader_name = f"{package_name}.native.loader"
     face_wrapper_name = f"{package_name}.native.face_cap_wrapper"
     miframes_wrapper_name = f"{package_name}.native.miframes_wrapper"
     runtime_name = f"{package_name}.modules.face_cap.runtime"
@@ -117,11 +118,24 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
         return module
 
     downloader_mod = types.ModuleType(downloader_name)
+    loader_mod = types.ModuleType(loader_name)
 
     def ensure_native_binary(module_name, force=False):
         return downloader_behavior(module_name, force, wrapper_states)
 
     downloader_mod.ensure_native_binary = ensure_native_binary
+    loader_mod.get_primary_native_module_path = lambda module_name: os.path.join(
+        temp_dir,
+        module_name + ".abi3.so",
+    )
+    loader_mod.list_existing_native_module_paths = lambda module_name: tuple(
+        sorted(
+            state.path
+            for state in wrapper_states.values()
+            if state.module_name == module_name and os.path.exists(state.path)
+        )
+    )
+    loader_mod.get_residual_native_module_paths = lambda module_name: ()
 
     runtime_mod = types.ModuleType(runtime_name)
     runtime_mod.get_runtime_service = lambda: runtime_service
@@ -137,6 +151,7 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     sys.modules[paths_name] = paths_mod
     sys.modules[manager_name] = manager_mod
     sys.modules[downloader_name] = downloader_mod
+    sys.modules[loader_name] = loader_mod
     sys.modules[face_wrapper_name] = make_wrapper_module(wrapper_states["face_cap"])
     sys.modules[miframes_wrapper_name] = make_wrapper_module(wrapper_states["miframes"])
     sys.modules[runtime_name] = runtime_mod

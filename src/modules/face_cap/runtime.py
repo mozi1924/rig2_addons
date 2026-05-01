@@ -11,6 +11,8 @@ from .props import get_face_cap_bindings, get_face_cap_settings
 INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
+FACE_CAP_STARTUP_TIMEOUT_SECONDS = 1.0
+FACE_CAP_STARTUP_POLL_INTERVAL_SECONDS = 0.05
 
 def _is_face_cap_enabled(obj):
     if not is_rig2_armature(obj):
@@ -224,6 +226,36 @@ class FaceCapRuntimeService:
                 start_receiver(host, int(port), {"drop_old_packets": True})
         except Exception as exc:
             self.set_error(f"Face Capture native receiver failed on ws://{host}:{port}: {exc}")
+            return
+
+        deadline = time.time() + FACE_CAP_STARTUP_TIMEOUT_SECONDS
+        last_stats = None
+        while time.time() < deadline:
+            stats = self._get_native_stats()
+            if stats:
+                last_stats = stats
+                self._apply_native_stats(stats)
+                if stats.get("is_listening"):
+                    return
+                if stats.get("bind_failed") or stats.get("last_error"):
+                    return
+                status_message = str(stats.get("status_message", "") or "").strip().lower()
+                if status_message and status_message not in {"starting", "stopped"}:
+                    break
+            time.sleep(FACE_CAP_STARTUP_POLL_INTERVAL_SECONDS)
+
+        if last_stats:
+            if last_stats.get("last_error"):
+                self.set_error(str(last_stats.get("last_error")))
+                return
+            if last_stats.get("status_message") and not last_stats.get("is_listening"):
+                self.set_error(str(last_stats.get("status_message")))
+                return
+
+        self.set_error(
+            "Face Capture receiver did not enter listening state. "
+            "Update or reinstall the Face Capture binary."
+        )
 
     def restart(self, host=None, port=None):
         self.start(host, port)

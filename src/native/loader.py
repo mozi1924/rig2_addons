@@ -2,6 +2,7 @@ import importlib.util
 import importlib.machinery
 import os
 import platform
+import pathlib
 import sys
 from dataclasses import dataclass
 from types import ModuleType
@@ -50,6 +51,57 @@ def get_platform_tags():
     ]
     # Preserve order while deduplicating.
     return tuple(dict.fromkeys(tags))
+
+
+def get_extension_suffixes():
+    """Return extension suffixes, preferring ABI3-compatible names first."""
+    suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
+    ordered = sorted(
+        suffixes,
+        key=lambda suffix: (0 if ".abi3." in suffix else 1, len(suffix)),
+    )
+    return tuple(dict.fromkeys(ordered))
+
+
+def get_preferred_extension_suffix():
+    """Return the canonical suffix used for managed native binaries."""
+    suffixes = get_extension_suffixes()
+    return suffixes[0] if suffixes else ".so"
+
+
+def get_primary_native_module_path(module_name):
+    return os.path.join(
+        get_native_root(),
+        get_abi3_platform_tag(),
+        module_name + get_preferred_extension_suffix(),
+    )
+
+
+def list_existing_native_module_paths(module_name):
+    """Return every on-disk variant for a managed native module."""
+    native_root = pathlib.Path(get_native_root())
+    if not native_root.exists():
+        return ()
+
+    suffixes = get_extension_suffixes()
+    suffix_set = set(suffixes)
+    matches = []
+    for path in native_root.rglob(f"{module_name}*"):
+        if not path.is_file():
+            continue
+        if any(str(path).endswith(suffix) for suffix in suffix_set):
+            matches.append(str(path))
+    return tuple(sorted(dict.fromkeys(matches)))
+
+
+def get_residual_native_module_paths(module_name):
+    """Return unexpected leftover variants outside the canonical path."""
+    primary_path = os.path.normpath(get_primary_native_module_path(module_name))
+    return tuple(
+        path
+        for path in list_existing_native_module_paths(module_name)
+        if os.path.normpath(path) != primary_path
+    )
 
 
 @dataclass(frozen=True)
@@ -135,9 +187,7 @@ def _validate_native_module_interface(
 
 
 def build_native_module_path(module_name):
-    # `EXTENSION_SUFFIXES` lives in importlib.machinery across Python versions.
-    # Keep a small fallback list for maximum compatibility.
-    suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
+    suffixes = get_extension_suffixes()
     for platform_tag in get_platform_tags():
         base_dir = os.path.join(get_native_root(), platform_tag)
         for suffix in suffixes:

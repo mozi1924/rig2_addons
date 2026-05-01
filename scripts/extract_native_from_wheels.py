@@ -28,23 +28,23 @@ def map_platform_tag_to_runtime_tags(platform_tag: str) -> list[str]:
 
     if "macosx" in tag:
         if "universal2" in tag:
-            return ["darwin-x86_64-abi3", "darwin-arm64-abi3", "darwin-abi3"]
+            return ["darwin-x86_64-abi3", "darwin-arm64-abi3"]
         if "x86_64" in tag:
-            return ["darwin-x86_64-abi3", "darwin-abi3"]
+            return ["darwin-x86_64-abi3"]
         if "arm64" in tag:
-            return ["darwin-arm64-abi3", "darwin-abi3"]
+            return ["darwin-arm64-abi3"]
 
     if tag.startswith("win"):
         if "amd64" in tag or "x86_64" in tag:
-            return ["win32-x86_64-abi3", "win32-abi3"]
+            return ["win32-x86_64-abi3"]
         if "arm64" in tag:
-            return ["win32-arm64-abi3", "win32-abi3"]
+            return ["win32-arm64-abi3"]
 
     if any(prefix in tag for prefix in ("manylinux", "musllinux", "linux")):
         if "x86_64" in tag or "amd64" in tag:
-            return ["linux-x86_64-abi3", "linux-abi3"]
+            return ["linux-x86_64-abi3"]
         if "aarch64" in tag or "arm64" in tag:
-            return ["linux-arm64-abi3", "linux-abi3"]
+            return ["linux-arm64-abi3"]
 
     return []
 

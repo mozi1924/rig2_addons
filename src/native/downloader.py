@@ -76,6 +76,19 @@ def _get_module_dir(module_name):
     return os.path.join(get_native_root(), get_abi3_platform_tag())
 
 
+def _remove_existing_module_variants(module_name):
+    from .loader import list_existing_native_module_paths
+
+    removed = []
+    for path in list_existing_native_module_paths(module_name):
+        try:
+            os.remove(path)
+            removed.append(path)
+        except FileNotFoundError:
+            continue
+    return removed
+
+
 def ensure_native_binary(module_name, force=False):
     """Ensure a native binary is available for the current platform.
 
@@ -83,8 +96,8 @@ def ensure_native_binary(module_name, force=False):
     or was successfully downloaded). Returns False if download failed
     or the user is not licensed.
 
-    Does NOT reload already-loaded modules — the caller must restart
-    the addon or manually reload after a successful download.
+    Callers should refresh wrapper/runtime state after a successful download
+    so the newly downloaded module becomes available immediately.
     """
     from .loader import build_native_module_path
 
@@ -138,13 +151,14 @@ def ensure_native_binary(module_name, force=False):
 
         # Determine the local filename.
         # The download API returns an artifact key like "mac.dylib".
-        # We need to rename it to the expected local name (e.g., "rig2_face_cap.abi3.so").
-        import importlib.machinery
-        suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
-        dest_filename = module_name + suffixes[0]
+        # We need to rename it to the canonical local name (e.g., "rig2_face_cap.abi3.so").
+        from .loader import get_preferred_extension_suffix
+
+        dest_filename = module_name + get_preferred_extension_suffix()
         dest_path = os.path.join(dest_dir, dest_filename)
         temp_path = dest_path + ".part"
 
+        _remove_existing_module_variants(module_name)
         if os.path.exists(temp_path):
             os.remove(temp_path)
         mgr.download_file(download_info, temp_path)

@@ -45,6 +45,11 @@ class NativeLoaderTest(unittest.TestCase):
             self.assertFalse(result.is_available)
             self.assertIn("missing binary", result.error)
 
+    def test_preferred_suffix_prefers_abi3(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            loader = load_loader_module(temp_dir)
+            self.assertIn(".abi3.", loader.get_preferred_extension_suffix())
+
 
 if __name__ == "__main__":
     unittest.main()

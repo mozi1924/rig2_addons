@@ -110,6 +110,15 @@ def _clear_existing_variants(output_dir: Path, module_name: str) -> None:
             existing.unlink()
 
 
+def _clear_all_runtime_variants(module_name: str) -> None:
+    native_root = ROOT / "src" / "native" / "binaries"
+    if not native_root.exists():
+        return
+    for existing in native_root.rglob(f"{module_name}*"):
+        if existing.is_file():
+            existing.unlink()
+
+
 def _copy_to_platform_dir(module_path: Path, tag: str, module_name: str) -> Path:
     output_dir = ROOT / "src" / "native" / "binaries" / tag
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -120,21 +129,9 @@ def _copy_to_platform_dir(module_path: Path, tag: str, module_name: str) -> Path
 
 
 def copy_to_runtime_bins(module_path: Path, module_name: str) -> list[Path]:
-    copied = []
-    copied.append(_copy_to_platform_dir(module_path, platform_tag(), module_name))
-    copied.append(_copy_to_platform_dir(module_path, legacy_platform_tag(), module_name))
-    if _is_abi3_binary(module_path):
-        copied.append(_copy_to_platform_dir(module_path, abi3_platform_tag(), module_name))
-        copied.append(_copy_to_platform_dir(module_path, legacy_abi3_platform_tag(), module_name))
-    deduped = []
-    seen = set()
-    for path in copied:
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(path)
-    return deduped
+    _clear_all_runtime_variants(module_name)
+    target_tag = abi3_platform_tag() if _is_abi3_binary(module_path) else platform_tag()
+    return [_copy_to_platform_dir(module_path, target_tag, module_name)]
 
 
 def main() -> int:
