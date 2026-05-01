@@ -168,7 +168,8 @@ static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
     return nullptr;
   }
 
-  rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes, "R2BB", &g_license_state);
+  rig2_shared::verify_integrity_hashes(
+      hashes_dict, kExpectedPyHashes_rig2_r2bb, "R2BB", &g_license_state);
   Py_RETURN_NONE;
 }
 

@@ -32,10 +32,22 @@ def verify_source_integrity(feature_name, verify_func):
         except Exception:
             hashes[name] = ""
 
+    verify_func(hashes)
+
+
+def native_integrity_failed(get_license_status):
+    if not callable(get_license_status):
+        return False
     try:
-        verify_func(hashes)
+        status = get_license_status() or {}
     except Exception:
-        pass
+        return False
+    if not isinstance(status, dict):
+        return False
+    if status.get("authorized", False):
+        return False
+    reason = str(status.get("reason", "") or "").lower()
+    return "integrity check failed" in reason
 
 
 def get_feature_lock_reason(*, feature_label, binary_available, binary_lock_reason, feature_name):
@@ -49,6 +61,7 @@ def sync_license_state_to_native(
     feature_id,
     set_license_state,
     verify_func,
+    get_license_status=None,
 ):
     """Propagate the current license state to a native backend."""
     try:
@@ -57,6 +70,9 @@ def sync_license_state_to_native(
         manager = get_license_manager()
         device_id = manager.get_device_id()
         verify_source_integrity(feature_id, verify_func)
+        if native_integrity_failed(get_license_status):
+            logger.debug("Native integrity validation failed for %s; not applying license state.", feature_id)
+            return
 
         if is_feature_ready_for_native(feature_id):
             expires_at, hmac_proof = compute_feature_proof(feature_id, device_id)
@@ -64,9 +80,14 @@ def sync_license_state_to_native(
         else:
             set_license_state(device_id, 0, "invalid")
     except Exception as exc:
+        try:
+            set_license_state("", 0, "invalid")
+        except Exception:
+            pass
         logger.debug("Failed to sync license to native %s: %s", feature_id, exc)
 
 
 def is_feature_ready_for_native(feature_name):
-    status = get_feature_status(feature_name)
-    return status.get("effective_state") in {"ready", "session_warning"}
+    from ..licensing.feature_access import is_feature_ready_for_native_sync
+
+    return is_feature_ready_for_native_sync(feature_name)

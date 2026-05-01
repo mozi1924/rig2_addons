@@ -137,14 +137,13 @@ class FaceCapRuntimeService:
         self._ensure_timer()
 
     def unregister(self):
+        self.stop()
         if self._timer_registered:
             try:
                 bpy.app.timers.unregister(self._timer_callback)
             except Exception:
                 pass
             self._timer_registered = False
-
-        self.stop()
 
     def _ensure_timer(self):
         if self._timer_registered:
@@ -254,14 +253,17 @@ class FaceCapRuntimeService:
     def restart(self, host=None, port=None):
         self.start(host, port)
 
+    def _stop_receiver(self, runtime_bindings=None):
+        bindings = runtime_bindings if runtime_bindings is not None else self._runtime_bindings
+        try:
+            stop_receiver = bindings.get("stop_receiver") if isinstance(bindings, dict) else None
+            if callable(stop_receiver):
+                stop_receiver()
+        except Exception:
+            pass
+
     def stop(self):
-        if self._native_receiver_enabled:
-            try:
-                stop_receiver = self._runtime_bindings.get("stop_receiver")
-                if callable(stop_receiver):
-                    stop_receiver()
-            except Exception:
-                pass
+        self._stop_receiver()
 
         with self._lock:
             self._client_address = ""
@@ -491,13 +493,30 @@ class FaceCapRuntimeService:
 
     def refresh_backend(self):
         backend_service = get_face_cap_backend_service()
-        self._runtime_bindings = backend_service.get_runtime_bindings()
-        self._native_receiver_enabled = backend_service.is_feature_unlocked() and all(
-            callable(self._runtime_bindings.get(name))
+        previous_bindings = self._runtime_bindings
+        was_native_receiver_enabled = self._native_receiver_enabled
+        new_runtime_bindings = backend_service.get_runtime_bindings()
+        new_native_receiver_enabled = backend_service.is_feature_unlocked() and all(
+            callable(new_runtime_bindings.get(name))
             for name in ("start_receiver", "stop_receiver", "poll_latest_packet", "get_receiver_stats")
         )
-        if not self._native_receiver_enabled and self._native_is_listening:
-            self.stop()
+        if was_native_receiver_enabled and not new_native_receiver_enabled:
+            self._stop_receiver(previous_bindings)
+        self._runtime_bindings = new_runtime_bindings
+        self._native_receiver_enabled = new_native_receiver_enabled
+        if not self._native_receiver_enabled and (
+            self._native_is_listening or self._native_host or self._native_port
+        ):
+            with self._lock:
+                self._client_address = ""
+                self._local_ipv4_address = ""
+                self._status_message = "Stopped"
+                self._transport_mode = "websocket"
+                self._transport_encoding = None
+                self._native_host = ""
+                self._native_port = 0
+                self._native_is_listening = False
+                self._native_bind_failed = False
 
 
 _runtime_service = FaceCapRuntimeService()

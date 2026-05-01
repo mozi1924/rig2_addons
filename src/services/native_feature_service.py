@@ -91,6 +91,7 @@ class NativeLicensedFeatureService:
             logger=self._log,
             feature_id=self.feature_id,
             verify_func=self.wrapper.verify_integrity,
+            get_license_status=self.wrapper.get_license_status,
             set_license_state=self.wrapper.set_license_state,
         )
 

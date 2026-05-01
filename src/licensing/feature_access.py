@@ -213,6 +213,29 @@ def _get_binary_snapshot(feature_id):
     }
 
 
+def _resolve_pre_native_effective_state(*, feature_id, license_snapshot, binary_snapshot):
+    wrapper = binary_snapshot["wrapper"]
+    status = license_snapshot["status"]
+    entitled = bool(license_snapshot["features"].get(feature_id, False))
+    warning_levels = set(license_snapshot["warning_levels"])
+
+    if not license_snapshot["has_session"]:
+        return "unactivated", "missing"
+    if license_snapshot["refresh_expired"] or "ERROR" in warning_levels:
+        return "session_error", "expired"
+    if not entitled:
+        return "unlicensed", "unlicensed"
+    if not binary_snapshot["binary_present"]:
+        return "binary_missing", "licensed"
+    if binary_snapshot["residual_paths"]:
+        return "needs_redownload", "licensed"
+    if not wrapper.is_native_backend():
+        return "needs_redownload", "licensed"
+    if status.get("warnings"):
+        return "session_warning", "warning"
+    return "ready", "licensed"
+
+
 def _build_message(*, label, effective_state, download_error=""):
     if effective_state == "unactivated":
         return f"{label} is locked. Activate your license in Addon Preferences."
@@ -274,33 +297,13 @@ def get_feature_status(feature_id):
     binary_snapshot = _get_binary_snapshot(feature_id)
     wrapper = binary_snapshot["wrapper"]
     status = license_snapshot["status"]
-    entitled = bool(license_snapshot["features"].get(feature_id, False))
-    warning_levels = set(license_snapshot["warning_levels"])
-
-    if not license_snapshot["has_session"]:
-        effective_state = "unactivated"
-        license_state = "missing"
-    elif license_snapshot["refresh_expired"] or "ERROR" in warning_levels:
-        effective_state = "session_error"
-        license_state = "expired"
-    elif not entitled:
-        effective_state = "unlicensed"
-        license_state = "unlicensed"
-    elif not binary_snapshot["binary_present"]:
-        effective_state = "download_failed" if persisted_state.get("last_download_failed") else "binary_missing"
-        license_state = "licensed"
-    elif binary_snapshot["residual_paths"]:
-        effective_state = "needs_redownload"
-        license_state = "licensed"
-    elif not wrapper.is_native_backend():
-        effective_state = "needs_redownload"
-        license_state = "licensed"
-    elif status.get("warnings"):
-        effective_state = "session_warning"
-        license_state = "warning"
-    else:
-        effective_state = "ready"
-        license_state = "licensed"
+    effective_state, license_state = _resolve_pre_native_effective_state(
+        feature_id=feature_id,
+        license_snapshot=license_snapshot,
+        binary_snapshot=binary_snapshot,
+    )
+    if effective_state == "binary_missing" and persisted_state.get("last_download_failed"):
+        effective_state = "download_failed"
 
     # ----------------------------------------------------------------
     # Native authorization check — the native module is the ultimate
@@ -375,6 +378,17 @@ def get_all_feature_statuses():
 
 def is_feature_ready(feature_id):
     return get_feature_status(feature_id)["effective_state"] in {"ready", "session_warning"}
+
+
+def is_feature_ready_for_native_sync(feature_id):
+    license_snapshot = _get_license_snapshot()
+    binary_snapshot = _get_binary_snapshot(feature_id)
+    effective_state, _license_state = _resolve_pre_native_effective_state(
+        feature_id=feature_id,
+        license_snapshot=license_snapshot,
+        binary_snapshot=binary_snapshot,
+    )
+    return effective_state in {"ready", "session_warning"}
 
 
 def get_feature_action_hint(feature_id):

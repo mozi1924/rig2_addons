@@ -49,7 +49,7 @@ static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
                           &hashes_dict))
         return nullptr;
 
-    rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes, "MIFrames",
+    rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes_rig2_miframes, "MIFrames",
                                          &g_license_state);
     Py_RETURN_NONE;
 }

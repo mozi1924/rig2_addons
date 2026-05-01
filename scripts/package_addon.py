@@ -25,6 +25,13 @@ PACKAGE_INCLUDE = (
     "version.json",
     "LICENSE",
 )
+PACKAGE_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.blend1",
+    ".DS_Store",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +67,7 @@ def copy_package_tree(staging_root: Path, package_name: str) -> Path:
             shutil.copytree(
                 source,
                 destination,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+                ignore=shutil.ignore_patterns(*PACKAGE_IGNORE_PATTERNS),
             )
         else:
             shutil.copy2(source, destination)
