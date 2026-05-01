@@ -104,6 +104,12 @@ class LicenseManager:
         self._client.deactivate()
         self._last_heartbeat_time = 0.0
         self._consecutive_heartbeat_failures = 0
+        try:
+            from .feature_access import clear_feature_state
+
+            clear_feature_state()
+        except Exception:
+            pass
         _log.info("License deactivated.")
 
     # ------------------------------------------------------------------
@@ -277,7 +283,7 @@ class LicenseManager:
     # Heartbeat
     # ------------------------------------------------------------------
 
-    def heartbeat(self):
+    def heartbeat(self, raise_on_error=False):
         """Send a heartbeat to keep the device session alive.
 
         Safe to call even if not activated — silently returns.
@@ -294,6 +300,8 @@ class LicenseManager:
             self._consecutive_heartbeat_failures += 1
             _log.debug("Heartbeat failed (non-fatal, attempt %d): %s",
                         self._consecutive_heartbeat_failures, exc)
+            if raise_on_error:
+                raise
 
     # ------------------------------------------------------------------
     # Download (for on-demand binary delivery)

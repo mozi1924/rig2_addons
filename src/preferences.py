@@ -1,5 +1,7 @@
 import bpy
 
+from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES
+
 
 class Rig2AddonPreferences(bpy.types.AddonPreferences):
     # Get the root package name robustly
@@ -31,14 +33,26 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
         box = layout.box()
         box.label(text="License", icon="KEYINGSET")
         status = _get_license_status()
+        has_session = _has_license_session()
 
-        if status["activated"]:
+        if has_session:
             box.label(text=f"Product: {status['product']}", icon="CHECKMARK")
             box.label(text=f"Tier: {status['tier']}")
             if status.get("license_id"):
                 box.label(text=f"License: {status['license_id']}")
             if status.get("device_id"):
                 box.label(text=f"Device: {status['device_id']}")
+
+            state_row = box.row()
+            if status.get("is_refresh_expired"):
+                state_row.alert = True
+                state_row.label(text="Session: Expired", icon="ERROR")
+            elif status.get("warnings"):
+                state_row.label(text="Session: Needs Attention", icon="INFO")
+            elif status.get("activated"):
+                state_row.label(text="Session: Active", icon="CHECKMARK")
+            else:
+                state_row.label(text="Session: Recoverable", icon="INFO")
 
             # Token expiry info
             access_exp = status.get("access_token_expires_in_seconds", 0)
@@ -83,8 +97,13 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
                 )
             else:
                 box.label(text="No features licensed", icon="LOCKED")
-            deactivate_col = box.column()
-            deactivate_col.operator(
+            action_row = box.row(align=True)
+            action_row.operator(
+                RIG2_OT_sync_license_status.bl_idname,
+                text="Sync Now",
+                icon="FILE_REFRESH",
+            )
+            action_row.operator(
                 RIG2_OT_deactivate_license.bl_idname,
                 text="Deactivate",
                 icon="UNLINKED",
@@ -101,9 +120,9 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
 
         # -- Native Binaries section --
         box = layout.box()
-        box.label(text="Native Binaries", icon="FILE_CACHE")
-        _draw_binary_status(box, "rig2_face_cap", "Face Capture")
-        _draw_binary_status(box, "rig2_miframes", "MIFrames")
+        box.label(text="Feature Access", icon="FILE_CACHE")
+        _draw_feature_status(box, FEATURE_FACE_CAP)
+        _draw_feature_status(box, FEATURE_MIFRAMES)
 
         box.separator()
         box.label(text="Settings", icon="PREFERENCES")
@@ -142,18 +161,31 @@ class RIG2_OT_activate_license(bpy.types.Operator):
             self.report({"ERROR"}, "Please enter a license key.")
             return {"CANCELLED"}
 
-        from .licensing.manager import get_license_manager
-        from .licensing import sync_license_to_native_modules
-
         import traceback
-        manager = get_license_manager()
         try:
-            session = manager.activate(prefs.license_key.strip())
-            sync_license_to_native_modules()
-            self.report(
-                {"INFO"},
-                f"License activated: {session.product} ({session.tier})",
-            )
+            from .licensing.feature_access import activate_and_prepare_features
+
+            result = activate_and_prepare_features(prefs.license_key.strip())
+            session = result["session"]
+            labels = result.get("download_labels", {})
+            failed = [
+                labels.get(feature_name, feature_name)
+                for feature_name, item in result["download_results"].items()
+                if not item.get("ok")
+            ]
+            if failed:
+                self.report(
+                    {"WARNING"},
+                    (
+                        f"License activated: {session.product} ({session.tier}). "
+                        f"Some binaries still need attention: {', '.join(failed)}."
+                    ),
+                )
+            else:
+                self.report(
+                    {"INFO"},
+                    f"License activated: {session.product} ({session.tier})",
+                )
         except Exception as exc:
             # Build a detailed error message including HTTP status / error code.
             status_code = getattr(exc, "status_code", None)
@@ -179,12 +211,53 @@ class RIG2_OT_deactivate_license(bpy.types.Operator):
 
     def execute(self, context):
         from .licensing.manager import get_license_manager
-        from .licensing import sync_license_to_native_modules
+        from .licensing.feature_access import clear_feature_state, refresh_feature_runtime
 
         manager = get_license_manager()
         manager.deactivate()
-        sync_license_to_native_modules()
+        clear_feature_state()
+        refresh_feature_runtime()
         self.report({"INFO"}, "License deactivated.")
+        _refresh_ui()
+        return {"FINISHED"}
+
+
+class RIG2_OT_sync_license_status(bpy.types.Operator):
+    bl_idname = "rig2.sync_license_status"
+    bl_label = "Sync License Status"
+    bl_description = "Immediately sync license status with the server and refresh local feature access"
+    bl_options = {"REGISTER", "INTERNAL"}
+
+    def execute(self, context):
+        try:
+            from .licensing.manager import get_license_manager
+            from .licensing.feature_access import refresh_feature_runtime
+
+            manager = get_license_manager()
+            if getattr(getattr(manager, "_client", None), "session", None) is None:
+                self.report({"ERROR"}, "No active license session to sync.")
+                return {"CANCELLED"}
+
+            manager.heartbeat(raise_on_error=True)
+            refresh_feature_runtime()
+            status = manager.get_status()
+            if status.get("warnings"):
+                self.report({"WARNING"}, "License synced. Session still needs attention.")
+            else:
+                self.report({"INFO"}, "License status synced successfully.")
+        except Exception as exc:
+            import traceback
+
+            status_code = getattr(exc, "status_code", None)
+            error_code = getattr(exc, "error_code", None)
+            if status_code is not None and error_code is not None:
+                detail = f"Sync failed [{error_code}]: {exc} (HTTP {status_code})"
+            else:
+                detail = f"Sync failed: {exc}"
+            self.report({"ERROR"}, detail)
+            traceback.print_exc()
+            return {"CANCELLED"}
+
         _refresh_ui()
         return {"FINISHED"}
 
@@ -205,26 +278,56 @@ def _get_license_status():
         }
 
 
-def _draw_binary_status(box, module_name, label):
-    """Draw the status and download button for a native binary."""
+def _has_license_session():
     try:
-        from .native.downloader import get_download_status
-        status = get_download_status(module_name)
-    except Exception:
-        status = "unknown"
+        from .licensing.manager import get_license_manager
 
+        manager = get_license_manager()
+        return getattr(getattr(manager, "_client", None), "session", None) is not None
+    except Exception:
+        return False
+
+
+def _get_feature_status(feature_name):
+    from .licensing.feature_access import get_feature_status
+
+    return get_feature_status(feature_name)
+
+
+def _draw_feature_status(box, feature_name):
+    status = _get_feature_status(feature_name)
     row = box.row()
-    if status == "available":
-        row.label(text=f"{label}: Installed", icon="CHECKMARK")
-    elif status == "downloadable":
-        row.label(text=f"{label}: Not installed", icon="ERROR")
-        row.operator(
+    row.label(
+        text=f"{status['label']}: {status['effective_state'].replace('_', ' ').title()}",
+        icon=_feature_icon(status["effective_state"]),
+    )
+
+    message_row = box.row()
+    message_row.scale_y = 0.9
+    message_row.label(text=status["message"], icon="INFO")
+
+    if status.get("load_error") and status["effective_state"] == "binary_invalid":
+        error_row = box.row()
+        error_row.alert = True
+        error_row.label(text=status["load_error"], icon="ERROR")
+
+    if status["can_download"]:
+        action_row = box.row()
+        action_row.operator(
             RIG2_OT_download_native.bl_idname,
-            text="Download",
+            text="Retry Download" if status["can_retry"] else "Download Binary",
             icon="IMPORT",
-        ).module_name = module_name
-    else:
-        row.label(text=f"{label}: Unavailable (activate license first)", icon="LOCKED")
+        ).feature_name = feature_name
+
+
+def _feature_icon(effective_state):
+    if effective_state == "ready":
+        return "CHECKMARK"
+    if effective_state == "session_warning":
+        return "INFO"
+    if effective_state in {"download_failed", "binary_missing", "binary_invalid", "session_error"}:
+        return "ERROR"
+    return "LOCKED"
 
 
 class RIG2_OT_download_native(bpy.types.Operator):
@@ -233,19 +336,21 @@ class RIG2_OT_download_native(bpy.types.Operator):
     bl_description = "Download a native binary via your license"
     bl_options = {"REGISTER", "INTERNAL"}
 
-    module_name: bpy.props.StringProperty()
+    feature_name: bpy.props.StringProperty()
 
     def execute(self, context):
-        import traceback
-        from .native.downloader import ensure_native_binary
-
         try:
-            ok = ensure_native_binary(self.module_name)
-            if ok:
-                self.report({"INFO"}, f"Downloaded {self.module_name}. Restart Blender or reload the addon.")
+            from .licensing.feature_access import download_feature_binary, get_feature_status
+
+            result = download_feature_binary(self.feature_name, force=True)
+            status = get_feature_status(self.feature_name)
+            if result["ok"]:
+                self.report({"INFO"}, f"{status['label']} binary is ready.")
             else:
-                self.report({"ERROR"}, f"Could not download {self.module_name}.")
+                self.report({"ERROR"}, result["error"] or status["message"])
         except Exception as exc:
+            import traceback
+
             status_code = getattr(exc, "status_code", None)
             error_code = getattr(exc, "error_code", None)
             if status_code is not None and error_code is not None:
@@ -279,6 +384,7 @@ classes = (
     Rig2AddonPreferences,
     RIG2_OT_activate_license,
     RIG2_OT_deactivate_license,
+    RIG2_OT_sync_license_status,
     RIG2_OT_download_native,
 )
 

@@ -30,6 +30,14 @@ class HeartbeatResponse:
     device_id: str
     heartbeat_at: int
     heartbeat: HeartbeatPolicy
+    access_token: str = ""
+    refresh_token: str = ""
+    token_type: str = "Bearer"
+    expires_in: int = 0
+    refresh_expires_in: int = 0
+    product: str = ""
+    tier: str = ""
+    features: dict[str, Any] | None = None
 
 
 @dataclass
@@ -204,12 +212,39 @@ class OrbisAuthClient:
         )
         self.session.heartbeat = heartbeat
 
+        access_token = data.get("access_token", "")
+        refresh_token = data.get("refresh_token", "")
+        expires_in = int(data.get("expires_in", 0) or 0)
+        refresh_expires_in = int(data.get("refresh_expires_in", 0) or 0)
+        if access_token:
+            self.session.tokens = TokenSet(
+                access_token=access_token,
+                refresh_token=refresh_token or self.session.tokens.refresh_token,
+                token_type=data.get("token_type", self.session.tokens.token_type),
+                expires_in=expires_in or self.session.tokens.expires_in,
+                refresh_expires_in=refresh_expires_in or self.session.tokens.refresh_expires_in,
+            )
+            self.session.product = str(data.get("product", self.session.product) or self.session.product)
+            self.session.tier = str(data.get("tier", self.session.tier) or self.session.tier)
+            features = data.get("features", self.session.features)
+            self.session.features = features if isinstance(features, dict) else self.session.features
+            self.session.activated_at = time.time()
+            self._persist()
+
         return HeartbeatResponse(
             ok=data.get("ok", False),
             license_id=data.get("license_id", ""),
             device_id=data.get("device_id", ""),
             heartbeat_at=data.get("heartbeat_at", 0),
             heartbeat=heartbeat,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type=data.get("token_type", "Bearer"),
+            expires_in=expires_in,
+            refresh_expires_in=refresh_expires_in,
+            product=str(data.get("product", "") or ""),
+            tier=str(data.get("tier", "") or ""),
+            features=data.get("features") if isinstance(data.get("features"), dict) else None,
         )
 
     def deactivate(self) -> None:

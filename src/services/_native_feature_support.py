@@ -3,6 +3,12 @@ import logging
 import os
 
 
+def get_feature_status(feature_name):
+    from ..licensing.feature_access import get_feature_status as _get_feature_status
+
+    return _get_feature_status(feature_name)
+
+
 def is_license_activated():
     try:
         from ..licensing.manager import get_license_manager
@@ -43,13 +49,8 @@ def verify_source_integrity(verify_func):
 
 
 def get_feature_lock_reason(*, feature_label, binary_available, binary_lock_reason, feature_name):
-    if not binary_available():
-        return binary_lock_reason() or f"{feature_label} native backend is not installed."
-    if not is_license_activated():
-        return "License not activated. Activate your license in Addon Preferences."
-    if not is_feature_licensed(feature_name):
-        return f"{feature_label} is not included in your license tier."
-    return f"{feature_label} is not unlocked."
+    status = get_feature_status(feature_name)
+    return status.get("message") or f"{feature_label} is not unlocked."
 
 
 def sync_license_state_to_native(

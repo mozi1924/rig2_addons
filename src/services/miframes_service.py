@@ -8,10 +8,10 @@ from ..native.miframes_wrapper import set_license_state as _miframes_set_license
 from ..native.miframes_wrapper import verify_integrity as _miframes_verify_integrity
 from ..licensing.config import FEATURE_MIFRAMES
 from ..licensing._hmac_proof import compute_miframes_proof
+from ..licensing.feature_access import get_feature_status, is_feature_ready
 from .errors import FeatureLockedError
 from ._native_feature_support import (
     get_feature_lock_reason,
-    is_feature_licensed,
     sync_license_state_to_native,
 )
 
@@ -55,9 +55,10 @@ class MiframesBackendService:
         return miframes_is_native_backend()
 
     def is_feature_unlocked(self):
-        if not _miframes_binary_available():
-            return False
-        return is_feature_licensed(FEATURE_MIFRAMES)
+        return is_feature_ready(FEATURE_MIFRAMES)
+
+    def get_feature_status(self):
+        return get_feature_status(FEATURE_MIFRAMES)
 
     def get_lock_reason(self):
         return get_feature_lock_reason(

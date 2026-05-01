@@ -12,20 +12,6 @@ INTERNAL_KEYS = {"_RNA_UI", "is_rig2"}
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
 
-_runtime_bindings = get_face_cap_backend_service().get_runtime_bindings()
-_discover_local_ipv4 = _runtime_bindings["discover_local_ipv4"]
-_face_payloads_equal = _runtime_bindings["face_payloads_equal"]
-_quaternions_close = _runtime_bindings["quaternions_close"]
-_start_receiver = _runtime_bindings.get("start_receiver")
-_stop_receiver = _runtime_bindings.get("stop_receiver")
-_poll_latest_packet = _runtime_bindings.get("poll_latest_packet")
-_get_receiver_stats = _runtime_bindings.get("get_receiver_stats")
-_HAS_NATIVE_RECEIVER_API = all(
-    callable(fn)
-    for fn in (_start_receiver, _stop_receiver, _poll_latest_packet, _get_receiver_stats)
-)
-
-
 def _is_face_cap_enabled(obj):
     if not is_rig2_armature(obj):
         return False
@@ -117,7 +103,7 @@ def _get_face_blendshape_bone(obj):
 class FaceCapRuntimeService:
     def __init__(self):
         self._lock = threading.Lock()
-        self._native_receiver_enabled = _HAS_NATIVE_RECEIVER_API
+        self._native_receiver_enabled = False
         self._native_host = ""
         self._native_port = 0
         self._native_is_listening = False
@@ -141,8 +127,11 @@ class FaceCapRuntimeService:
         self._transport_mode = "websocket"
         self._transport_encoding = None
         self._local_ipv4_address = ""
+        self._runtime_bindings = {}
+        self.refresh_backend()
 
     def register(self):
+        self.refresh_backend()
         self._ensure_timer()
 
     def unregister(self):
@@ -163,6 +152,7 @@ class FaceCapRuntimeService:
         self._timer_registered = True
 
     def get_status_snapshot(self):
+        self.refresh_backend()
         native_stats = self._get_native_stats() if self._native_receiver_enabled else None
         if native_stats:
             self._apply_native_stats(native_stats)
@@ -211,6 +201,7 @@ class FaceCapRuntimeService:
         return bool(stats and stats.get("is_listening") and not stats.get("bind_failed"))
 
     def start(self, host=None, port=None, settings=None):
+        self.refresh_backend()
         if settings is None:
             settings = _get_scene_settings()
 
@@ -227,7 +218,9 @@ class FaceCapRuntimeService:
         self._native_host = host
         self._native_port = port
         try:
-            _start_receiver(host, int(port), {"drop_old_packets": True})
+            start_receiver = self._runtime_bindings.get("start_receiver")
+            if callable(start_receiver):
+                start_receiver(host, int(port), {"drop_old_packets": True})
         except Exception as exc:
             self.set_error(f"Face Capture native receiver failed on ws://{host}:{port}: {exc}")
 
@@ -237,7 +230,9 @@ class FaceCapRuntimeService:
     def stop(self):
         if self._native_receiver_enabled:
             try:
-                _stop_receiver()
+                stop_receiver = self._runtime_bindings.get("stop_receiver")
+                if callable(stop_receiver):
+                    stop_receiver()
             except Exception:
                 pass
 
@@ -265,7 +260,8 @@ class FaceCapRuntimeService:
         return host, port
 
     def refresh_local_ipv4(self, preferred_host=""):
-        local_ipv4 = _discover_local_ipv4(preferred_host)
+        discover_local_ipv4 = self._runtime_bindings.get("discover_local_ipv4")
+        local_ipv4 = discover_local_ipv4(preferred_host) if callable(discover_local_ipv4) else ""
         with self._lock:
             self._local_ipv4_address = local_ipv4
         return local_ipv4
@@ -346,9 +342,11 @@ class FaceCapRuntimeService:
         face_count = max(0, int(packet_data.get("face_count", 0)))
         sent_at = str(packet_data.get("sent_at", ""))
         with self._lock:
+            face_payloads_equal = self._runtime_bindings.get("face_payloads_equal")
             if (
                 self._last_applied_face_count == face_count
-                and _face_payloads_equal(self._last_applied_faces, faces_payload)
+                and callable(face_payloads_equal)
+                and face_payloads_equal(self._last_applied_faces, faces_payload)
             ):
                 self._latest_faces = list(faces_payload)
                 self._last_face_count = face_count
@@ -359,6 +357,7 @@ class FaceCapRuntimeService:
 
         neutralize = face_count <= 0
         changed_objects = []
+        quaternions_close = self._runtime_bindings.get("quaternions_close")
 
         for binding_face_index, obj, face_bone in _iter_face_cap_targets():
             face_payload = (
@@ -385,7 +384,9 @@ class FaceCapRuntimeService:
                 head_bone = _get_face_blendshape_bone(obj)
                 if head_bone:
                     current_quaternion = tuple(float(value) for value in head_bone.rotation_quaternion)
-                    if not _quaternions_close(current_quaternion, target_head_quaternion):
+                    if not callable(quaternions_close) or not quaternions_close(
+                        current_quaternion, target_head_quaternion
+                    ):
                         head_bone.rotation_mode = "QUATERNION"
                         head_bone.rotation_quaternion = target_head_quaternion
                         changed = True
@@ -419,7 +420,8 @@ class FaceCapRuntimeService:
         if not self._native_receiver_enabled:
             return None
         try:
-            stats = _get_receiver_stats()
+            get_receiver_stats = self._runtime_bindings.get("get_receiver_stats")
+            stats = get_receiver_stats() if callable(get_receiver_stats) else None
         except Exception:
             return None
         return stats if isinstance(stats, dict) else None
@@ -450,7 +452,8 @@ class FaceCapRuntimeService:
         transport_encoding = None
         stats = None
         try:
-            polled = _poll_latest_packet()
+            poll_latest_packet = self._runtime_bindings.get("poll_latest_packet")
+            polled = poll_latest_packet() if callable(poll_latest_packet) else None
             if isinstance(polled, dict):
                 packet = polled.get("packet")
                 transport_encoding = polled.get("transport_encoding")
@@ -463,6 +466,16 @@ class FaceCapRuntimeService:
             self.ingest_packet_data(packet, transport_encoding=transport_encoding or "json")
         if stats:
             self._apply_native_stats(stats)
+
+    def refresh_backend(self):
+        backend_service = get_face_cap_backend_service()
+        self._runtime_bindings = backend_service.get_runtime_bindings()
+        self._native_receiver_enabled = all(
+            callable(self._runtime_bindings.get(name))
+            for name in ("start_receiver", "stop_receiver", "poll_latest_packet", "get_receiver_stats")
+        )
+        if not self._native_receiver_enabled and self._native_is_listening:
+            self.stop()
 
 
 _runtime_service = FaceCapRuntimeService()

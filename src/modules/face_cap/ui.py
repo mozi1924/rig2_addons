@@ -56,11 +56,12 @@ class FaceCapUIDrawer:
     def _draw_backend_lock_hint(layout):
         FaceCapUIDrawer._draw_license_warnings(layout)
         backend_service = get_face_cap_backend_service()
+        status = backend_service.get_feature_status()
         if backend_service.is_feature_unlocked():
             return False
 
-        layout.label(text=_("Face Capture C++ backend is not unlocked"), icon="LOCKED")
-        layout.label(text=backend_service.get_lock_reason(), icon="INFO")
+        layout.label(text=_("Face Capture is unavailable"), icon="LOCKED")
+        layout.label(text=status.get("message", backend_service.get_lock_reason()), icon="INFO")
         return True
 
     @staticmethod
@@ -206,9 +207,11 @@ class FaceCapUIDrawer:
         layout.label(
             text=_("Face Capture backend unlocked")
             if backend_service.is_feature_unlocked()
-            else _("Face Capture C++ backend is not unlocked"),
+            else _("Face Capture is unavailable"),
             icon="CHECKMARK" if backend_service.is_feature_unlocked() else "LOCKED",
         )
+        if not backend_service.is_feature_unlocked():
+            layout.label(text=backend_service.get_feature_status().get("message", ""), icon="INFO")
         layout.label(
             text=status["status_message"],
             icon="INFO" if not status["last_error"] else "ERROR",

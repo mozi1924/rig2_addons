@@ -16,6 +16,7 @@ FEATURE_MIFRAMES = "miframes"
 
 # Session file stored alongside this module.
 SESSION_FILENAME = "rig2_license_session.json"
+FEATURE_STATUS_FILENAME = "rig2_feature_status.json"
 
 # Heartbeat interval in seconds (used by Blender timer).
 HEARTBEAT_INTERVAL_SECONDS = 300

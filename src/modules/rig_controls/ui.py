@@ -372,6 +372,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
         miframes_service = get_miframes_backend_service()
         is_miframes_unlocked = miframes_service.is_feature_unlocked()
+        miframes_status = miframes_service.get_feature_status()
 
         settings_box = layout.box()
         settings_box.label(text=_("Settings"), icon="PREFERENCES")
@@ -391,7 +392,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
         if not has_mi2bl:
             action_box.label(text=_("Requires mi2bl addon"), icon="INFO")
         elif not is_miframes_unlocked:
-            action_box.label(text=_("MIFrames C++ backend is not unlocked"), icon="LOCKED")
+            action_box.label(text=miframes_status.get("message", _("MIFrames is unavailable")), icon="LOCKED")
 
         mi_active = bool(logic_bone and logic_bone.get("mi_mapping_mode", 0) > 0)
         if mi_active:

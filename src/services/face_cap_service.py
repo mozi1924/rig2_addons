@@ -8,10 +8,10 @@ from ..native.face_cap_wrapper import set_license_state as _face_cap_set_license
 from ..native.face_cap_wrapper import verify_integrity as _face_cap_verify_integrity
 from ..licensing.config import FEATURE_FACE_CAP
 from ..licensing._hmac_proof import compute_face_cap_proof
+from ..licensing.feature_access import get_feature_status, is_feature_ready
 from .errors import FeatureLockedError
 from ._native_feature_support import (
     get_feature_lock_reason,
-    is_feature_licensed,
     sync_license_state_to_native,
 )
 
@@ -143,9 +143,10 @@ class FaceCapBackendService:
         return face_cap_is_native_backend()
 
     def is_feature_unlocked(self):
-        if not _face_cap_binary_available():
-            return False
-        return is_feature_licensed(FEATURE_FACE_CAP)
+        return is_feature_ready(FEATURE_FACE_CAP)
+
+    def get_feature_status(self):
+        return get_feature_status(FEATURE_FACE_CAP)
 
     def get_lock_reason(self):
         return get_feature_lock_reason(

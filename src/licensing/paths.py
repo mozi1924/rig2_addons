@@ -74,3 +74,9 @@ def get_session_path():
     """Return the full path to the license session JSON file."""
     from .config import SESSION_FILENAME
     return os.path.join(get_session_dir(), SESSION_FILENAME)
+
+
+def get_feature_status_path():
+    """Return the full path to the persisted feature status JSON file."""
+    from .config import FEATURE_STATUS_FILENAME
+    return os.path.join(get_session_dir(), FEATURE_STATUS_FILENAME)

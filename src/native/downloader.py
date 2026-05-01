@@ -76,7 +76,7 @@ def _get_module_dir(module_name):
     return os.path.join(get_native_root(), get_abi3_platform_tag())
 
 
-def ensure_native_binary(module_name):
+def ensure_native_binary(module_name, force=False):
     """Ensure a native binary is available for the current platform.
 
     Returns True if the binary is now available (was already present,
@@ -90,7 +90,7 @@ def ensure_native_binary(module_name):
 
     # 1. Check if binary already exists locally.
     for path in build_native_module_path(module_name):
-        if os.path.exists(path):
+        if os.path.exists(path) and not force:
             return True
 
     # 2. Try to download via license server.

@@ -155,18 +155,6 @@ def load_native_extension_result(
     """Try loading a managed native extension and return a structured status."""
     checked_paths = list(build_native_module_path(module_name))
     existing_paths = [module_path for module_path in checked_paths if os.path.exists(module_path)]
-    if not existing_paths:
-        # Try on-demand download before giving up.
-        try:
-            from .downloader import ensure_native_binary
-            if ensure_native_binary(module_name):
-                # Re-check after download — the binary should now exist.
-                existing_paths = [
-                    p for p in build_native_module_path(module_name)
-                    if os.path.exists(p)
-                ]
-        except Exception:
-            pass
 
     if not existing_paths:
         tags = ", ".join(get_platform_tags())
