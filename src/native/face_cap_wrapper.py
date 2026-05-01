@@ -1,121 +1,49 @@
-from .loader import build_native_module_path, load_native_extension_result
+from ..licensing.registry import FEATURE_FACE_CAP
+from .licensed_wrapper import get_native_wrapper
 
-FACE_CAP_NATIVE_API_VERSION = 3
 
-_REQUIRED_CALLABLES = (
-    "backend_name",
-    "clamp01",
-    "discover_local_ipv4",
-    "face_payloads_equal",
-    "parse_binary_packet",
-    "parse_packet_text",
-    "parse_schema_message",
-    "quaternions_close",
-    "resolve_transport_encoding",
-    "sanitize_head_quaternion",
-    "sniff_packet_type",
-    "load_offline_face_cap_payload",
-    "start_receiver",
-    "stop_receiver",
-    "poll_latest_packet",
-    "get_receiver_stats",
-    "set_license_state",
-    "verify_integrity",
-)
-
-_REQUIRED_ATTRIBUTES = (
-    "RIG2_FACE_CAP_API_VERSION",
-    "BINARY_SUBPROTOCOL",
-    "JSON_SUBPROTOCOL",
-    "WEBSOCKET_MAGIC",
-)
-
-_LOAD_RESULT = None
-MODULE = None
-IS_NATIVE = False
-LOAD_ERROR = ""
+def _wrapper():
+    return get_native_wrapper(FEATURE_FACE_CAP)
 
 
 def refresh_native_backend():
-    global _LOAD_RESULT, MODULE, IS_NATIVE, LOAD_ERROR
-    _LOAD_RESULT = load_native_extension_result(
-        "rig2_face_cap",
-        required_callables=_REQUIRED_CALLABLES,
-        required_attributes=_REQUIRED_ATTRIBUTES,
-        api_version_attr="RIG2_FACE_CAP_API_VERSION",
-        expected_api_version=FACE_CAP_NATIVE_API_VERSION,
-    )
-    MODULE = _LOAD_RESULT.module
-    IS_NATIVE = bool(_LOAD_RESULT.is_available)
-    LOAD_ERROR = _LOAD_RESULT.error
-    return _LOAD_RESULT
+    return _wrapper().refresh_native_backend()
 
 
 def get_load_state():
-    if _LOAD_RESULT is None:
-        refresh_native_backend()
-    return {
-        "module_name": "rig2_face_cap",
-        "module_path": _LOAD_RESULT.module_path if _LOAD_RESULT else "",
-        "error": _LOAD_RESULT.error if _LOAD_RESULT else "",
-        "is_available": bool(_LOAD_RESULT and _LOAD_RESULT.is_available),
-        "candidate_paths": tuple(build_native_module_path("rig2_face_cap")),
-    }
+    return _wrapper().get_load_state()
 
 
 refresh_native_backend()
 
+
 def is_native_backend():
-    if _LOAD_RESULT is None:
-        refresh_native_backend()
-    return IS_NATIVE
+    return _wrapper().is_native_backend()
 
 
 def backend():
-    if _LOAD_RESULT is None:
-        refresh_native_backend()
-    return MODULE
+    return _wrapper().backend()
 
 
 def is_feature_unlocked():
-    return IS_NATIVE
+    return _wrapper().is_feature_unlocked()
 
 
 def get_lock_reason():
-    if _LOAD_RESULT is None:
-        refresh_native_backend()
-    return LOAD_ERROR
+    return _wrapper().get_lock_reason()
 
 
 def backend_path():
-    if _LOAD_RESULT is None:
-        refresh_native_backend()
-    return _LOAD_RESULT.module_path
+    return _wrapper().backend_path()
 
 
 def set_license_state(device_id, expires_at, hmac_proof):
-    """Propagate license state into the native module."""
-    if MODULE is None:
-        return
-    setter = getattr(MODULE, "set_license_state", None)
-    if callable(setter):
-        setter(device_id, expires_at, hmac_proof)
+    _wrapper().set_license_state(device_id, expires_at, hmac_proof)
 
 
 def verify_integrity(file_hashes):
-    """Verify Python source file integrity against native module expectations."""
-    if MODULE is None:
-        return
-    verifier = getattr(MODULE, "verify_integrity", None)
-    if callable(verifier):
-        verifier(file_hashes)
+    _wrapper().verify_integrity(file_hashes)
 
 
 def get_license_status():
-    """Return native authorization status when supported by the module."""
-    if MODULE is None:
-        return {}
-    getter = getattr(MODULE, "get_license_status", None)
-    if callable(getter):
-        return getter() or {}
-    return {}
+    return _wrapper().get_license_status()

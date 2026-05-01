@@ -1,26 +1,13 @@
 import logging
 
-from ..native.miframes_wrapper import backend as miframes_backend
-from ..native.miframes_wrapper import is_native_backend as miframes_is_native_backend
-from ..native.miframes_wrapper import is_feature_unlocked as _miframes_binary_available
-from ..native.miframes_wrapper import get_lock_reason as _miframes_binary_lock_reason
-from ..native.miframes_wrapper import get_license_status as _miframes_native_license_status
-from ..native.miframes_wrapper import set_license_state as _miframes_set_license_state
-from ..native.miframes_wrapper import verify_integrity as _miframes_verify_integrity
-from ..licensing.config import FEATURE_MIFRAMES
-from ..licensing._hmac_proof import compute_miframes_proof
-from ..licensing.feature_access import get_feature_status
+from ..licensing.registry import FEATURE_MIFRAMES
 from .errors import FeatureLockedError
-from ._native_feature_support import (
-    get_feature_lock_reason,
-    sync_license_state_to_native,
-)
+from .native_feature_service import NativeLicensedFeatureService
 
 _log = logging.getLogger(__name__)
 
-class _LockedMiframesBackend:
-    """Safe backend shim used when MIFrames native backend is unavailable."""
 
+class _LockedMiframesBackend:
     def __init__(self, lock_reason):
         self._lock_reason = str(lock_reason or "").strip()
 
@@ -40,138 +27,21 @@ class _LockedMiframesBackend:
         self._raise_locked()
 
 
-class MiframesBackendService:
-    """Centralized backend access for miframes planning logic.
+class MiframesBackendService(NativeLicensedFeatureService):
+    def __init__(self):
+        super().__init__(FEATURE_MIFRAMES, _log)
 
-    Combines native binary availability and Orbisauth license checks
-    to gate the commercial MIFrames feature.
-    """
-
-    def get_backend(self):
-        if self.is_feature_unlocked():
-            return miframes_backend()
-        return _LockedMiframesBackend(self.get_lock_reason())
-
-    def is_native_backend(self):
-        return miframes_is_native_backend()
-
-    def is_feature_unlocked(self):
-        status = self.get_feature_status()
-        return status.get("effective_state") in {"ready", "session_warning"}
-
-    @staticmethod
-    def _is_license_session_ready_for_native():
-        status = get_feature_status(FEATURE_MIFRAMES)
-        return status.get("effective_state") in {"ready", "session_warning"}
-
-    def get_feature_status(self):
-        status = get_feature_status(FEATURE_MIFRAMES)
-        native_status = self.get_native_authorization_status()
-        status["native_authorized"] = bool(native_status.get("authorized", False))
-        status["native_reason"] = str(native_status.get("reason", "") or "")
-        status["native_expires_at"] = int(native_status.get("expires_at", 0) or 0)
-
-        if status["effective_state"] in {"ready", "session_warning"} and not status["native_authorized"]:
-            status["effective_state"] = "needs_redownload"
-            status["native_state"] = "validation_failed"
-            status["message"] = (
-                status["native_reason"] or "MIFrames native validation failed."
-            )
-            status["action"] = "download_binary"
-            status["can_download"] = True
-            status["can_retry"] = True
-
-        return status
-
-    def get_native_authorization_status(self):
-        if not self.is_native_backend():
-            return {
-                "authorized": False,
-                "reason": _miframes_binary_lock_reason(),
-                "expires_at": 0,
-            }
-
-        try:
-            raw = _miframes_native_license_status()
-        except Exception as exc:
-            return {
-                "authorized": False,
-                "reason": str(exc),
-                "expires_at": 0,
-            }
-
-        if not isinstance(raw, dict) or not raw:
-            return {
-                "authorized": True,
-                "reason": "",
-                "expires_at": 0,
-            }
-
-        return {
-            "authorized": bool(raw.get("authorized", False)),
-            "reason": str(raw.get("reason", "") or ""),
-            "expires_at": int(raw.get("expires_at", 0) or 0),
-        }
-
-    def get_lock_reason(self):
-        status = self.get_feature_status()
-        return (
-            status.get("native_reason")
-            or status.get("message")
-            or get_feature_lock_reason(
-                feature_label="MIFrames",
-                binary_available=_miframes_binary_available,
-                binary_lock_reason=_miframes_binary_lock_reason,
-                feature_name=FEATURE_MIFRAMES,
-            )
-        )
-
-    def sync_license_to_native(self):
-        """Propagate the current license state to the C++ native module."""
-        sync_license_state_to_native(
-            logger=_log,
-            backend_label="miframes",
-            feature_unlocked=self._is_license_session_ready_for_native,
-            compute_proof=compute_miframes_proof,
-            set_license_state=_miframes_set_license_state,
-            verify_func=_miframes_verify_integrity,
-        )
-
-    @staticmethod
-    def _verify_source_integrity():
-        from ._native_feature_support import verify_source_integrity
-
-        verify_source_integrity(_miframes_verify_integrity)
-
-    def require_feature_unlocked(self):
-        if self.is_feature_unlocked():
-            return
-        raise FeatureLockedError("MIFrames", self.get_lock_reason())
-
-    def get_backend_name(self):
-        backend = self.get_backend()
-        if backend is None:
-            return "locked"
-        backend_name = getattr(backend, "backend_name", None)
-        if callable(backend_name):
-            try:
-                return str(backend_name())
-            except Exception:
-                pass
-        return "native" if self.is_native_backend() else "locked"
+    def build_locked_backend(self, lock_reason):
+        return _LockedMiframesBackend(lock_reason)
 
     def plan_miframes_keyframe_ops(self, data, config, start_frame, fps_scale):
         self.require_feature_unlocked()
-        backend = self.get_backend()
-        return backend.plan_miframes_keyframe_ops(data, config, start_frame, fps_scale)
+        return self.get_backend().plan_miframes_keyframe_ops(data, config, start_frame, fps_scale)
 
     def get_models(self):
         if not self.is_feature_unlocked():
             return {}
-        backend = self.get_backend()
-        if backend is None:
-            return {}
-        getter = getattr(backend, "get_models", None)
+        getter = getattr(self.get_backend(), "get_models", None)
         if callable(getter):
             return getter()
         return {}
@@ -179,10 +49,7 @@ class MiframesBackendService:
     def get_model_config(self, model_key):
         if not self.is_feature_unlocked():
             return None
-        backend = self.get_backend()
-        if backend is None:
-            return None
-        getter = getattr(backend, "get_model_config", None)
+        getter = getattr(self.get_backend(), "get_model_config", None)
         if callable(getter):
             return getter(model_key)
         return None

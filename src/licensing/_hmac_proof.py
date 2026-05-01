@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import time
 
-from ._native_secret import FACE_CAP_SECRET, MIFRAMES_SECRET
+from .registry import get_feature_spec
 
 
 def compute_license_proof(device_id, secret, expires_at=None):
@@ -17,7 +17,7 @@ def compute_license_proof(device_id, secret, expires_at=None):
 
     Args:
         device_id: The device identifier string.
-        secret: 32-byte shared secret (FACE_CAP_SECRET or MIFRAMES_SECRET).
+        secret: 32-byte shared secret from the feature registry.
         expires_at: Unix timestamp when the proof expires.
                     Defaults to now + 1 hour.
 
@@ -32,11 +32,6 @@ def compute_license_proof(device_id, secret, expires_at=None):
     return expires_at, h.hexdigest()
 
 
-def compute_face_cap_proof(device_id, expires_at=None):
-    """Compute a face_cap license proof."""
-    return compute_license_proof(device_id, FACE_CAP_SECRET, expires_at)
-
-
-def compute_miframes_proof(device_id, expires_at=None):
-    """Compute a miframes license proof."""
-    return compute_license_proof(device_id, MIFRAMES_SECRET, expires_at)
+def compute_feature_proof(feature_id, device_id, expires_at=None):
+    """Compute a feature-specific license proof from the registered shared secret."""
+    return compute_license_proof(device_id, get_feature_spec(feature_id).shared_secret, expires_at)

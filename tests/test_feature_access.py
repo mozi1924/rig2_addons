@@ -23,6 +23,9 @@ class WrapperState:
     def refresh(self):
         self.refresh_count += 1
 
+    def refresh_native_backend(self):
+        self.refresh()
+
     def is_native_backend(self):
         return os.path.exists(self.path) and self.load_ok
 
@@ -72,8 +75,10 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     config_name = f"{package_name}.licensing.config"
     paths_name = f"{package_name}.licensing.paths"
     manager_name = f"{package_name}.licensing.manager"
+    registry_name = f"{package_name}.licensing.registry"
     downloader_name = f"{package_name}.native.downloader"
     loader_name = f"{package_name}.native.loader"
+    licensed_wrapper_name = f"{package_name}.native.licensed_wrapper"
     face_wrapper_name = f"{package_name}.native.face_cap_wrapper"
     miframes_wrapper_name = f"{package_name}.native.miframes_wrapper"
     runtime_name = f"{package_name}.modules.face_cap.runtime"
@@ -102,6 +107,25 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     config_mod.FEATURE_FACE_CAP = "face_cap"
     config_mod.FEATURE_MIFRAMES = "miframes"
 
+    registry_mod = types.ModuleType(registry_name)
+
+    class FeatureSpec:
+        def __init__(self, feature_id, label, native_module_name, download_module_name):
+            self.feature_id = feature_id
+            self.label = label
+            self.product_feature_name = feature_id
+            self.native_module_name = native_module_name
+            self.download_module_name = download_module_name
+
+    specs = {
+        "face_cap": FeatureSpec("face_cap", "Face Capture", "rig2_face_cap", "rig2_face_cap"),
+        "miframes": FeatureSpec("miframes", "MIFrames", "rig2_miframes", "rig2_miframes"),
+    }
+    registry_mod.FEATURE_FACE_CAP = "face_cap"
+    registry_mod.FEATURE_MIFRAMES = "miframes"
+    registry_mod.get_feature_spec = lambda feature_id: specs[feature_id]
+    registry_mod.iter_feature_specs = lambda: tuple(specs.values())
+
     paths_mod = types.ModuleType(paths_name)
     paths_mod.get_feature_status_path = lambda: os.path.join(temp_dir, "rig2_feature_status.json")
 
@@ -116,6 +140,9 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
         module.is_native_backend = state.is_native_backend
         module.get_load_state = state.get_load_state
         return module
+
+    licensed_wrapper_mod = types.ModuleType(licensed_wrapper_name)
+    licensed_wrapper_mod.get_native_wrapper = lambda feature_id: wrapper_states[feature_id]
 
     downloader_mod = types.ModuleType(downloader_name)
     loader_mod = types.ModuleType(loader_name)
@@ -148,10 +175,12 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     sys.modules[f"{package_name}.modules"] = modules_pkg
     sys.modules[f"{package_name}.modules.face_cap"] = face_cap_pkg
     sys.modules[config_name] = config_mod
+    sys.modules[registry_name] = registry_mod
     sys.modules[paths_name] = paths_mod
     sys.modules[manager_name] = manager_mod
     sys.modules[downloader_name] = downloader_mod
     sys.modules[loader_name] = loader_mod
+    sys.modules[licensed_wrapper_name] = licensed_wrapper_mod
     sys.modules[face_wrapper_name] = make_wrapper_module(wrapper_states["face_cap"])
     sys.modules[miframes_wrapper_name] = make_wrapper_module(wrapper_states["miframes"])
     sys.modules[runtime_name] = runtime_mod

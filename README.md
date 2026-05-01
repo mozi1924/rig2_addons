@@ -64,6 +64,7 @@ More detail:
 
 - [Native cross-platform notes](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/native/NATIVE_CROSS_PLATFORM.md)
 - [Build and release flow](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/dev/build-and-release.md)
+- [Cross-addon licensing integration](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/licensing/CROSS_ADDON_INTEGRATION.md)
 - [Orbisauth and R2 maintenance](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/licensing/ORBISAUTH_R2_MAINTENANCE.md)
 
 ## Cleanup Rules
@@ -87,7 +88,7 @@ Clean with care:
 Run the contract and path tests with:
 
 ```bash
-python3 -m unittest tests.test_native_contract tests.test_native_downloader tests.test_licensing_paths
+python3 -m unittest tests.test_native_contract tests.test_native_downloader tests.test_licensing_paths tests.test_license_api
 ```
 
 ## References

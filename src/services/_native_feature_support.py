@@ -2,6 +2,8 @@ import hashlib
 import logging
 import os
 
+from ..licensing._hmac_proof import compute_feature_proof
+from ..licensing.registry import get_feature_spec
 
 def get_feature_status(feature_name):
     from ..licensing.feature_access import get_feature_status as _get_feature_status
@@ -25,17 +27,13 @@ def is_feature_licensed(feature_name):
         return False
 
 
-def verify_source_integrity(verify_func):
-    """Compute hashes of critical Python files and pass them to native code."""
+def verify_source_integrity(feature_name, verify_func):
+    """Compute registered source hashes for a feature and pass them to native code."""
     base_dir = os.path.dirname(os.path.dirname(__file__))
-    files = {
-        "face_cap_service.py": os.path.join(base_dir, "services", "face_cap_service.py"),
-        "miframes_service.py": os.path.join(base_dir, "services", "miframes_service.py"),
-        "manager.py": os.path.join(base_dir, "licensing", "manager.py"),
-    }
-
+    spec = get_feature_spec(feature_name)
     hashes = {}
-    for name, path in files.items():
+    for name, relative_path in spec.integrity_targets:
+        path = os.path.join(base_dir, relative_path)
         try:
             with open(path, "rb") as handle:
                 hashes[name] = hashlib.sha256(handle.read()).hexdigest()
@@ -56,9 +54,7 @@ def get_feature_lock_reason(*, feature_label, binary_available, binary_lock_reas
 def sync_license_state_to_native(
     *,
     logger: logging.Logger,
-    backend_label,
-    feature_unlocked,
-    compute_proof,
+    feature_id,
     set_license_state,
     verify_func,
 ):
@@ -68,12 +64,17 @@ def sync_license_state_to_native(
 
         manager = get_license_manager()
         device_id = manager.get_device_id()
-        verify_source_integrity(verify_func)
+        verify_source_integrity(feature_id, verify_func)
 
-        if feature_unlocked():
-            expires_at, hmac_proof = compute_proof(device_id)
+        if is_feature_ready_for_native(feature_id):
+            expires_at, hmac_proof = compute_feature_proof(feature_id, device_id)
             set_license_state(device_id, expires_at, hmac_proof)
         else:
             set_license_state(device_id, 0, "invalid")
     except Exception as exc:
-        logger.debug("Failed to sync license to native %s: %s", backend_label, exc)
+        logger.debug("Failed to sync license to native %s: %s", feature_id, exc)
+
+
+def is_feature_ready_for_native(feature_name):
+    status = get_feature_status(feature_name)
+    return status.get("effective_state") in {"ready", "session_warning"}

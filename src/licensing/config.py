@@ -1,5 +1,7 @@
 import os
 
+from .registry import FEATURE_FACE_CAP, FEATURE_MIFRAMES
+
 # Orbisauth license server URL.
 # Override with the RIG2_LICENSE_SERVER_URL environment variable.
 DEFAULT_SERVER_URL = os.environ.get(
@@ -9,10 +11,6 @@ DEFAULT_SERVER_URL = os.environ.get(
 
 # Product identifier registered in Orbisauth.
 PRODUCT_NAME = "rig2"
-
-# Feature names used for license gating.
-FEATURE_FACE_CAP = "face_cap"
-FEATURE_MIFRAMES = "miframes"
 
 # Session file stored alongside this module.
 SESSION_FILENAME = "rig2_license_session.json"

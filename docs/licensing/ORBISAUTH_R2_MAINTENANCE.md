@@ -21,6 +21,9 @@
 - `src/licensing/__init__.py`
   - 插件注册时初始化 `LicenseManager`
   - 启动 Blender timer，每 `300s` 做一次 heartbeat
+- `src/licensing/api.py`
+  - 提供给 `mi2bl` / `r2bb` 这类同级插件使用的只读公共授权 API
+  - 对外只暴露 primitives-only 状态，不暴露 `LicenseManager` / `orbisauth`
 - `src/orbisauth/`
   - 内置的零依赖 Python SDK
   - 封装了 activate / refresh / heartbeat / download / JWT verify
@@ -50,6 +53,28 @@
 2. 注册 Blender timer，按 `HEARTBEAT_INTERVAL_SECONDS=300` 秒定期 heartbeat。
 
 所以许可证系统是插件加载即初始化，不是等用户点按钮时才初始化。
+
+### 2.1.1 跨插件授权架构
+
+Rig2 现在同时承担“商业功能宿主”和“唯一 license provider”两个角色：
+
+- `rig2_addons` 自己内部继续直接使用 `src/licensing/manager.py`、`feature_access.py`
+- 同级依赖插件只允许走 `src/licensing/api.py`
+- 公共 API 只提供只读授权状态，不提供激活、下载、session 路径或 heartbeat 控制
+
+这样做的目的是确保：
+
+- Orbisauth 仍然只接一次
+- session 文件仍然只有一份
+- 未来 `mi2bl` / `r2bb` 不会各自复制一套许可证实现
+
+如果后续增加新的商业 feature，先更新：
+
+1. `src/licensing/config.py` 中的 feature 常量
+2. `src/licensing/api.py` 的公共暴露范围
+3. `docs/licensing/CROSS_ADDON_INTEGRATION.md`
+
+然后再允许外部插件依赖这个新 feature。
 
 ### 2.2 激活
 
@@ -396,7 +421,7 @@ export R2_BUCKET_NAME=...
 ### 10.1 如何轮换共享密钥
 
 1. 生成新的 32 字节随机值
-2. 更新 `src/licensing/_native_secret.py` 中的 `FACE_CAP_SECRET` 或 `MIFRAMES_SECRET`
+2. 更新 `src/licensing/registry.py` 中对应 feature spec 的 `shared_secret`
 3. 更新对应 `.cpp` 文件中的 `kLicenseSecret[32]` 数组
 4. 更新 `kExpectedPyHashes` 中的文件哈希（如果相关 .py 文件有改动）
 5. 重新编译、重新上传到 R2

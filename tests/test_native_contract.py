@@ -12,6 +12,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "src")
+REGISTRY_PATH = os.path.join(ROOT, "src", "licensing", "registry.py")
 def arch_tag() -> str:
     machine = (platform.machine() or "").strip().lower()
     if machine in {"x86_64", "amd64", "x64"}:
@@ -54,11 +55,11 @@ def load_native_module(module_name: str):
     raise FileNotFoundError(f"Native module {module_name} not found under {NATIVE_BIN_CANDIDATES}")
 
 
-def load_native_secret_module():
-    module_path = os.path.join(ROOT, "src", "licensing", "_native_secret.py")
-    spec = importlib.util.spec_from_file_location("rig2_native_secret_test", module_path)
+def load_registry_module():
+    spec = importlib.util.spec_from_file_location("rig2_native_registry_test", REGISTRY_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None and spec.loader is not None
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -77,15 +78,10 @@ def compute_source_hashes():
 
 
 def unlock_native_module(native, feature_name: str):
-    secrets = load_native_secret_module()
+    registry = load_registry_module()
     source_hashes = compute_source_hashes()
     native.verify_integrity(source_hashes)
-
-    secret = (
-        secrets.FACE_CAP_SECRET
-        if feature_name == "face_cap"
-        else secrets.MIFRAMES_SECRET
-    )
+    secret = registry.get_feature_spec(feature_name).shared_secret
     device_id = "native-contract-test-device"
     expires_at = int(time.time()) + 3600
     msg = f"{device_id}:{expires_at}".encode("utf-8")

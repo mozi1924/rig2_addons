@@ -1,6 +1,12 @@
 import bpy
 
 from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES
+from .services.registry import get_feature_service
+from .licensing.ui_helpers import (
+    format_expiry_label,
+    format_heartbeat_label,
+    format_timestamp_local,
+)
 
 
 class Rig2AddonPreferences(bpy.types.AddonPreferences):
@@ -54,37 +60,60 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
             else:
                 state_row.label(text="Session: Recoverable", icon="INFO")
 
-            # Token expiry info
-            access_exp = status.get("access_token_expires_in_seconds", 0)
-            if access_exp > 0:
-                if status.get("is_access_expired"):
-                    box.label(text="Access Token: EXPIRED", icon="ERROR")
-                else:
-                    hours = access_exp // 3600
-                    mins = (access_exp % 3600) // 60
-                    box.label(
-                        text=f"Access Token: {hours}h {mins}m remaining",
-                        icon="TIME",
-                    )
+            offline_remaining = status.get("offline_valid_remaining_seconds", 0)
+            offline_until = status.get("offline_valid_until", 0)
+            session_remaining = status.get("session_valid_remaining_seconds", 0)
+            session_until = status.get("session_valid_until", 0)
+
+            offline_icon = "TIME" if offline_remaining > 0 else "ERROR"
+            box.label(
+                text=f"Offline License: {format_expiry_label(offline_remaining)}",
+                icon=offline_icon,
+            )
+            box.label(
+                text=f"Valid until: {format_timestamp_local(offline_until)}",
+                icon="TIME",
+            )
+
+            renewal_label = (
+                format_expiry_label(
+                    session_remaining,
+                    expired_label="Re-activation required",
+                )
+                if not status.get("is_refresh_expired")
+                else "Re-activation required"
+            )
+            renewal_icon = "TIME" if session_remaining > 0 else "ERROR"
+            box.label(text=f"Session Renewal: {renewal_label}", icon=renewal_icon)
+            box.label(
+                text=f"Renewal until: {format_timestamp_local(session_until)}",
+                icon="TIME",
+            )
 
             # Heartbeat status
-            hb_failures = status.get("consecutive_heartbeat_failures", 0)
-            last_hb = status.get("last_heartbeat_at", 0)
-            if last_hb and hb_failures == 0:
-                box.label(text="Heartbeat: OK", icon="CHECKMARK")
-            elif hb_failures > 0:
-                box.label(
-                    text=f"Heartbeat: {hb_failures} failures",
-                    icon="INFO",
-                )
-            else:
-                box.label(text="Heartbeat: pending", icon="TIME")
+            heartbeat_label = format_heartbeat_label(status)
+            heartbeat_icon = "TIME" if status.get("heartbeat_in_flight") else "INFO"
+            if heartbeat_label == "healthy":
+                heartbeat_icon = "CHECKMARK"
+            elif "failed" in heartbeat_label or heartbeat_label == "pending":
+                heartbeat_icon = "INFO"
+            elif "overdue" in heartbeat_label:
+                heartbeat_icon = "ERROR"
+            box.label(text=f"Heartbeat: {heartbeat_label}", icon=heartbeat_icon)
+            box.label(
+                text=f"Last success: {format_timestamp_local(status.get('last_heartbeat_at', 0))}",
+                icon="TIME",
+            )
+            box.label(
+                text=f"Last attempt: {format_timestamp_local(status.get('last_heartbeat_attempt_at', 0))}",
+                icon="TIME",
+            )
 
             # Warnings
             for w in status.get("warnings", []):
                 row = box.row()
                 row.alert = True
-                icon = "ERROR" if w["level"] == "ERROR" else "INFO"
+                icon = "ERROR" if w["level"] == "ERROR" else ("WARNING" if w["level"] == "WARNING" else "INFO")
                 row.label(text=w["message"], icon=icon)
 
             licensed_features = [
@@ -231,20 +260,24 @@ class RIG2_OT_sync_license_status(bpy.types.Operator):
     def execute(self, context):
         try:
             from .licensing.manager import get_license_manager
-            from .licensing.feature_access import refresh_feature_runtime
 
             manager = get_license_manager()
             if getattr(getattr(manager, "_client", None), "session", None) is None:
                 self.report({"ERROR"}, "No active license session to sync.")
                 return {"CANCELLED"}
 
-            manager.heartbeat(raise_on_error=True)
-            refresh_feature_runtime()
-            status = manager.get_status()
-            if status.get("warnings"):
-                self.report({"WARNING"}, "License synced. Session still needs attention.")
+            started = manager.request_heartbeat(
+                reason="manual_sync",
+                force=True,
+                refresh_runtime=True,
+            )
+            if started:
+                self.report({"INFO"}, "License sync started in background.")
             else:
-                self.report({"INFO"}, "License status synced successfully.")
+                if manager.is_heartbeat_in_flight():
+                    self.report({"INFO"}, "License sync is already running in background.")
+                else:
+                    self.report({"WARNING"}, "License sync is not available right now.")
         except Exception as exc:
             import traceback
 
@@ -289,17 +322,11 @@ def _has_license_session():
 
 
 def _get_feature_status(feature_name):
-    if feature_name == FEATURE_FACE_CAP:
-        from .services.face_cap_service import get_face_cap_backend_service
-
-        return get_face_cap_backend_service().get_feature_status()
-    if feature_name == FEATURE_MIFRAMES:
-        from .services.miframes_service import get_miframes_backend_service
-
-        return get_miframes_backend_service().get_feature_status()
-
-    from .licensing.feature_access import get_feature_status
-    return get_feature_status(feature_name)
+    try:
+        return get_feature_service(feature_name).get_feature_status()
+    except Exception:
+        from .licensing.feature_access import get_feature_status
+        return get_feature_status(feature_name)
 
 
 def _draw_feature_status(box, feature_name):
