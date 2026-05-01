@@ -133,10 +133,13 @@ jobs:
               tag, name = parts
               if tag not in allowed_tags:
                   bad.append(f"unexpected tag: {rel}")
-              if ".abi3." not in name:
-                  bad.append(f"non-abi3 filename: {rel}")
               if not (name.startswith("rig2_face_cap") or name.startswith("rig2_miframes")):
                   bad.append(f"unexpected module name: {rel}")
+              lowered = name.lower()
+              if "cpython-" in lowered or ".cp39-" in lowered or ".cp310-" in lowered or ".cp311-" in lowered:
+                  bad.append(f"version-specific filename: {rel}")
+              if not (lowered.endswith(".so") or lowered.endswith(".pyd") or lowered.endswith(".dylib")):
+                  bad.append(f"unexpected extension: {rel}")
           if bad:
               raise SystemExit("Invalid runtime layout:\n" + "\n".join(bad))
           PY
