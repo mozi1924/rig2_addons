@@ -8,7 +8,7 @@ import re
 import zipfile
 from pathlib import Path
 
-MODULE_PREFIXES = ("rig2_miframes", "rig2_face_cap")
+MODULE_PREFIXES = ("rig2_miframes", "rig2_face_cap", "rig2_r2bb")
 EXTENSIONS = (".so", ".pyd", ".dylib")
 
 

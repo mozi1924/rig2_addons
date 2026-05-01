@@ -14,9 +14,6 @@ def get_load_state():
     return _wrapper().get_load_state()
 
 
-refresh_native_backend()
-
-
 def is_native_backend():
     return _wrapper().is_native_backend()
 

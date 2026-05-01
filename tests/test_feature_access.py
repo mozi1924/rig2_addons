@@ -52,6 +52,7 @@ class FakeManager:
             "tier": "Pro",
             "license_id": "lic_test",
             "device_id": "dev_test",
+            "features": {},
             "warnings": [],
             "is_refresh_expired": False,
         }
@@ -61,6 +62,14 @@ class FakeManager:
     def get_status(self):
         return dict(self.status)
 
+    def get_features(self):
+        if self.status.get("features"):
+            return dict(self.status.get("features", {}))
+        session = self._client.session
+        if session is None:
+            return {}
+        return dict(getattr(session, "features", {}) or {})
+
     def activate(self, license_key):
         session = types.SimpleNamespace(
             product="Rig2",
@@ -69,6 +78,7 @@ class FakeManager:
         )
         self._client.session = session
         self.status["activated"] = True
+        self.status["features"] = dict(self.activate_features)
         self.status["warnings"] = []
         self.status["is_refresh_expired"] = False
         return session
@@ -233,6 +243,7 @@ class FeatureAccessTest(unittest.TestCase):
             manager._client.session = types.SimpleNamespace(features={"face_cap": True})
             manager.status["warnings"] = [{"level": "WARNING", "message": "Connect to the internet"}]
             manager.status["activated"] = False
+            manager.status["features"] = {"face_cap": True}
             with open(wrapper_states["face_cap"].path, "wb") as handle:
                 handle.write(b"bin")
             wrapper_states["face_cap"].load_ok = True
@@ -305,6 +316,27 @@ class FeatureAccessTest(unittest.TestCase):
             self.assertEqual(invalid_status["load_error"], "validation failed")
             self.assertTrue(invalid_status["can_download"])
             self.assertTrue(invalid_status["can_retry"])
+
+    def test_status_features_override_stale_session_features(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"r2bb": True})
+            manager.status["activated"] = True
+            manager.status["features"] = {"r2bb": False}
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, _wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            status = feature_access.get_feature_status("r2bb")
+            self.assertEqual(status["effective_state"], "unlicensed")
 
     def test_activate_and_prepare_features_allows_partial_download_failures(self):
         with tempfile.TemporaryDirectory() as temp_dir:

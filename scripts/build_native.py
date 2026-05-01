@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_CPP_DIR = ROOT / "native_cpp"
-MODULE_NAMES = ("rig2_miframes", "rig2_face_cap")
+MODULE_NAMES = ("rig2_miframes", "rig2_face_cap", "rig2_r2bb")
 
 
 def _run_script(rel_path: str) -> None:

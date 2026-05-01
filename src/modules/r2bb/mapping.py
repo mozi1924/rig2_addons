@@ -6,6 +6,8 @@ from pathlib import Path
 
 import bpy
 
+from ...services.errors import FeatureLockedError
+
 
 ADDON_DIR = Path(__file__).resolve().parent
 MAPPING_FILE = ADDON_DIR / "mapping.txt"
@@ -131,13 +133,22 @@ def _normalize_mapping_entries_python(entries):
     return normalized
 
 
+def _get_r2bb_service_if_unlocked():
+    from ...services.r2bb_service import get_r2bb_backend_service
+
+    service = get_r2bb_backend_service()
+    if service.is_feature_unlocked():
+        return service
+
+    status = service.get_feature_status()
+    raise FeatureLockedError("R2BB", status.get("message", service.get_lock_reason()))
+
+
 def normalize_mapping_entries(entries):
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return service.normalize_mapping_entries(entries)
+        return _get_r2bb_service_if_unlocked().normalize_mapping_entries(entries)
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
     return _normalize_mapping_entries_python(entries)
@@ -320,11 +331,9 @@ def delete_custom_preset(preset_id):
 def mapping_entries_to_pairs(entries):
     normalized = normalize_mapping_entries(entries)
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return tuple(tuple(item) for item in service.mapping_entries_to_pairs(normalized))
+        return tuple(tuple(item) for item in _get_r2bb_service_if_unlocked().mapping_entries_to_pairs(normalized))
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
 
@@ -340,11 +349,9 @@ def mapping_entries_to_pairs(entries):
 def mapping_entries_to_export_bones(entries):
     normalized = normalize_mapping_entries(entries)
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return tuple(service.mapping_entries_to_export_bones(normalized))
+        return tuple(_get_r2bb_service_if_unlocked().mapping_entries_to_export_bones(normalized))
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
 
@@ -362,11 +369,9 @@ def mapping_entries_to_export_bones(entries):
 def mapping_entries_to_export_name_map(entries):
     normalized = normalize_mapping_entries(entries)
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return dict(service.mapping_entries_to_export_name_map(normalized))
+        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_export_name_map(normalized))
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
 
@@ -382,11 +387,9 @@ def mapping_entries_to_export_name_map(entries):
 def mapping_entries_to_rotation_axis_signs(entries):
     normalized = normalize_mapping_entries(entries)
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return dict(service.mapping_entries_to_rotation_axis_signs(normalized))
+        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_rotation_axis_signs(normalized))
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
 
@@ -400,11 +403,9 @@ def mapping_entries_to_rotation_axis_signs(entries):
 def mapping_entries_to_transform_axis_signs(entries):
     normalized = normalize_mapping_entries(entries)
     try:
-        from ...services.r2bb_service import get_r2bb_backend_service
-
-        service = get_r2bb_backend_service()
-        if service.is_feature_unlocked():
-            return dict(service.mapping_entries_to_transform_axis_signs(normalized))
+        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_transform_axis_signs(normalized))
+    except FeatureLockedError:
+        raise
     except Exception:
         pass
 

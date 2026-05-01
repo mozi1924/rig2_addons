@@ -1,14 +1,50 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import threading
 import time
+from enum import Enum
 
 from .paths import get_feature_status_path
 from .registry import get_feature_spec, iter_feature_specs
 from ..native.licensed_wrapper import get_native_wrapper
 
 _log = logging.getLogger(__name__)
+
+
+class FeatureVisibility(Enum):
+    """Single source of truth for feature panel/module visibility.
+
+    HIDDEN:   feature is not in the license or session is invalid —
+              module should NOT be registered, panel should NOT appear.
+    DISABLED: license includes the feature but binary is missing,
+              download failed, or needs redownload —
+              module SHOULD be registered, panel SHOULD appear grayed out.
+    ENABLED:  license + binary + native auth all OK —
+              module SHOULD be registered, panel fully functional.
+    """
+
+    HIDDEN = "hidden"
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+
+
+_HIDDEN_STATES = frozenset({"unactivated", "session_error", "unlicensed"})
+_DISABLED_STATES = frozenset({"binary_missing", "download_failed", "needs_redownload"})
+_ENABLED_STATES = frozenset({"ready", "session_warning"})
+
+
+def get_feature_visibility(feature_id: str) -> FeatureVisibility:
+    """Return the canonical visibility for a feature based on its effective state."""
+    status = get_feature_status(feature_id)
+    effective = status.get("effective_state", "")
+    if effective in _ENABLED_STATES:
+        return FeatureVisibility.ENABLED
+    if effective in _DISABLED_STATES:
+        return FeatureVisibility.DISABLED
+    return FeatureVisibility.HIDDEN
 
 
 def _all_feature_ids():
@@ -128,8 +164,20 @@ def _get_license_snapshot():
     status = manager.get_status()
     session = getattr(getattr(manager, "_client", None), "session", None)
     features = {}
-    if session is not None:
-        features = dict(getattr(session, "features", {}) or {})
+    if bool(status.get("activated")):
+        try:
+            raw_features = manager.get_features()
+        except Exception:
+            raw_features = status.get("features", {}) or {}
+        features = {
+            str(name): bool(enabled)
+            for name, enabled in dict(raw_features or {}).items()
+        }
+    elif session is not None:
+        features = {
+            str(name): bool(enabled)
+            for name, enabled in dict(status.get("features", {}) or {}).items()
+        }
     warning_levels = [str(item.get("level", "")) for item in status.get("warnings", [])]
     return {
         "status": status,
@@ -237,7 +285,7 @@ def get_feature_status(feature_id):
         license_state = "expired"
     elif not entitled:
         effective_state = "unlicensed"
-        license_state = "licensed"
+        license_state = "unlicensed"
     elif not binary_snapshot["binary_present"]:
         effective_state = "download_failed" if persisted_state.get("last_download_failed") else "binary_missing"
         license_state = "licensed"
@@ -254,6 +302,27 @@ def get_feature_status(feature_id):
         effective_state = "ready"
         license_state = "licensed"
 
+    # ----------------------------------------------------------------
+    # Native authorization check — the native module is the ultimate
+    # authority.  Its set_license_state() has already been called
+    # during licensing init / heartbeat, so get_license_status()
+    # reflects the real HMAC-verified authorization.
+    # ----------------------------------------------------------------
+    _native_auth_reason = ""
+    if effective_state in {"ready", "session_warning"}:
+        if wrapper.is_native_backend():
+            try:
+                native_license = wrapper.get_license_status()
+                if isinstance(native_license, dict) and native_license:
+                    if not native_license.get("authorized", False):
+                        effective_state = "needs_redownload"
+                        license_state = "licensed"
+                        _native_auth_reason = str(
+                            native_license.get("reason", "") or ""
+                        ).strip()
+            except Exception:
+                pass
+
     binary_state = "installed" if binary_snapshot["binary_present"] else "missing"
     if effective_state == "download_failed":
         binary_state = "download_failed"
@@ -266,13 +335,16 @@ def get_feature_status(feature_id):
     elif effective_state == "session_warning":
         native_state = "authorized_warning"
 
-    message = _build_message(
-        label=spec.label,
-        effective_state=effective_state,
-        download_error=persisted_state.get("last_download_error", ""),
-    )
-    if effective_state == "needs_redownload" and binary_snapshot["residual_paths"]:
+    if effective_state == "needs_redownload" and _native_auth_reason:
+        message = f"{spec.label} binary verification failed: {_native_auth_reason}. Download the correct binary in Addon Preferences."
+    elif effective_state == "needs_redownload" and binary_snapshot["residual_paths"]:
         message = f"{spec.label} has leftover or duplicate native binaries. Update the binary in Addon Preferences."
+    else:
+        message = _build_message(
+            label=spec.label,
+            effective_state=effective_state,
+            download_error=persisted_state.get("last_download_error", ""),
+        )
 
     return {
         "feature_name": feature_id,
@@ -287,6 +359,7 @@ def get_feature_status(feature_id):
         "can_download": effective_state in {"binary_missing", "needs_redownload", "download_failed"},
         "can_retry": effective_state in {"needs_redownload", "download_failed"},
         "download_error": persisted_state.get("last_download_error", ""),
+        "native_reason": _native_auth_reason,
         "warnings": list(status.get("warnings", [])),
         "module_path": binary_snapshot["load_state"].get("module_path", ""),
         "load_error": binary_snapshot["load_state"].get("error", ""),

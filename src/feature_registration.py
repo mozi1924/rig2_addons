@@ -4,6 +4,8 @@ import importlib
 import logging
 from dataclasses import dataclass
 
+from .licensing.feature_access import FeatureVisibility, get_feature_visibility
+
 _log = logging.getLogger(__name__)
 
 
@@ -11,24 +13,20 @@ _log = logging.getLogger(__name__)
 class FeatureModuleSpec:
     feature_id: str
     module_path: str
-    visible_states: frozenset[str]
 
 
 _FEATURE_MODULE_SPECS = (
     FeatureModuleSpec(
         feature_id="face_cap",
         module_path="rig2_addons.src.modules.face_cap",
-        visible_states=frozenset({"ready", "session_warning", "binary_missing", "download_failed", "needs_redownload"}),
     ),
     FeatureModuleSpec(
         feature_id="miframes",
         module_path="rig2_addons.src.modules.rig_controls.miframes",
-        visible_states=frozenset({"ready", "session_warning"}),
     ),
     FeatureModuleSpec(
         feature_id="r2bb",
         module_path="rig2_addons.src.modules.r2bb",
-        visible_states=frozenset({"ready", "session_warning", "binary_missing", "download_failed", "needs_redownload"}),
     ),
 )
 
@@ -55,19 +53,13 @@ def _refresh_ui():
         pass
 
 
-def _get_feature_status(feature_id: str):
-    from .licensing.feature_access import get_feature_status
-
-    return get_feature_status(feature_id)
-
-
 def _should_register(spec: FeatureModuleSpec):
     try:
-        status = _get_feature_status(spec.feature_id)
+        visibility = get_feature_visibility(spec.feature_id)
     except Exception as exc:
-        _log.debug("feature status %s unavailable: %s", spec.feature_id, exc)
+        _log.debug("feature visibility %s unavailable: %s", spec.feature_id, exc)
         return False
-    return status.get("effective_state") in spec.visible_states
+    return visibility in (FeatureVisibility.DISABLED, FeatureVisibility.ENABLED)
 
 
 def reconcile_feature_modules():

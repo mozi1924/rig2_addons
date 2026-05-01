@@ -27,7 +27,7 @@ _PLATFORM_TAG_MAP: dict[str, tuple[str, str, str]] = {
     "win32-arm64-abi3": ("win", "arm64", "win.dll"),
 }
 
-_MODULE_NAMES = ("rig2_face_cap", "rig2_miframes")
+_MODULE_NAMES = ("rig2_face_cap", "rig2_miframes", "rig2_r2bb")
 
 
 def _find_binary(platform_dir: Path, module_name: str) -> Path | None:
