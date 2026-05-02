@@ -1,5 +1,14 @@
 #pragma once
 
+// ============================================================================
+// Rig2 Shared — native licensing, JWT verification, file I/O helpers
+// ============================================================================
+//
+// All functions live in the rig2_shared namespace and are header-only so
+// every native module (.cpp) gets its own copy.  Each module owns its own
+// static LicenseState and calls into these helpers.
+// ============================================================================
+
 #include <Python.h>
 
 #include <algorithm>
@@ -8,10 +17,9 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <sstream>
-#include <utility>
+#include <mutex>
 #include <string>
+#include <utility>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -21,6 +29,10 @@
 
 namespace rig2_shared {
 
+// ---------------------------------------------------------------------------
+// License state
+// ---------------------------------------------------------------------------
+
 struct LicenseState {
   int ok = 0;
   int integrity_ok = 0;
@@ -28,6 +40,7 @@ struct LicenseState {
   std::string device_id;
   std::string feature_id;
   std::string error;
+  std::recursive_mutex mutex;
 };
 
 inline void set_license_error(LicenseState* state, const std::string& message) {
@@ -40,6 +53,7 @@ inline void clear_license_state(LicenseState* state, const char* failure_message
   if (!state) {
     return;
   }
+  std::lock_guard<std::recursive_mutex> lock(state->mutex);
   state->ok = 0;
   state->integrity_ok = 0;
   state->expires_at = 0;
@@ -54,6 +68,7 @@ inline void apply_authorized_license_state(LicenseState* state, const std::strin
   if (!state) {
     return;
   }
+  std::lock_guard<std::recursive_mutex> lock(state->mutex);
   state->ok = 1;
   state->integrity_ok = 1;
   state->expires_at = expires_at;
@@ -62,7 +77,36 @@ inline void apply_authorized_license_state(LicenseState* state, const std::strin
   set_license_error(state, "");
 }
 
-inline PyObject* build_license_status(const LicenseState& state) {
+inline bool license_error_indicates_redownload(const std::string& error) {
+  if (error.empty()) return false;
+  const char* markers[] = {
+      "integrity check failed",
+      "digest mismatch",
+      "size mismatch",
+      "artifact manifest",
+      "manifest mismatch",
+      "module mismatch",
+      "feature mismatch",
+      "binary validation failed",
+      "native binary path is unavailable",
+      "missing artifact manifest",
+      "missing python manifest",
+      "artifact manifest is incomplete",
+      "python manifest entry is invalid",
+      "python manifest entry is incomplete",
+      "failed to hash protected source file",
+      "source root not found",
+      "missing file",
+      "authorization state is unavailable",
+  };
+  for (const char* marker : markers) {
+    if (error.find(marker) != std::string::npos) return true;
+  }
+  return false;
+}
+
+inline PyObject* build_license_status(LicenseState& state) {
+  std::lock_guard<std::recursive_mutex> lock(state.mutex);
   PyObject* result = PyDict_New();
   if (!result) {
     return nullptr;
@@ -74,13 +118,20 @@ inline PyObject* build_license_status(const LicenseState& state) {
     return nullptr;
   }
 
+  const bool needs_redownload = !state.ok && license_error_indicates_redownload(state.error);
+  PyObject* needs_redownload_obj = needs_redownload ? Py_True : Py_False;
+  Py_INCREF(needs_redownload_obj);
+
   if (PyDict_SetItemString(result, "authorized", state.ok ? Py_True : Py_False) < 0 ||
-      PyDict_SetItemString(result, "expires_at", expires) < 0) {
+      PyDict_SetItemString(result, "expires_at", expires) < 0 ||
+      PyDict_SetItemString(result, "needs_redownload", needs_redownload_obj) < 0) {
     Py_DECREF(expires);
+    Py_DECREF(needs_redownload_obj);
     Py_DECREF(result);
     return nullptr;
   }
   Py_DECREF(expires);
+  Py_DECREF(needs_redownload_obj);
 
   PyObject* reason = PyUnicode_FromString(state.error.c_str());
   if (!reason) {
@@ -96,10 +147,15 @@ inline PyObject* build_license_status(const LicenseState& state) {
   return result;
 }
 
-inline const char* license_error_message(const LicenseState& state) {
+inline const char* license_error_message(LicenseState& state) {
+  std::lock_guard<std::recursive_mutex> lock(state.mutex);
   return state.error.empty() ? "License required. Activate your license in Addon Preferences."
                              : state.error.c_str();
 }
+
+// ---------------------------------------------------------------------------
+// Python API helpers
+// ---------------------------------------------------------------------------
 
 class PyRef {
  public:
@@ -227,14 +283,24 @@ inline std::string lowercase_ascii(std::string text) {
   return text;
 }
 
+// ---------------------------------------------------------------------------
+// UTF-8 file I/O (platform-aware)
+// ---------------------------------------------------------------------------
+
 inline std::string join_utf8_paths(std::string base_path, const std::string& relative_path) {
   if (base_path.empty()) {
     return relative_path;
   }
   const char tail = base_path.back();
+#if defined(_WIN32)
   if (tail != '/' && tail != '\\') {
+    base_path.push_back('\\');
+  }
+#else
+  if (tail != '/') {
     base_path.push_back('/');
   }
+#endif
   return base_path + relative_path;
 }
 
@@ -494,6 +560,10 @@ inline bool jwt_audience_matches(PyObject* audience_obj, const char* expected) {
   return py_object_to_utf8(audience_obj) == expected;
 }
 
+// ---------------------------------------------------------------------------
+// RS256 JWT verification (PKCS#1 v1.5)
+// ---------------------------------------------------------------------------
+
 inline bool verify_rs256_jwt_from_jwks(const std::string& token, const std::string& jwks_json,
                                        const char* expected_audience,
                                        const char* expected_issuer,
@@ -744,6 +814,10 @@ inline bool build_jwks_json_from_trust_bundle(const std::string& trust_bundle_to
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Native manifest validation (source + binary integrity)
+// ---------------------------------------------------------------------------
+
 inline bool validate_native_manifest(PyObject* payload_obj, const std::string& addon_root,
                                      const std::string& module_path,
                                      const char* expected_feature_id,
@@ -824,6 +898,10 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Native grant orchestration + license check macro
+// ---------------------------------------------------------------------------
+
 inline bool apply_native_grant(LicenseState* state, const char* grant_token, const char* trust_bundle_token,
                                const char* addon_root, const char* module_path,
                                const char* expected_feature_id, const char* expected_module_name,
@@ -874,6 +952,7 @@ inline bool ensure_license_valid(LicenseState* state) {
   if (!state || !state->ok) {
     return false;
   }
+  std::lock_guard<std::recursive_mutex> lock(state->mutex);
   if (!state->integrity_ok) {
     clear_license_state(state, "Native integrity check failed. Reinstall the addon and binary.");
     return false;
@@ -898,3 +977,34 @@ inline bool ensure_license_valid(LicenseState* state) {
       return nullptr;                                                                    \
     }                                                                                    \
   } while (0)
+
+// Generate the three standard license-management methods for a native module.
+// Each .cpp calls this once inside its anonymous namespace, after declaring
+// its own `static rig2_shared::LicenseState g_license_state`.
+//
+// Usage: RIG2_DEFINE_LICENSE_METHODS("face_cap", "rig2_face_cap")
+#define RIG2_DEFINE_LICENSE_METHODS(feature_id, module_name)                                   \
+  static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {                      \
+    const char* grant_token = nullptr;                                                         \
+    const char* trust_bundle_token = nullptr;                                                  \
+    const char* addon_root = nullptr;                                                          \
+    const char* module_path = nullptr;                                                         \
+    if (!PyArg_ParseTuple(args, "ssss:apply_native_grant",                                     \
+                          &grant_token, &trust_bundle_token, &addon_root, &module_path))       \
+        return nullptr;                                                                        \
+    rig2_shared::apply_native_grant(                                                           \
+        &g_license_state, grant_token, trust_bundle_token, addon_root, module_path,            \
+        feature_id, module_name);                                                              \
+    Py_RETURN_NONE;                                                                            \
+  }                                                                                            \
+  static PyObject* method_clear_license_state(PyObject*, PyObject* args) {                     \
+    const char* reason = "License required. Activate your license in Addon Preferences.";      \
+    if (!PyArg_ParseTuple(args, "|s:clear_license_state", &reason)) {                          \
+        return nullptr;                                                                        \
+    }                                                                                          \
+    rig2_shared::clear_license_state(&g_license_state, reason);                                \
+    Py_RETURN_NONE;                                                                            \
+  }                                                                                            \
+  static PyObject* method_get_license_status(PyObject*, PyObject*) {                           \
+    return rig2_shared::build_license_status(g_license_state);                                 \
+  }

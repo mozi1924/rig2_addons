@@ -670,25 +670,10 @@ class LicenseManager:
 
     @staticmethod
     def _native_runtime_selector() -> tuple[str, str, str]:
-        import sys
-        from ..native.loader import get_arch_tag
+        from ..native.loader import PlatformTarget
 
-        platform_name = {
-            "darwin": "mac",
-            "linux": "linux",
-            "win32": "win",
-        }.get(sys.platform, sys.platform)
-        arch_name = {
-            "x86_64": "amd64",
-            "arm64": "arm64",
-            "aarch64": "arm64",
-        }.get(get_arch_tag(), get_arch_tag())
-        artifact_name = {
-            "mac": "mac.dylib",
-            "linux": "linux.so",
-            "win": "win.pyd",
-        }.get(platform_name, "")
-        return platform_name, arch_name, artifact_name
+        target = PlatformTarget.current()
+        return target.platform_name, target.arch_name, target.artifact_name
 
     @staticmethod
     def get_addon_version() -> str:

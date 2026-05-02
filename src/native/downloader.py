@@ -12,6 +12,12 @@ import hashlib
 
 _log = logging.getLogger(__name__)
 
+_PENDING_CLEANUP: set[str] = set()
+"""Paths that could not be removed at download time (e.g. loaded .pyd on Windows).
+
+Call :func:`cleanup_pending_modules` early during addon startup to retry.
+"""
+
 
 def _sha256_file(path):
     hasher = hashlib.sha256()
@@ -65,10 +71,8 @@ def _validate_downloaded_artifact(temp_path, download_info):
 
 def _get_platform_tag():
     """Return the platform tag expected by the download API."""
-    import sys
-    from .loader import get_arch_tag
-    arch = get_arch_tag()
-    return f"{sys.platform}-{arch}-abi3"
+    from .loader import PlatformTarget
+    return PlatformTarget.current().abi3_tag
 
 
 def _get_download_request_variants():
@@ -77,44 +81,29 @@ def _get_download_request_variants():
     We prefer the explicit artifact path that mirrors the R2 object key,
     then keep older request shapes as compatibility fallbacks.
     """
-    import sys
-    from .loader import get_arch_tag
+    from .loader import PlatformTarget
 
-    platform_name = {
-        "darwin": "mac",
-        "linux": "linux",
-        "win32": "win",
-    }.get(sys.platform, sys.platform)
-    arch_name = {
-        "x86_64": "amd64",
-        "arm64": "arm64",
-        "aarch64": "arm64",
-    }.get(get_arch_tag(), get_arch_tag())
-    artifact_name = {
-        "mac": "mac.dylib",
-        "linux": "linux.so",
-        "win": "win.pyd",
-    }.get(platform_name, "")
+    target = PlatformTarget.current()
     variants = []
-    if platform_name:
+    if target.platform_name:
         variants.append(
             {
-                "platform_tag": platform_name,
-                "arch": arch_name,
+                "platform_tag": target.platform_name,
+                "arch": target.arch_name,
                 "artifact": "",
             }
         )
-    if artifact_name:
+    if target.artifact_name:
         variants.append(
             {
-                "platform_tag": platform_name,
-                "arch": arch_name,
-                "artifact": artifact_name,
+                "platform_tag": target.platform_name,
+                "arch": target.arch_name,
+                "artifact": target.artifact_name,
             }
         )
     variants.append(
         {
-            "platform_tag": _get_platform_tag(),
+            "platform_tag": target.abi3_tag,
             "arch": "",
             "artifact": "",
         }
@@ -138,7 +127,31 @@ def _remove_existing_module_variants(module_name):
             removed.append(path)
         except FileNotFoundError:
             continue
+        except PermissionError:
+            _log.warning("Cannot remove loaded native module '%s'; scheduled for cleanup on next startup.", path)
+            _PENDING_CLEANUP.add(path)
+        except OSError as exc:
+            _log.warning("Cannot remove native module '%s': %s", path, exc)
     return removed
+
+
+def cleanup_pending_modules():
+    """Remove native module files that were scheduled for deferred cleanup.
+
+    Safe to call at addon startup before any native modules are loaded.
+    """
+    if not _PENDING_CLEANUP:
+        return
+    pending = list(_PENDING_CLEANUP)
+    _PENDING_CLEANUP.clear()
+    for path in pending:
+        try:
+            os.remove(path)
+            _log.info("Cleaned up pending module: %s", path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            _log.debug("Deferred cleanup still cannot remove '%s': %s", path, exc)
 
 
 def ensure_native_binary(module_name, force=False):

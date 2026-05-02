@@ -137,32 +137,7 @@ PyObject* build_entry_dict(const Entry& entry) {
   return result;
 }
 
-static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
-  const char* grant_token = nullptr;
-  const char* trust_bundle_token = nullptr;
-  const char* addon_root = nullptr;
-  const char* module_path = nullptr;
-  if (!PyArg_ParseTuple(args, "ssss:apply_native_grant", &grant_token, &trust_bundle_token, &addon_root, &module_path)) {
-    return nullptr;
-  }
-
-  rig2_shared::apply_native_grant(
-      &g_license_state, grant_token, trust_bundle_token, addon_root, module_path, "r2bb", "rig2_r2bb");
-  Py_RETURN_NONE;
-}
-
-static PyObject* method_clear_license_state(PyObject*, PyObject* args) {
-  const char* reason = "License required. Activate your license in Addon Preferences.";
-  if (!PyArg_ParseTuple(args, "|s:clear_license_state", &reason)) {
-    return nullptr;
-  }
-  rig2_shared::clear_license_state(&g_license_state, reason);
-  Py_RETURN_NONE;
-}
-
-static PyObject* method_get_license_status(PyObject*, PyObject*) {
-  return rig2_shared::build_license_status(g_license_state);
-}
+RIG2_DEFINE_LICENSE_METHODS("r2bb", "rig2_r2bb")
 
 static PyObject* method_backend_name(PyObject*, PyObject*) {
   return PyUnicode_FromString("native");

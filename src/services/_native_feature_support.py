@@ -66,6 +66,9 @@ def native_integrity_failed(get_license_status):
         return False
     if status.get("authorized", False):
         return False
+    if status.get("needs_redownload", False):
+        return True
+    # Fallback: substring match for older native modules
     reason = str(status.get("reason", "") or "").lower()
     return native_reason_requires_redownload(reason)
 

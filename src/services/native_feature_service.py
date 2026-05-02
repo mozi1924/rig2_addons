@@ -74,22 +74,25 @@ class NativeLicensedFeatureService:
                 "authorized": False,
                 "reason": self.wrapper.get_lock_reason(),
                 "expires_at": 0,
+                "needs_redownload": False,
             }
         try:
             raw = self.wrapper.get_license_status()
         except Exception as exc:
-            return {"authorized": False, "reason": str(exc), "expires_at": 0}
+            return {"authorized": False, "reason": str(exc), "expires_at": 0, "needs_redownload": False}
 
         if not isinstance(raw, dict) or not raw:
             return {
                 "authorized": False,
                 "reason": "Native authorization state is unavailable. Re-download the binary.",
                 "expires_at": 0,
+                "needs_redownload": True,
             }
         return {
             "authorized": bool(raw.get("authorized", False)),
             "reason": str(raw.get("reason", "") or ""),
             "expires_at": int(raw.get("expires_at", 0) or 0),
+            "needs_redownload": bool(raw.get("needs_redownload", False)),
         }
 
     def get_lock_reason(self):

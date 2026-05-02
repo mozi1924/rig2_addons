@@ -10,6 +10,15 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Optional, Sequence
 
+_LOADED_MODULES: dict[str, ModuleType] = {}
+"""Cache of successfully loaded native modules keyed by module_name.
+
+On Windows, calling exec_module() on a .pyd a second time re-triggers
+PyInit_* which calls PyModule_Create() with the same static PyModuleDef —
+this is undefined behaviour and crashes Blender.  We cache the first
+successful load and reuse it for the lifetime of the process.
+"""
+
 
 def get_native_root():
     """Return the directory where downloaded native modules should live."""
@@ -166,6 +175,45 @@ def get_residual_native_module_paths(module_name):
 
 
 @dataclass(frozen=True)
+class PlatformTarget:
+    """Resolved platform identifiers for native binary selection.
+
+    Unifies the platform/arch/artifact mappings that were previously
+    duplicated between the downloader and the license manager.
+    """
+
+    platform_name: str   # "mac", "linux", "win"
+    arch_name: str       # "amd64", "arm64"
+    artifact_name: str   # "mac.dylib", "linux.so", "win.pyd"
+    abi3_tag: str        # "darwin-arm64-abi3"
+
+    @staticmethod
+    def current() -> "PlatformTarget":
+        arch = get_arch_tag()
+        platform_name = {
+            "darwin": "mac",
+            "linux": "linux",
+            "win32": "win",
+        }.get(sys.platform, sys.platform)
+        arch_name = {
+            "x86_64": "amd64",
+            "arm64": "arm64",
+            "aarch64": "arm64",
+        }.get(arch, arch)
+        artifact_name = {
+            "mac": "mac.dylib",
+            "linux": "linux.so",
+            "win": "win.pyd",
+        }.get(platform_name, "")
+        return PlatformTarget(
+            platform_name=platform_name,
+            arch_name=arch_name,
+            artifact_name=artifact_name,
+            abi3_tag=get_abi3_platform_tag(),
+        )
+
+
+@dataclass(frozen=True)
 class NativeLoadResult:
     module_name: str
     module: Optional[ModuleType]
@@ -263,7 +311,41 @@ def load_native_extension_result(
     api_version_attr: str = "RIG2_API_VERSION",
     expected_api_version: Optional[int] = None,
 ):
-    """Try loading a managed native extension and return a structured status."""
+    """Try loading a managed native extension and return a structured status.
+
+    Once a native module is successfully loaded it is cached for the
+    lifetime of the process.  Re-executing a .pyd on Windows would call
+    PyModule_Create again with the same static PyModuleDef, which is
+    undefined behaviour.
+    """
+    # If we already have a live module, re-validate its interface
+    # without re-executing the extension init function.
+    cached = _LOADED_MODULES.get(module_name)
+    if cached is not None:
+        module_path = getattr(cached, "__file__", "") or ""
+        validation_error = _validate_native_module_interface(
+            module_name=module_name,
+            module=cached,
+            module_path=module_path,
+            required_callables=required_callables,
+            required_attributes=required_attributes,
+            api_version_attr=api_version_attr,
+            expected_api_version=expected_api_version,
+        )
+        if validation_error:
+            return NativeLoadResult(
+                module_name=module_name,
+                module=None,
+                module_path=module_path,
+                error=validation_error,
+            )
+        return NativeLoadResult(
+            module_name=module_name,
+            module=cached,
+            module_path=module_path,
+            error="",
+        )
+
     checked_paths = list(build_native_module_path(module_name))
     existing_paths = [module_path for module_path in checked_paths if os.path.exists(module_path)]
 
@@ -310,6 +392,7 @@ def load_native_extension_result(
                 last_error = validation_error
                 continue
 
+            _LOADED_MODULES[module_name] = module
             return NativeLoadResult(
                 module_name=module_name,
                 module=module,

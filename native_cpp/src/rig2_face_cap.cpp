@@ -47,32 +47,7 @@ constexpr int kApiVersion = 3;
 // License state — set via set_license_state(), checked by sensitive methods.
 static rig2_shared::LicenseState g_license_state;
 
-static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
-    const char* grant_token = nullptr;
-    const char* trust_bundle_token = nullptr;
-    const char* addon_root = nullptr;
-    const char* module_path = nullptr;
-    if (!PyArg_ParseTuple(args, "ssss:apply_native_grant",
-                          &grant_token, &trust_bundle_token, &addon_root, &module_path))
-        return nullptr;
-
-    rig2_shared::apply_native_grant(
-        &g_license_state, grant_token, trust_bundle_token, addon_root, module_path, "face_cap", "rig2_face_cap");
-    Py_RETURN_NONE;
-}
-
-static PyObject* method_clear_license_state(PyObject*, PyObject* args) {
-    const char* reason = "License required. Activate your license in Addon Preferences.";
-    if (!PyArg_ParseTuple(args, "|s:clear_license_state", &reason)) {
-        return nullptr;
-    }
-    rig2_shared::clear_license_state(&g_license_state, reason);
-    Py_RETURN_NONE;
-}
-
-static PyObject* method_get_license_status(PyObject*, PyObject*) {
-    return rig2_shared::build_license_status(g_license_state);
-}
+RIG2_DEFINE_LICENSE_METHODS("face_cap", "rig2_face_cap")
 constexpr const char* kWebsocketMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr const char* kJsonSubprotocol = "r2fmc.json.v1";
 constexpr const char* kBinarySubprotocol = "r2fmc.bin.v1";
@@ -204,11 +179,6 @@ std::string discover_local_ipv4_impl(const std::string& preferred_host) {
       std::make_pair("8.8.8.8", 80),
   };
 
-#if defined(_WIN32)
-  WSADATA wsa_data;
-  const bool wsa_ok = WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0;
-#endif
-
   for (const auto& target : probe_targets) {
     int sock = static_cast<int>(socket(AF_INET, SOCK_DGRAM, 0));
 #if defined(_WIN32)
@@ -243,12 +213,6 @@ std::string discover_local_ipv4_impl(const std::string& preferred_host) {
     close(sock);
 #endif
   }
-
-#if defined(_WIN32)
-  if (wsa_ok) {
-    WSACleanup();
-  }
-#endif
 
   for (const std::string& candidate : candidates) {
     if (is_preferred_lan_ipv4(candidate)) {
@@ -1666,6 +1630,16 @@ PyModuleDef kModuleDef = {
 }  // namespace
 
 PyMODINIT_FUNC PyInit_rig2_face_cap(void) {
+#if defined(_WIN32)
+  static bool winsock_ready = false;
+  if (!winsock_ready) {
+    WSADATA wsa_data;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0) {
+      winsock_ready = true;
+    }
+  }
+#endif
+
   PyObject* module = PyModule_Create(&kModuleDef);
   if (!module) {
     return nullptr;
