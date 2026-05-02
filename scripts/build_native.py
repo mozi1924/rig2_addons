@@ -199,6 +199,7 @@ def main() -> int:
     print(f"[rig2-native] Legacy ABI3 tag: {legacy_abi3_platform_tag()}")
 
     # Generate integrity hashes header before compilation.
+    _run_script("scripts/generate_orbisauth_trust.py")
     _run_script("scripts/generate_integrity_hashes.py")
 
     ensure_build_backend_available()

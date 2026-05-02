@@ -86,3 +86,15 @@ def get_feature_status_path():
     """Return the full path to the persisted feature status JSON file."""
     from .config import FEATURE_STATUS_FILENAME
     return os.path.join(get_session_dir(), FEATURE_STATUS_FILENAME)
+
+
+def get_trust_bundle_path():
+    """Return the full path to the persisted trust bundle JSON file."""
+    from .config import TRUST_BUNDLE_FILENAME
+    return os.path.join(get_session_dir(), TRUST_BUNDLE_FILENAME)
+
+
+def get_native_grant_cache_path():
+    """Return the full path to the persisted native grant cache JSON file."""
+    from .config import NATIVE_GRANT_CACHE_FILENAME
+    return os.path.join(get_session_dir(), NATIVE_GRANT_CACHE_FILENAME)

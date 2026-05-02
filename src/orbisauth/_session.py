@@ -8,7 +8,7 @@ from typing import Any
 from ._errors import OrbisAuthError
 
 
-SESSION_VERSION = 2
+SESSION_VERSION = 3
 
 
 @dataclass
@@ -21,9 +21,11 @@ class HeartbeatPolicy:
 class TokenSet:
     access_token: str
     refresh_token: str
+    offline_token: str
     token_type: str
     expires_in: int
     refresh_expires_in: int
+    offline_expires_in: int
 
 
 @dataclass
@@ -57,9 +59,11 @@ class Session:
             "tokens": {
                 "access_token": self.tokens.access_token,
                 "refresh_token": self.tokens.refresh_token,
+                "offline_token": self.tokens.offline_token,
                 "token_type": self.tokens.token_type,
                 "expires_in": self.tokens.expires_in,
                 "refresh_expires_in": self.tokens.refresh_expires_in,
+                "offline_expires_in": self.tokens.offline_expires_in,
             },
             "product": self.product,
             "tier": self.tier,
@@ -84,9 +88,11 @@ class Session:
             tokens=TokenSet(
                 access_token=tokens_raw["access_token"],
                 refresh_token=tokens_raw["refresh_token"],
+                offline_token=tokens_raw.get("offline_token", ""),
                 token_type=tokens_raw["token_type"],
                 expires_in=tokens_raw["expires_in"],
                 refresh_expires_in=tokens_raw["refresh_expires_in"],
+                offline_expires_in=tokens_raw.get("offline_expires_in", tokens_raw.get("expires_in", 0)),
             ),
             product=data["product"],
             tier=data["tier"],
@@ -139,6 +145,9 @@ def load_session_from_file(path: str) -> Session | None:
     version = data.get("version", 1)
     if version == 1:
         data = _migrate_v1_to_v2(data)
+        version = 2
+    if version == 2:
+        data = _migrate_v2_to_v3(data)
     elif version != SESSION_VERSION:
         raise OrbisAuthError(f"Unsupported session version: {version}")
 
@@ -158,4 +167,14 @@ def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     data["version"] = 2
     if "server_url" not in data:
         data["server_url"] = ""
+    return data
+
+
+def _migrate_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
+    data["version"] = 3
+    tokens = data.setdefault("tokens", {})
+    if "offline_token" not in tokens:
+        tokens["offline_token"] = tokens.get("access_token", "")
+    if "offline_expires_in" not in tokens:
+        tokens["offline_expires_in"] = tokens.get("expires_in", 0)
     return data

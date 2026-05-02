@@ -1,9 +1,5 @@
-import json
 import logging
 import os
-
-from ..orbisauth._jwt import fetch_jwks
-
 
 _NATIVE_REDOWNLOAD_REASON_MARKERS = (
     "integrity check failed",
@@ -71,6 +67,12 @@ def sync_license_state_to_native(
     get_license_status=None,
 ):
     """Propagate the current license state to a native backend."""
+    def _clear_with_reason(message: str):
+        try:
+            clear_license_state(str(message or "").strip())
+        except TypeError:
+            clear_license_state()
+
     try:
         from ..licensing.manager import get_license_manager
 
@@ -80,23 +82,24 @@ def sync_license_state_to_native(
             return
 
         if is_feature_ready_for_native(feature_id):
-            grant = manager.request_native_grant(feature_id)
+            trust_bundle_token = manager.get_trust_bundle_token(allow_network=True)
+            grant = None
+            try:
+                grant = manager.request_native_grant(feature_id)
+            except Exception:
+                grant = manager.get_cached_native_grant(feature_id)
             if grant is None:
-                clear_license_state()
+                _clear_with_reason("Native grant unavailable. Activate or re-sync your license.")
                 return
-            jwks = fetch_jwks(manager._client.server_url, timeout=manager._client.timeout_seconds)
             apply_grant(
                 grant.grant_token,
-                json.dumps(jwks, sort_keys=True),
+                trust_bundle_token,
                 get_addon_source_root(),
             )
         else:
-            clear_license_state()
+            _clear_with_reason("Native feature is not ready for authorization yet.")
     except Exception as exc:
-        try:
-            clear_license_state()
-        except Exception:
-            pass
+        _clear_with_reason(f"Native grant sync failed: {exc}")
         logger.debug("Failed to sync license to native %s: %s", feature_id, exc)
 
 

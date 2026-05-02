@@ -34,8 +34,8 @@ def backend_path():
     return _wrapper().backend_path()
 
 
-def apply_native_grant(grant_token, jwks_json, addon_root):
-    _wrapper().apply_native_grant(grant_token, jwks_json, addon_root)
+def apply_native_grant(grant_token, trust_bundle_token, addon_root):
+    _wrapper().apply_native_grant(grant_token, trust_bundle_token, addon_root)
 
 
 def clear_license_state():

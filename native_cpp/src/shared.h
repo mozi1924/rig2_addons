@@ -13,6 +13,8 @@
 #include <utility>
 #include <string>
 
+#include "orbisauth_trusted_keys.h"
+
 namespace rig2_shared {
 
 struct LicenseState {
@@ -268,6 +270,30 @@ inline PyObject* json_loads(PyObject* input_text, const char* failure_message = 
   }
 
   return PyObject_CallFunctionObjArgs(loads_fn.get(), input_text, nullptr);
+}
+
+inline std::string json_dumps(PyObject* obj) {
+  if (!obj) {
+    return std::string();
+  }
+  PyRef json_module(PyImport_ImportModule("json"));
+  if (!json_module) {
+    PyErr_Clear();
+    return std::string();
+  }
+
+  PyRef dumps_fn(PyObject_GetAttrString(json_module.get(), "dumps"));
+  if (!dumps_fn || !PyCallable_Check(dumps_fn.get())) {
+    PyErr_Clear();
+    return std::string();
+  }
+
+  PyRef dumped(PyObject_CallFunctionObjArgs(dumps_fn.get(), obj, nullptr));
+  if (!dumped) {
+    PyErr_Clear();
+    return std::string();
+  }
+  return py_object_to_utf8(dumped.get());
 }
 
 inline int add_int_constant_or_cleanup(PyObject* module, const char* name, long value) {
@@ -574,6 +600,62 @@ inline bool verify_rs256_jwt_from_jwks(const std::string& token, const std::stri
   return true;
 }
 
+inline bool build_jwks_json_from_trust_bundle(const std::string& trust_bundle_token,
+                                              const char* issuer,
+                                              std::string* jwks_json_out,
+                                              std::string* error_out) {
+  if (!jwks_json_out) {
+    if (error_out) *error_out = "Native trust bundle output is missing.";
+    return false;
+  }
+  jwks_json_out->clear();
+  if (trust_bundle_token.empty()) {
+    *jwks_json_out = rig2_trust::kDefaultTrustedJwksJson;
+    return true;
+  }
+
+  PyObject* payload_raw = nullptr;
+  std::string verify_error;
+  if (!verify_rs256_jwt_from_jwks(
+          trust_bundle_token,
+          rig2_trust::kDefaultTrustedJwksJson,
+          "orbisauth-trust-bundle",
+          issuer,
+          "trust_bundle",
+          &payload_raw,
+          &verify_error)) {
+    if (error_out) *error_out = verify_error.empty() ? "Failed to verify native trust bundle." : verify_error;
+    return false;
+  }
+
+  PyRef payload(payload_raw);
+  if (!payload || !PyDict_Check(payload.get())) {
+    if (error_out) *error_out = "Native trust bundle payload is invalid.";
+    return false;
+  }
+
+  PyObject* keys_obj = dict_get_item(payload.get(), "keys");
+  if (!keys_obj || !PySequence_Check(keys_obj)) {
+    if (error_out) *error_out = "Native trust bundle has no keys.";
+    return false;
+  }
+
+  PyRef jwks_obj(PyDict_New());
+  if (!jwks_obj || PyDict_SetItemString(jwks_obj.get(), "keys", keys_obj) < 0) {
+    PyErr_Clear();
+    if (error_out) *error_out = "Failed to materialize native trust bundle.";
+    return false;
+  }
+
+  const std::string jwks_json = json_dumps(jwks_obj.get());
+  if (jwks_json.empty()) {
+    if (error_out) *error_out = "Failed to serialize native trust bundle keys.";
+    return false;
+  }
+  *jwks_json_out = jwks_json;
+  return true;
+}
+
 inline bool validate_native_manifest(PyObject* payload_obj, const std::string& addon_root,
                                      const std::string& module_path,
                                      const char* expected_feature_id,
@@ -655,13 +737,23 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
   return true;
 }
 
-inline bool apply_native_grant(LicenseState* state, const char* grant_token, const char* jwks_json,
+inline bool apply_native_grant(LicenseState* state, const char* grant_token, const char* trust_bundle_token,
                                const char* addon_root, const char* module_path,
                                const char* expected_feature_id, const char* expected_module_name,
-                               const char* audience = "rig2-native",
+                               const char* audience = "orbisauth-native-grant",
                                const char* issuer = "orbisauth-worker") {
-  if (!state || !grant_token || !jwks_json || !addon_root || !module_path) {
+  if (!state || !grant_token || !addon_root || !module_path) {
     clear_license_state(state, "Native grant inputs are incomplete.");
+    return false;
+  }
+  std::string jwks_json;
+  std::string trust_error;
+  if (!build_jwks_json_from_trust_bundle(
+          trust_bundle_token ? std::string(trust_bundle_token) : std::string(),
+          issuer,
+          &jwks_json,
+          &trust_error)) {
+    clear_license_state(state, trust_error.c_str());
     return false;
   }
   std::string verify_error;

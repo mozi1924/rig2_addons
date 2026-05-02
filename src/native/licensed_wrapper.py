@@ -65,17 +65,17 @@ class NativeFeatureWrapper:
         self._ensure_loaded()
         return self._load_result.module_path if self._load_result else ""
 
-    def apply_native_grant(self, grant_token, jwks_json, addon_root):
+    def apply_native_grant(self, grant_token, trust_bundle_token, addon_root):
         module = self.backend()
         applier = getattr(module, "apply_native_grant", None) if module is not None else None
         if callable(applier):
-            applier(grant_token, jwks_json, addon_root, self.backend_path())
+            applier(grant_token, trust_bundle_token, addon_root, self.backend_path())
 
-    def clear_license_state(self):
+    def clear_license_state(self, reason=""):
         module = self.backend()
         clearer = getattr(module, "clear_license_state", None) if module is not None else None
         if callable(clearer):
-            clearer()
+            clearer(reason)
 
     def get_license_status(self):
         module = self.backend()

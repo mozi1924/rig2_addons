@@ -49,22 +49,24 @@ static rig2_shared::LicenseState g_license_state;
 
 static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
     const char* grant_token = nullptr;
-    const char* jwks_json = nullptr;
+    const char* trust_bundle_token = nullptr;
     const char* addon_root = nullptr;
     const char* module_path = nullptr;
     if (!PyArg_ParseTuple(args, "ssss:apply_native_grant",
-                          &grant_token, &jwks_json, &addon_root, &module_path))
+                          &grant_token, &trust_bundle_token, &addon_root, &module_path))
         return nullptr;
 
     rig2_shared::apply_native_grant(
-        &g_license_state, grant_token, jwks_json, addon_root, module_path, "face_cap", "rig2_face_cap");
+        &g_license_state, grant_token, trust_bundle_token, addon_root, module_path, "face_cap", "rig2_face_cap");
     Py_RETURN_NONE;
 }
 
-static PyObject* method_clear_license_state(PyObject*, PyObject*) {
-    rig2_shared::clear_license_state(
-        &g_license_state,
-        "License required. Activate your license in Addon Preferences.");
+static PyObject* method_clear_license_state(PyObject*, PyObject* args) {
+    const char* reason = "License required. Activate your license in Addon Preferences.";
+    if (!PyArg_ParseTuple(args, "|s:clear_license_state", &reason)) {
+        return nullptr;
+    }
+    rig2_shared::clear_license_state(&g_license_state, reason);
     Py_RETURN_NONE;
 }
 
@@ -1658,7 +1660,7 @@ PyMethodDef kMethods[] = {
     {"get_receiver_stats", method_get_receiver_stats, METH_NOARGS, "Get receiver runtime stats."},
     {"apply_native_grant", method_apply_native_grant, METH_VARARGS,
      "Apply a signed native grant token and verify manifests."},
-    {"clear_license_state", method_clear_license_state, METH_NOARGS,
+    {"clear_license_state", method_clear_license_state, METH_VARARGS,
      "Clear the current native authorization state."},
     {"get_license_status", method_get_license_status, METH_NOARGS,
      "Return native authorization status."},

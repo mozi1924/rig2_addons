@@ -139,21 +139,24 @@ PyObject* build_entry_dict(const Entry& entry) {
 
 static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
   const char* grant_token = nullptr;
-  const char* jwks_json = nullptr;
+  const char* trust_bundle_token = nullptr;
   const char* addon_root = nullptr;
   const char* module_path = nullptr;
-  if (!PyArg_ParseTuple(args, "ssss:apply_native_grant", &grant_token, &jwks_json, &addon_root, &module_path)) {
+  if (!PyArg_ParseTuple(args, "ssss:apply_native_grant", &grant_token, &trust_bundle_token, &addon_root, &module_path)) {
     return nullptr;
   }
 
   rig2_shared::apply_native_grant(
-      &g_license_state, grant_token, jwks_json, addon_root, module_path, "r2bb", "rig2_r2bb");
+      &g_license_state, grant_token, trust_bundle_token, addon_root, module_path, "r2bb", "rig2_r2bb");
   Py_RETURN_NONE;
 }
 
-static PyObject* method_clear_license_state(PyObject*, PyObject*) {
-  rig2_shared::clear_license_state(
-      &g_license_state, "License required. Activate your license in Addon Preferences.");
+static PyObject* method_clear_license_state(PyObject*, PyObject* args) {
+  const char* reason = "License required. Activate your license in Addon Preferences.";
+  if (!PyArg_ParseTuple(args, "|s:clear_license_state", &reason)) {
+    return nullptr;
+  }
+  rig2_shared::clear_license_state(&g_license_state, reason);
   Py_RETURN_NONE;
 }
 
@@ -296,7 +299,7 @@ PyMethodDef kMethods[] = {
     {"mapping_entries_to_rotation_axis_signs", method_mapping_entries_to_rotation_axis_signs, METH_VARARGS, "Build MI rotation sign map."},
     {"mapping_entries_to_transform_axis_signs", method_mapping_entries_to_transform_axis_signs, METH_VARARGS, "Build MI transform sign map."},
     {"apply_native_grant", method_apply_native_grant, METH_VARARGS, "Apply a signed native grant token."},
-    {"clear_license_state", method_clear_license_state, METH_NOARGS, "Clear the native license state."},
+    {"clear_license_state", method_clear_license_state, METH_VARARGS, "Clear the native license state."},
     {"get_license_status", method_get_license_status, METH_NOARGS, "Return native license status."},
     {nullptr, nullptr, 0, nullptr},
 };

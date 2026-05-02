@@ -5,13 +5,22 @@ import time
 
 from ..orbisauth import OrbisAuthClient, OrbisAuthError, OrbisAuthTokenError
 from ..orbisauth._jwt import get_token_expiry
+from ..orbisauth._client import NativeGrantInfo
 from .config import (
     DEFAULT_SERVER_URL,
     HTTP_TIMEOUT_SECONDS,
     REFRESH_SKEW_SECONDS,
 )
 from .device_id import get_or_create_device_id
-from .paths import get_session_path
+from .paths import get_native_grant_cache_path, get_session_path, get_trust_bundle_path
+from .runtime_cache import (
+    CachedNativeGrant,
+    clear_cached_native_grants,
+    clear_cached_trust_bundle,
+    load_cached_native_grants,
+    load_cached_trust_bundle,
+    save_cached_native_grant,
+)
 
 _log = logging.getLogger(__name__)
 _SESSION_EXPIRY_WARNING_SECONDS = 3600
@@ -45,12 +54,15 @@ class LicenseManager:
         self._heartbeat_lock = threading.RLock()
         self._reset_heartbeat_tracking()
         session_path = get_session_path()
+        self._trust_bundle_path = get_trust_bundle_path()
+        self._native_grant_cache_path = get_native_grant_cache_path()
         self._client = OrbisAuthClient(
             server_url=DEFAULT_SERVER_URL,
             session_path=session_path,
             auto_refresh=True,
             refresh_skew_seconds=REFRESH_SKEW_SECONDS,
             timeout_seconds=HTTP_TIMEOUT_SECONDS,
+            trust_bundle_path=self._trust_bundle_path,
         )
         self._load_existing_session()
 
@@ -287,6 +299,8 @@ class LicenseManager:
         """Deactivate the current session and clear persisted data."""
         self._client.deactivate()
         self._reset_heartbeat_tracking()
+        clear_cached_trust_bundle(self._trust_bundle_path)
+        clear_cached_native_grants(self._native_grant_cache_path)
         try:
             from .feature_access import clear_feature_state
 
@@ -335,6 +349,10 @@ class LicenseManager:
 
         now = time.time()
         access_exp = self._safe_token_expiry(session.tokens.access_token, 0)
+        offline_exp = self._safe_token_expiry(
+            session.tokens.offline_token,
+            session.activated_at + getattr(session.tokens, "offline_expires_in", session.tokens.expires_in),
+        )
         refresh_exp = self._safe_token_expiry(
             session.tokens.refresh_token,
             session.activated_at + session.tokens.refresh_expires_in,
@@ -342,11 +360,12 @@ class LicenseManager:
 
         is_valid = self.is_activated()
         access_expires_in = max(0, access_exp - now) if access_exp else 0
-        is_access_expired = access_exp > 0 and now >= access_exp
+        offline_expires_in = max(0, offline_exp - now) if offline_exp else 0
+        is_access_expired = offline_exp > 0 and now >= offline_exp
         is_refresh_expired = refresh_exp > 0 and now >= refresh_exp
-        offline_valid_until = int(access_exp) if access_exp else 0
+        offline_valid_until = int(offline_exp) if offline_exp else 0
         session_valid_until = int(refresh_exp) if refresh_exp else 0
-        offline_valid_remaining_seconds = int(access_expires_in)
+        offline_valid_remaining_seconds = int(offline_expires_in)
         session_valid_remaining_seconds = int(max(0, refresh_exp - now) if refresh_exp else 0)
 
         heartbeat_interval = session.heartbeat.interval_seconds if session.heartbeat else 0
@@ -365,7 +384,7 @@ class LicenseManager:
             is_valid=is_valid,
             is_refresh_expired=is_refresh_expired,
             is_access_expired=is_access_expired,
-            access_expires_in=access_expires_in,
+            access_expires_in=offline_expires_in,
             needs_heartbeat=needs_heartbeat,
             heartbeat_in_flight=heartbeat_in_flight,
             should_auto_heartbeat_now=should_auto_heartbeat_now,
@@ -595,10 +614,55 @@ class LicenseManager:
         """Request a signed native grant for a managed feature."""
         if self._client.session is None:
             return None
-        return self._client.request_native_grant(
+        grant = self._client.request_native_grant(
             feature_id=feature_id,
             addon_version=self.get_addon_version(),
         )
+        try:
+            expires_at = int(get_token_expiry(grant.grant_token) or 0)
+        except Exception:
+            expires_at = 0
+        if expires_at > 0:
+            save_cached_native_grant(
+                self._native_grant_cache_path,
+                CachedNativeGrant(
+                    feature_id=grant.feature_id,
+                    addon_version=grant.addon_version,
+                    grant_token=grant.grant_token,
+                    expires_at=expires_at,
+                ),
+            )
+        return grant
+
+    def get_cached_native_grant(self, feature_id: str) -> NativeGrantInfo | None:
+        grants = load_cached_native_grants(self._native_grant_cache_path)
+        grant = grants.get(feature_id)
+        if grant is None:
+            return None
+        if grant.addon_version != self.get_addon_version():
+            return None
+        if grant.expires_at <= int(time.time()):
+            return None
+        return NativeGrantInfo(
+            feature_id=grant.feature_id,
+            addon_version=grant.addon_version,
+            grant_token=grant.grant_token,
+            token_type="Bearer",
+            expires_in=max(0, grant.expires_at - int(time.time())),
+            py_manifest={},
+            artifact_manifest={},
+        )
+
+    def get_cached_trust_bundle_token(self) -> str:
+        return load_cached_trust_bundle(self._trust_bundle_path)
+
+    def get_trust_bundle_token(self, *, allow_network: bool = True) -> str:
+        if allow_network:
+            try:
+                return self._client.fetch_trust_bundle().bundle_token
+            except Exception:
+                pass
+        return self.get_cached_trust_bundle_token()
 
     @staticmethod
     def get_addon_version() -> str:

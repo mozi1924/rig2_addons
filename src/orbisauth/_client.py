@@ -1,10 +1,17 @@
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from ._errors import OrbisAuthAPIError, OrbisAuthError, OrbisAuthTokenError
 from ._http import _api_request, _stream_request
-from ._jwt import verify_access_token, get_token_expiry, _parse_jwt_unverified
+from ._jwt import (
+    _parse_jwt_unverified,
+    get_token_expiry,
+    set_trust_bundle_cache_path,
+    verify_access_token,
+    verify_offline_token,
+)
 from ._session import (
     HeartbeatPolicy,
     Session,
@@ -32,9 +39,11 @@ class HeartbeatResponse:
     heartbeat: HeartbeatPolicy
     access_token: str = ""
     refresh_token: str = ""
+    offline_token: str = ""
     token_type: str = "Bearer"
     expires_in: int = 0
     refresh_expires_in: int = 0
+    offline_expires_in: int = 0
     product: str = ""
     tier: str = ""
     features: dict[str, Any] | None = None
@@ -65,6 +74,13 @@ class NativeGrantInfo:
     expires_in: int
     py_manifest: dict[str, Any]
     artifact_manifest: dict[str, Any]
+
+
+@dataclass
+class TrustBundleInfo:
+    bundle_token: str
+    token_type: str
+    expires_in: int
 
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 300
@@ -108,17 +124,23 @@ def _build_token_set(data: dict[str, Any], fallback: TokenSet | None = None) -> 
         return TokenSet(
             access_token=data["access_token"],
             refresh_token=data["refresh_token"],
+            offline_token=data.get("offline_token", data["access_token"]),
             token_type=data.get("token_type", "Bearer"),
             expires_in=int(data.get("expires_in", 0) or 0),
             refresh_expires_in=int(data.get("refresh_expires_in", 0) or 0),
+            offline_expires_in=int(data.get("offline_expires_in", data.get("expires_in", 0)) or 0),
         )
     return TokenSet(
         access_token=data.get("access_token", fallback.access_token) or fallback.access_token,
         refresh_token=data.get("refresh_token", fallback.refresh_token) or fallback.refresh_token,
+        offline_token=data.get("offline_token", fallback.offline_token) or fallback.offline_token,
         token_type=data.get("token_type", fallback.token_type) or fallback.token_type,
         expires_in=int(data.get("expires_in", fallback.expires_in) or fallback.expires_in),
         refresh_expires_in=int(
             data.get("refresh_expires_in", fallback.refresh_expires_in) or fallback.refresh_expires_in
+        ),
+        offline_expires_in=int(
+            data.get("offline_expires_in", fallback.offline_expires_in) or fallback.offline_expires_in
         ),
     )
 
@@ -143,17 +165,20 @@ class OrbisAuthClient:
         auto_refresh: bool = True,
         refresh_skew_seconds: int = 120,
         timeout_seconds: float = 30.0,
+        trust_bundle_path: str | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.session_path = session_path
         self.auto_refresh = auto_refresh
         self.refresh_skew_seconds = refresh_skew_seconds
         self.timeout_seconds = timeout_seconds
+        self.trust_bundle_path = trust_bundle_path
 
         import threading
 
         self.session: Session | None = None
         self._lock = threading.RLock()
+        set_trust_bundle_cache_path(trust_bundle_path)
 
 
     # ------------------------------------------------------------------
@@ -204,6 +229,10 @@ class OrbisAuthClient:
         )
 
         self._persist()
+        try:
+            self.fetch_trust_bundle()
+        except Exception:
+            pass
         return self.session
 
     def refresh(self) -> Session:
@@ -236,6 +265,10 @@ class OrbisAuthClient:
             self.session.activated_at = time.time()
 
             self._persist()
+            try:
+                self.fetch_trust_bundle()
+            except Exception:
+                pass
             return self.session
 
 
@@ -267,8 +300,10 @@ class OrbisAuthClient:
 
         access_token = data.get("access_token", "")
         refresh_token = data.get("refresh_token", "")
+        offline_token = data.get("offline_token", "")
         expires_in = int(data.get("expires_in", 0) or 0)
         refresh_expires_in = int(data.get("refresh_expires_in", 0) or 0)
+        offline_expires_in = int(data.get("offline_expires_in", 0) or 0)
         if access_token:
             self.session.tokens = _build_token_set(data, fallback=self.session.tokens)
             self.session.product = str(data.get("product", self.session.product) or self.session.product)
@@ -276,6 +311,10 @@ class OrbisAuthClient:
             self.session.features = _coerce_features(data.get("features"), fallback=self.session.features)
             self.session.activated_at = time.time()
             self._persist()
+            try:
+                self.fetch_trust_bundle()
+            except Exception:
+                pass
 
         return HeartbeatResponse(
             ok=data.get("ok", False),
@@ -285,9 +324,11 @@ class OrbisAuthClient:
             heartbeat=heartbeat,
             access_token=access_token,
             refresh_token=refresh_token,
+            offline_token=offline_token,
             token_type=data.get("token_type", "Bearer"),
             expires_in=expires_in,
             refresh_expires_in=refresh_expires_in,
+            offline_expires_in=offline_expires_in,
             product=str(data.get("product", "") or ""),
             tier=str(data.get("tier", "") or ""),
             features=data.get("features") if isinstance(data.get("features"), dict) else None,
@@ -298,6 +339,11 @@ class OrbisAuthClient:
         if self.session_path:
             remove_session_file(self.session_path)
         self.session = None
+        if self.trust_bundle_path:
+            try:
+                os.unlink(self.trust_bundle_path)
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------
     # Token Verification (offline / local)
@@ -328,16 +374,26 @@ class OrbisAuthClient:
         )
 
     def get_features(self, *, allow_network: bool = True) -> dict[str, Any]:
-        """Verify the current access token locally and return its feature flags.
+        """Verify the current offline token locally and return its feature flags.
 
         This is the primary offline feature-gating API. It performs local
-        RS256 JWT verification without any server call, so it is fast
-        and works offline (once the JWKS has been fetched once).
+        RS256 JWT verification without any server call once a trusted key
+        bundle is available.
 
         Returns the features dict from the token (empty dict if no features).
         Raises OrbisAuthTokenError if the token is invalid or expired.
         """
-        claims = self.verify_access_token(allow_network=allow_network)
+        if self.session is None:
+            raise OrbisAuthError("No session available.")
+        try:
+            claims = verify_offline_token(
+                self.session.tokens.offline_token,
+                server_url=self.server_url,
+                timeout=self.timeout_seconds,
+                allow_network=allow_network,
+            )
+        except OrbisAuthTokenError:
+            claims = self.verify_access_token(allow_network=allow_network)
         return claims.features
 
     def get_features_no_network(self) -> dict[str, Any]:
@@ -414,6 +470,15 @@ class OrbisAuthClient:
                 if isinstance(data.get("artifact_manifest"), dict)
                 else {}
             ),
+        )
+
+    def fetch_trust_bundle(self) -> TrustBundleInfo:
+        url = _api_url(self.server_url, "trust-bundle")
+        data = _api_request("GET", url, timeout=self.timeout_seconds)
+        return TrustBundleInfo(
+            bundle_token=str(data["bundle_token"]),
+            token_type=str(data.get("token_type", "Bearer") or "Bearer"),
+            expires_in=int(data.get("expires_in", 0) or 0),
         )
 
     def request_download(
