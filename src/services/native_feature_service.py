@@ -81,7 +81,11 @@ class NativeLicensedFeatureService:
             return {"authorized": False, "reason": str(exc), "expires_at": 0}
 
         if not isinstance(raw, dict) or not raw:
-            return {"authorized": True, "reason": "", "expires_at": 0}
+            return {
+                "authorized": False,
+                "reason": "Native authorization state is unavailable. Re-download the binary.",
+                "expires_at": 0,
+            }
         return {
             "authorized": bool(raw.get("authorized", False)),
             "reason": str(raw.get("reason", "") or ""),

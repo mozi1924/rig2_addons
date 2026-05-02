@@ -67,6 +67,8 @@ _FEATURE_SPECS = {
             "poll_latest_packet",
             "get_receiver_stats",
             "apply_native_grant",
+            "clear_license_state",
+            "get_license_status",
         ),
         required_attributes=(
             "RIG2_FACE_CAP_API_VERSION",
@@ -96,6 +98,8 @@ _FEATURE_SPECS = {
             "get_model_config",
             "plan_miframes_keyframe_ops",
             "apply_native_grant",
+            "clear_license_state",
+            "get_license_status",
         ),
         required_attributes=("RIG2_MIFRAMES_API_VERSION",),
         integrity_targets=(
@@ -123,6 +127,8 @@ _FEATURE_SPECS = {
             "mapping_entries_to_rotation_axis_signs",
             "mapping_entries_to_transform_axis_signs",
             "apply_native_grant",
+            "clear_license_state",
+            "get_license_status",
         ),
         required_attributes=("RIG2_R2BB_API_VERSION",),
         integrity_targets=(

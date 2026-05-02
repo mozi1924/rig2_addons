@@ -91,7 +91,7 @@ def unlock_native_module(native, feature_name: str):
         integrity_targets=spec.integrity_targets,
     )
     token = sign_native_grant(payload)
-    native.apply_native_grant(token, TEST_JWKS_JSON, SRC, native.__file__)
+    native.apply_native_grant(token, build_trust_bundle_token(), SRC, native.__file__)
 
 
 TEST_PRIVATE_KEY_PEM = """-----BEGIN PRIVATE KEY-----
@@ -124,6 +124,13 @@ dloCS5tDj+dop+q+cB0ptEUY
 -----END PRIVATE KEY-----
 """
 
+TRUST_BUNDLE_PRIVATE_KEY_PEM = (
+    os.environ.get("ORBISAUTH_TRUST_BUNDLE_TEST_PRIVATE_KEY")
+    or os.environ.get("JWT_PRIVATE_KEY")
+    or ""
+)
+TRUST_BUNDLE_KID = os.environ.get("JWT_KID", "orbisauth-rs256-v1")
+
 TEST_JWKS_JSON = json.dumps({
     "keys": [{
         "kty": "RSA",
@@ -141,12 +148,16 @@ def _b64url_encode(data: bytes) -> str:
 
 
 def sign_native_grant(payload: dict) -> str:
-    header = {"alg": "RS256", "typ": "JWT", "kid": "test-key-v1"}
+    return sign_jwt(payload, TEST_PRIVATE_KEY_PEM, "test-key-v1")
+
+
+def sign_jwt(payload: dict, private_key_pem: str, kid: str) -> str:
+    header = {"alg": "RS256", "typ": "JWT", "kid": kid}
     header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
     payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".pem", delete=False) as key_file:
-        key_file.write(TEST_PRIVATE_KEY_PEM)
+        key_file.write(private_key_pem)
         key_path = key_file.name
     try:
         proc = subprocess.run(
@@ -160,6 +171,24 @@ def sign_native_grant(payload: dict) -> str:
         os.remove(key_path)
     signature_b64 = _b64url_encode(proc.stdout)
     return f"{header_b64}.{payload_b64}.{signature_b64}"
+
+
+def build_trust_bundle_token() -> str:
+    if not TRUST_BUNDLE_PRIVATE_KEY_PEM.strip():
+        raise unittest.SkipTest("trusted Orbisauth private key is required for trust-bundle native contract tests")
+    now = int(time.time())
+    return sign_jwt(
+        {
+            "typ": "trust_bundle",
+            "keys": json.loads(TEST_JWKS_JSON)["keys"],
+            "iss": "orbisauth-worker",
+            "aud": "orbisauth-trust-bundle",
+            "iat": now,
+            "exp": now + 3600,
+        },
+        TRUST_BUNDLE_PRIVATE_KEY_PEM,
+        TRUST_BUNDLE_KID,
+    )
 
 
 def build_native_grant_payload(*, feature_name: str, module_name: str, module_path: str, integrity_targets):
@@ -205,7 +234,7 @@ def build_native_grant_payload(*, feature_name: str, module_name: str, module_pa
             "arch": "arm64",
         },
         "iss": "orbisauth-worker",
-        "aud": "rig2-native",
+        "aud": "orbisauth-native-grant",
         "iat": int(time.time()),
         "exp": expires_at,
     }
@@ -221,6 +250,8 @@ class NativeContractTest(unittest.TestCase):
             "get_models",
             "get_model_config",
             "plan_miframes_keyframe_ops",
+            "apply_native_grant",
+            "clear_license_state",
             "get_license_status",
         )
         for name in required:
@@ -250,6 +281,8 @@ class NativeContractTest(unittest.TestCase):
             "stop_receiver",
             "poll_latest_packet",
             "get_receiver_stats",
+            "apply_native_grant",
+            "clear_license_state",
             "get_license_status",
         )
         for name in required:
@@ -267,6 +300,8 @@ class NativeContractTest(unittest.TestCase):
             "mapping_entries_to_export_name_map",
             "mapping_entries_to_rotation_axis_signs",
             "mapping_entries_to_transform_axis_signs",
+            "apply_native_grant",
+            "clear_license_state",
             "get_license_status",
         )
         for name in required:

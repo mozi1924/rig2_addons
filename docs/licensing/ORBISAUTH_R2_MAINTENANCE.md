@@ -410,27 +410,27 @@ export R2_BUCKET_NAME=...
 
 ## 10. C++ 原生层许可执行
 
-2026-05 起，两个原生模块内部加入了许可验证：
+2026-05 起，原生模块通过 `trust-bundle + native-grant` 合同执行许可验证：
 
-- `rig2_face_cap.cpp` (API v3) 和 `rig2_miframes.cpp` (API v2)
-- 模块内嵌 32 字节共享密钥
-- Python 层在激活/心跳后通过 `set_license_state(device_id, expires_at, hmac_proof)` 传递许可证明
-- C++ 模块用 `hashlib.hmac` 验证 proof，验证通过才启用敏感函数
+- `rig2_face_cap.cpp` (API v3)、`rig2_miframes.cpp` (API v2) 与 `rig2_r2bb.cpp` (API v1)
+- Python 层先获取 `trust_bundle_token`，再获取 `native_grant` JWT
+- C++ 模块先用 `trust_bundle_token` 校验 `native_grant` 的签名与 `aud/iss/typ`
+- 模块随后校验 Python 保护文件清单与当前二进制 `artifact_sha256/artifact_size`
 - 敏感函数入口处有 `CHECK_LICENSE()` 宏，未许可时抛出 `PermissionError`
 
-### 10.1 如何轮换共享密钥
+### 10.1 合同关键点
 
-1. 生成新的 32 字节随机值
-2. 更新 `src/licensing/registry.py` 中对应 feature spec 的 `shared_secret`
-3. 更新对应 `.cpp` 文件中的 `kLicenseSecret[32]` 数组
-4. 更新 `kExpectedPyHashes` 中的文件哈希（如果相关 .py 文件有改动）
-5. 重新编译、重新上传到 R2
+1. `trust_bundle_token` 的 `typ` 必须是 `trust_bundle`
+2. `trust_bundle_token` 的 `aud` 必须是 `orbisauth-trust-bundle`
+3. `native_grant` 的 `typ` 必须是 `native_grant`
+4. `native_grant` 的 `aud` 必须是 `orbisauth-native-grant`
+5. 原生模块必须导出 `apply_native_grant`、`clear_license_state`、`get_license_status`
 
 ### 10.2 Python 文件完整性检查
 
-- C++ 模块内嵌了关键 Python 文件的 SHA-256 期望值
-- Python 启动时传入当前文件哈希到 `verify_integrity()`
-- 哈希不匹配 → C++ 内部拒绝所有许可操作
+- `native_grant.py_manifest.files[]` 是关键 Python 文件的 SHA-256 期望值
+- `native_grant.artifact_manifest` 记录当前二进制的 `module/platform/arch/artifact/artifact_sha256/artifact_size`
+- 任一哈希或模块信息不匹配 → C++ 内部拒绝授权并保持锁定
 - 覆盖文件：`face_cap_service.py`, `miframes_service.py`, `manager.py`
 - 修改这些文件后**必须**重新计算哈希并更新 C++ 源码
 
@@ -444,7 +444,7 @@ export R2_BUCKET_NAME=...
 
 ## 11. 建议以后补的事
 
-1. 增加一份明确的”Orbisauth 服务端接口约定文档”
+1. 维护 [orbisauth/docs/NATIVE_PROTOCOL_CONTRACT.md](/Users/jaxlocke/orbisauth/docs/NATIVE_PROTOCOL_CONTRACT.md) 作为唯一 native 合同来源
 2. 给 `upload_to_r2.py` 增加 dry-run 或校验模式
 3. 给 CI 增加上传后的对象存在性检查
 

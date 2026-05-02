@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -35,6 +34,8 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     manager_mod = types.ModuleType(manager_name)
     manager_mod.get_license_manager = lambda: types.SimpleNamespace(
         request_native_grant=lambda feature_id: types.SimpleNamespace(grant_token="grant-ok"),
+        get_cached_native_grant=lambda feature_id: None,
+        get_trust_bundle_token=lambda allow_network=True: "trust-bundle-ok",
         _client=types.SimpleNamespace(server_url="https://example.invalid", timeout_seconds=5.0),
     )
 
@@ -63,13 +64,13 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     def get_license_status():
         return dict(native_status)
 
-    def apply_grant(grant_token, jwks_json, addon_root):
+    def apply_grant(grant_token, trust_bundle_token, addon_root):
         if verify_error is not None:
             raise verify_error
-        apply_calls.append((grant_token, jwks_json, addon_root))
+        apply_calls.append((grant_token, trust_bundle_token, addon_root))
 
-    def clear_license_state():
-        clear_calls.append(True)
+    def clear_license_state(reason=""):
+        clear_calls.append(reason)
 
     return module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status
 
@@ -90,6 +91,7 @@ class NativeFeatureSupportTest(unittest.TestCase):
 
         self.assertEqual(len(apply_calls), 1)
         self.assertEqual(apply_calls[-1][0], "grant-ok")
+        self.assertEqual(apply_calls[-1][1], "trust-bundle-ok")
         self.assertEqual(clear_calls, [])
 
     def test_sync_marks_invalid_when_integrity_verification_fails(self):

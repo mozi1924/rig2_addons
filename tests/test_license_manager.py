@@ -4,6 +4,7 @@ import threading
 import time
 import types
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -18,9 +19,11 @@ def _make_session(now, *, access_exp, refresh_exp, heartbeat_interval=300, featu
         tokens=types.SimpleNamespace(
             access_token="access-token",
             refresh_token="refresh-token",
+            offline_token="access-token",
             token_type="Bearer",
             expires_in=max(0, int(access_exp - now)),
             refresh_expires_in=max(0, int(refresh_exp - now)),
+            offline_expires_in=max(0, int(access_exp - now)),
         ),
         product="Rig2",
         tier="Pro",
@@ -43,7 +46,10 @@ def _load_manager_module():
     config_name = f"{package_name}.licensing.config"
     device_id_name = f"{package_name}.licensing.device_id"
     paths_name = f"{package_name}.licensing.paths"
+    runtime_cache_name = f"{package_name}.licensing.runtime_cache"
+    versioning_name = f"{package_name}.core.versioning"
     orbisauth_name = f"{package_name}.orbisauth"
+    orbisauth_client_name = f"{package_name}.orbisauth._client"
     jwt_name = f"{package_name}.orbisauth._jwt"
 
     for name in list(sys.modules):
@@ -54,6 +60,8 @@ def _load_manager_module():
     pkg.__path__ = []
     licensing_pkg = types.ModuleType(f"{package_name}.licensing")
     licensing_pkg.__path__ = []
+    core_pkg = types.ModuleType(f"{package_name}.core")
+    core_pkg.__path__ = []
     orbisauth_pkg = types.ModuleType(orbisauth_name)
     orbisauth_pkg.__path__ = []
 
@@ -67,6 +75,27 @@ def _load_manager_module():
 
     paths_mod = types.ModuleType(paths_name)
     paths_mod.get_session_path = lambda: "/tmp/rig2-test-session.json"
+    paths_mod.get_trust_bundle_path = lambda: "/tmp/rig2-test-trust-bundle.json"
+    paths_mod.get_native_grant_cache_path = lambda: "/tmp/rig2-test-native-grants.json"
+
+    runtime_cache_mod = types.ModuleType(runtime_cache_name)
+
+    @dataclass
+    class CachedNativeGrant:
+        feature_id: str
+        addon_version: str
+        grant_token: str
+        expires_at: int
+
+    runtime_cache_mod.CachedNativeGrant = CachedNativeGrant
+    runtime_cache_mod.clear_cached_native_grants = lambda path: None
+    runtime_cache_mod.clear_cached_trust_bundle = lambda path: None
+    runtime_cache_mod.load_cached_native_grants = lambda path: {}
+    runtime_cache_mod.load_cached_trust_bundle = lambda path: ""
+    runtime_cache_mod.save_cached_native_grant = lambda path, grant: None
+
+    versioning_mod = types.ModuleType(versioning_name)
+    versioning_mod.SEMVER = "1.1.0"
 
     class OrbisAuthError(Exception):
         pass
@@ -112,8 +141,32 @@ def _load_manager_module():
         def request_download(self, **kwargs):
             return None
 
+        def request_native_grant(self, **kwargs):
+            return NativeGrantInfo(
+                feature_id=str(kwargs.get("feature_id", "")),
+                addon_version=str(kwargs.get("addon_version", "")),
+                grant_token="grant-token",
+                token_type="Bearer",
+                expires_in=600,
+                py_manifest={},
+                artifact_manifest={},
+            )
+
+        def fetch_trust_bundle(self):
+            return types.SimpleNamespace(bundle_token="trust-bundle-token")
+
         def download_file(self, *args, **kwargs):
             return None
+
+    @dataclass
+    class NativeGrantInfo:
+        feature_id: str
+        addon_version: str
+        grant_token: str
+        token_type: str
+        expires_in: int
+        py_manifest: dict
+        artifact_manifest: dict
 
     jwt_mod = types.ModuleType(jwt_name)
     jwt_mod.expiry_map = {}
@@ -126,13 +179,19 @@ def _load_manager_module():
     orbisauth_pkg.OrbisAuthClient = FakeClient
     orbisauth_pkg.OrbisAuthError = OrbisAuthError
     orbisauth_pkg.OrbisAuthTokenError = OrbisAuthTokenError
+    orbisauth_client_mod = types.ModuleType(orbisauth_client_name)
+    orbisauth_client_mod.NativeGrantInfo = NativeGrantInfo
 
     sys.modules[package_name] = pkg
     sys.modules[f"{package_name}.licensing"] = licensing_pkg
+    sys.modules[f"{package_name}.core"] = core_pkg
     sys.modules[config_name] = config_mod
     sys.modules[device_id_name] = device_id_mod
     sys.modules[paths_name] = paths_mod
+    sys.modules[runtime_cache_name] = runtime_cache_mod
+    sys.modules[versioning_name] = versioning_mod
     sys.modules[orbisauth_name] = orbisauth_pkg
+    sys.modules[orbisauth_client_name] = orbisauth_client_mod
     sys.modules[jwt_name] = jwt_mod
 
     spec = importlib.util.spec_from_file_location(module_name, MANAGER_PATH)

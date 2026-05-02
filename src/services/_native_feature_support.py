@@ -8,9 +8,18 @@ _NATIVE_REDOWNLOAD_REASON_MARKERS = (
     "artifact manifest",
     "manifest mismatch",
     "module mismatch",
+    "feature mismatch",
     "binary validation failed",
+    "native binary path is unavailable",
+    "native grant missing artifact manifest",
+    "native grant missing python manifest",
+    "artifact manifest is incomplete",
+    "python manifest entry is invalid",
+    "python manifest entry is incomplete",
+    "failed to hash protected source file",
     "source root not found",
     "missing file",
+    "authorization state is unavailable",
 )
 
 def get_feature_status(feature_name):
@@ -43,7 +52,7 @@ def native_integrity_failed(get_license_status):
     if status.get("authorized", False):
         return False
     reason = str(status.get("reason", "") or "").lower()
-    return "integrity check failed" in reason
+    return native_reason_requires_redownload(reason)
 
 
 def native_reason_requires_redownload(reason):

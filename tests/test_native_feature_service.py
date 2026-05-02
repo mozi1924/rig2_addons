@@ -67,6 +67,7 @@ def load_service_module(*, feature_status, native_status):
             "binary validation failed",
             "source root not found",
             "missing file",
+            "authorization state is unavailable",
         )
     )
 
@@ -160,6 +161,26 @@ class NativeFeatureServiceTest(unittest.TestCase):
 
         self.assertEqual(status["effective_state"], "needs_redownload")
         self.assertTrue(status["can_download"])
+        self.assertFalse(service.is_feature_unlocked())
+
+    def test_empty_native_status_requires_redownload(self):
+        module = load_service_module(
+            feature_status={
+                "effective_state": "ready",
+                "message": "Face Capture is ready.",
+                "action": "",
+                "can_download": False,
+                "can_retry": False,
+            },
+            native_status={},
+        )
+
+        service = module.NativeLicensedFeatureService("face_cap", logging.getLogger("test"))
+        status = service.get_feature_status()
+
+        self.assertEqual(status["effective_state"], "needs_redownload")
+        self.assertIn("authorization state is unavailable", status["message"].lower())
+        self.assertFalse(status["native_authorized"])
         self.assertFalse(service.is_feature_unlocked())
 
 
