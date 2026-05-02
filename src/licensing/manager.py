@@ -80,6 +80,9 @@ class LicenseManager:
         if self._client.session is None:
             return {}
         try:
+            getter = getattr(self._client, "get_features_no_network", None)
+            if callable(getter):
+                return getter()
             return self._client.get_features()
         except (OrbisAuthTokenError, OrbisAuthError):
             return {}
@@ -88,10 +91,23 @@ class LicenseManager:
         if self._client.session is None:
             return False
         try:
-            self._client.get_features()
+            getter = getattr(self._client, "get_features_no_network", None)
+            if callable(getter):
+                getter()
+            else:
+                self._client.get_features()
             return True
         except (OrbisAuthTokenError, OrbisAuthError):
             return False
+
+    def warm_verification_cache(self):
+        """Warm the JWKS/token verification cache off the main thread."""
+        if self._client.session is None:
+            return {}
+        try:
+            return self._client.get_features()
+        except (OrbisAuthTokenError, OrbisAuthError):
+            return {}
 
     def _build_inactive_status(self):
         return {

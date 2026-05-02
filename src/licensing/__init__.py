@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from .manager import LicenseManager, get_license_manager
 from .config import HEARTBEAT_INTERVAL_SECONDS
@@ -16,6 +17,10 @@ __all__ = [
 _HEARTBEAT_TIMER_ACTIVE = False
 _FAST_HEARTBEAT_POLL_SECONDS = 1.0
 _LICENSE_RUNTIME_READY = False
+_ASYNC_NATIVE_SYNC_LOCK = threading.Lock()
+_ASYNC_NATIVE_SYNC_IN_FLIGHT = False
+_ASYNC_NATIVE_SYNC_RESULT_PENDING = False
+_ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
 
 
 def is_runtime_ready():
@@ -34,6 +39,61 @@ def sync_license_to_native_modules():
             _log.debug("sync %s license: %s", spec.feature_id, exc)
 
 
+def _request_async_native_sync(*, prewarm_verification=False, refresh_runtime=False):
+    global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+
+    with _ASYNC_NATIVE_SYNC_LOCK:
+        if _ASYNC_NATIVE_SYNC_IN_FLIGHT:
+            _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = (
+                _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING or refresh_runtime
+            )
+            return False
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT = True
+        _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = refresh_runtime
+
+    def _worker():
+        global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_RESULT_PENDING
+        try:
+            if prewarm_verification:
+                try:
+                    get_license_manager().warm_verification_cache()
+                except Exception as exc:
+                    _log.debug("Background verification warmup failed: %s", exc)
+            sync_license_to_native_modules()
+        except Exception as exc:
+            _log.debug("Async native sync failed: %s", exc)
+        finally:
+            with _ASYNC_NATIVE_SYNC_LOCK:
+                _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
+                _ASYNC_NATIVE_SYNC_RESULT_PENDING = True
+
+    thread = threading.Thread(
+        target=_worker,
+        name="Rig2AsyncNativeSync",
+        daemon=True,
+    )
+    try:
+        thread.start()
+        return True
+    except Exception:
+        with _ASYNC_NATIVE_SYNC_LOCK:
+            _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
+        raise
+
+
+def _consume_async_native_sync_result():
+    global _ASYNC_NATIVE_SYNC_RESULT_PENDING, _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+    with _ASYNC_NATIVE_SYNC_LOCK:
+        if not _ASYNC_NATIVE_SYNC_RESULT_PENDING:
+            return None
+        refresh_runtime = _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+        _ASYNC_NATIVE_SYNC_RESULT_PENDING = False
+        _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
+    return {
+        "refresh_runtime": refresh_runtime,
+    }
+
+
 def _heartbeat_timer():
     """Blender timer callback — sends heartbeat and reschedules itself."""
     global _HEARTBEAT_TIMER_ACTIVE
@@ -48,13 +108,26 @@ def _heartbeat_timer():
         heartbeat_result = None
 
     try:
+        async_result = _consume_async_native_sync_result()
+        if async_result is not None:
+            try:
+                from ..modules.face_cap.runtime import get_runtime_service
+
+                get_runtime_service().refresh_backend()
+            except Exception:
+                pass
+            try:
+                from ..feature_registration import reconcile_feature_modules
+
+                reconcile_feature_modules()
+            except Exception:
+                pass
+
         actions = mgr.pop_post_heartbeat_actions()
         if actions.get("sync_native") and mgr._client.session is not None:
-            sync_license_to_native_modules()
-        if actions.get("refresh_runtime"):
-            from .feature_access import refresh_feature_runtime
-
-            refresh_feature_runtime()
+            _request_async_native_sync(
+                refresh_runtime=bool(actions.get("refresh_runtime")),
+            )
     except Exception:
         pass
 
@@ -92,8 +165,10 @@ def register():
 
     try:
         mgr = get_license_manager()
-        # Sync any existing session to native modules on startup.
-        sync_license_to_native_modules()
+        # Do not block Blender startup on native grant / JWKS network requests.
+        # Kick off startup sync in a background thread instead.
+        if mgr._client.session is not None:
+            _request_async_native_sync(prewarm_verification=True)
         if mgr.should_trigger_immediate_heartbeat():
             mgr.request_heartbeat(reason="register_overdue")
         _LICENSE_RUNTIME_READY = True

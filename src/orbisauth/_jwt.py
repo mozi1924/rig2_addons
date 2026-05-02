@@ -24,6 +24,11 @@ JWKS_ENDPOINT_PATH = "/api/v1/jwks.json"
 _jwks_cache: dict[str, dict[str, Any]] = {}
 
 
+def get_cached_jwks(server_url: str) -> dict[str, Any] | None:
+    """Return cached JWKS for a server, or None if not cached."""
+    return _jwks_cache.get(server_url)
+
+
 @dataclass
 class AccessClaims:
     """Parsed and locally verified access token claims."""
@@ -91,7 +96,7 @@ def _rs256_verify(signing_input: bytes, signature: bytes, modulus: int, exponent
     return decrypted == expected
 
 
-def fetch_jwks(server_url: str, timeout: float = 30.0) -> dict[str, Any]:
+def fetch_jwks(server_url: str, timeout: float = 30.0, allow_network: bool = True) -> dict[str, Any]:
     """Fetch the JWK set from the server and cache it in memory.
 
     Returns the full JWKS response dict (with 'keys' list).
@@ -99,6 +104,8 @@ def fetch_jwks(server_url: str, timeout: float = 30.0) -> dict[str, Any]:
     cached = _jwks_cache.get(server_url)
     if cached is not None:
         return cached
+    if not allow_network:
+        raise OrbisAuthTokenError("JWKS cache is empty")
 
     url = f"{server_url.rstrip('/')}{JWKS_ENDPOINT_PATH}"
     response = _api_request("GET", url, timeout=timeout)
@@ -124,6 +131,7 @@ def verify_access_token(
     issuer: str = DEFAULT_TOKEN_ISSUER,
     clock_skew: int = 30,
     timeout: float = 30.0,
+    allow_network: bool = True,
 ) -> AccessClaims:
     """Verify an RS256-signed access JWT locally.
 
@@ -142,7 +150,7 @@ def verify_access_token(
     kid = header.get("kid")
 
     # Fetch JWKS and find the matching key
-    jwks = fetch_jwks(server_url, timeout=timeout)
+    jwks = fetch_jwks(server_url, timeout=timeout, allow_network=allow_network)
     keys = jwks.get("keys", [])
 
     jwk: dict[str, Any] | None = None

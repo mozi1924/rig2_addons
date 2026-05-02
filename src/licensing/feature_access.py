@@ -192,7 +192,6 @@ def _get_license_snapshot():
 
 def _get_binary_snapshot(feature_id):
     wrapper = get_native_wrapper(feature_id)
-    wrapper.refresh_native_backend()
     load_state = wrapper.get_load_state()
     from ..native.loader import (
         get_primary_native_module_path,

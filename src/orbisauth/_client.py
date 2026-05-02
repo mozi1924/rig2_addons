@@ -303,7 +303,7 @@ class OrbisAuthClient:
     # Token Verification (offline / local)
     # ------------------------------------------------------------------
 
-    def verify_access_token(self, token: str | None = None) -> Any:
+    def verify_access_token(self, token: str | None = None, *, allow_network: bool = True) -> Any:
         """Verify the access token JWT locally (no server call).
 
         Uses the cached JWKS public key. Returns AccessClaims on success.
@@ -324,9 +324,10 @@ class OrbisAuthClient:
             t,
             server_url=self.server_url,
             timeout=self.timeout_seconds,
+            allow_network=allow_network,
         )
 
-    def get_features(self) -> dict[str, Any]:
+    def get_features(self, *, allow_network: bool = True) -> dict[str, Any]:
         """Verify the current access token locally and return its feature flags.
 
         This is the primary offline feature-gating API. It performs local
@@ -336,8 +337,12 @@ class OrbisAuthClient:
         Returns the features dict from the token (empty dict if no features).
         Raises OrbisAuthTokenError if the token is invalid or expired.
         """
-        claims = self.verify_access_token()
+        claims = self.verify_access_token(allow_network=allow_network)
         return claims.features
+
+    def get_features_no_network(self) -> dict[str, Any]:
+        """Return locally verified feature flags using cached JWKS only."""
+        return self.get_features(allow_network=False)
 
     # ------------------------------------------------------------------
     # Device Management

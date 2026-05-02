@@ -101,10 +101,13 @@ def _load_manager_module():
             type(self).heartbeat_callback()
             return types.SimpleNamespace(ok=True)
 
-        def get_features(self):
+        def get_features(self, allow_network=True):
             if self.session is None:
                 raise OrbisAuthError("no session")
             return dict(getattr(self.session, "features", {}) or {})
+
+        def get_features_no_network(self):
+            return self.get_features(allow_network=False)
 
         def request_download(self, **kwargs):
             return None
@@ -293,9 +296,38 @@ class LicenseManagerTest(unittest.TestCase):
         expiry_map["refresh-token"] = now - 1
         self.assertFalse(manager.request_heartbeat(reason="timer_overdue", force=False))
 
+    def test_get_status_uses_cached_only_verification_on_main_thread(self):
+        manager_mod, fake_client_cls, expiry_map = _load_manager_module()
+        fake_client_cls.default_session = None
+        manager = manager_mod.LicenseManager()
+
+        now = time.time()
+        session = _make_session(
+            now,
+            access_exp=now + 900,
+            refresh_exp=now + 3600,
+            features={"face_cap": True},
+        )
+        manager._client.session = session
+        expiry_map["access-token"] = now + 900
+        expiry_map["refresh-token"] = now + 3600
+
+        def fail_if_network_features(*args, **kwargs):
+            raise AssertionError("main thread should not call network-capable get_features()")
+
+        manager._client.get_features = fail_if_network_features
+        manager._client.get_features_no_network = lambda: (_ for _ in ()).throw(
+            manager_mod.OrbisAuthTokenError("jwks cache is empty")
+        )
+
+        status = manager.get_status()
+
+        self.assertFalse(status["activated"])
+        self.assertEqual(status["features"], {"face_cap": True})
+
 
 class LicensingTimerTest(unittest.TestCase):
-    def test_timer_consumes_actions_and_fast_polls_after_result(self):
+    def test_timer_queues_async_native_sync_and_fast_polls_after_result(self):
         manager = types.SimpleNamespace(
             _client=types.SimpleNamespace(session=object()),
             consume_heartbeat_result=lambda: {"ok": True},
@@ -307,15 +339,15 @@ class LicensingTimerTest(unittest.TestCase):
         )
         licensing_mod, feature_access_mod = _load_licensing_init_module(manager)
 
-        sync_calls = []
-        licensing_mod.sync_license_to_native_modules = lambda: sync_calls.append(True)
+        sync_requests = []
+        licensing_mod._request_async_native_sync = lambda **kwargs: sync_requests.append(kwargs) or True
         licensing_mod._HEARTBEAT_TIMER_ACTIVE = True
 
         next_interval = licensing_mod._heartbeat_timer()
 
         self.assertEqual(next_interval, 1.0)
-        self.assertEqual(sync_calls, [True])
-        self.assertEqual(feature_access_mod.refresh_calls, 1)
+        self.assertEqual(sync_requests, [{"refresh_runtime": True}])
+        self.assertEqual(feature_access_mod.refresh_calls, 0)
 
     def test_timer_requests_immediate_background_heartbeat_when_overdue(self):
         requests = []
