@@ -111,7 +111,29 @@ class NativeFeatureSupportTest(unittest.TestCase):
         self.assertEqual(apply_calls, [])
         self.assertEqual(len(clear_calls), 1)
 
-    def test_sync_does_not_reauthorize_after_native_integrity_failure(self):
+    def test_sync_reauthorizes_after_native_binary_digest_mismatch(self):
+        module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
+            ready_for_sync=True,
+            initial_native_status={
+                "authorized": False,
+                "reason": "Native binary digest mismatch.",
+            },
+        )
+
+        module.sync_license_state_to_native(
+            logger=types.SimpleNamespace(debug=lambda *args, **kwargs: None),
+            feature_id="face_cap",
+            apply_grant=apply_grant,
+            clear_license_state=clear_license_state,
+            get_license_status=get_license_status,
+        )
+
+        self.assertEqual(len(apply_calls), 1)
+        self.assertEqual(apply_calls[-1][0], "grant-ok")
+        self.assertEqual(apply_calls[-1][1], "trust-bundle-ok")
+        self.assertEqual(clear_calls, [])
+
+    def test_sync_does_not_reauthorize_after_python_source_integrity_failure(self):
         module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
             ready_for_sync=True,
             initial_native_status={

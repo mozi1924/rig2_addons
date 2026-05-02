@@ -22,6 +22,21 @@ _NATIVE_REDOWNLOAD_REASON_MARKERS = (
     "authorization state is unavailable",
 )
 
+_NATIVE_GRANT_REFRESH_REASON_MARKERS = (
+    "digest mismatch",
+    "size mismatch",
+    "artifact manifest",
+    "manifest mismatch",
+    "module mismatch",
+    "feature mismatch",
+    "binary validation failed",
+    "native binary path is unavailable",
+    "native grant missing artifact manifest",
+    "native grant missing python manifest",
+    "artifact manifest is incomplete",
+    "authorization state is unavailable",
+)
+
 def get_feature_status(feature_name):
     from ..licensing.feature_access import get_feature_status as _get_feature_status
 
@@ -62,6 +77,27 @@ def native_reason_requires_redownload(reason):
     return any(marker in detail for marker in _NATIVE_REDOWNLOAD_REASON_MARKERS)
 
 
+def native_reason_allows_grant_refresh(reason):
+    detail = str(reason or "").strip().lower()
+    if not detail:
+        return False
+    return any(marker in detail for marker in _NATIVE_GRANT_REFRESH_REASON_MARKERS)
+
+
+def get_native_failure_reason(get_license_status):
+    if not callable(get_license_status):
+        return ""
+    try:
+        status = get_license_status() or {}
+    except Exception:
+        return ""
+    if not isinstance(status, dict):
+        return ""
+    if status.get("authorized", False):
+        return ""
+    return str(status.get("reason", "") or "").strip()
+
+
 def get_feature_lock_reason(*, feature_label, binary_available, binary_lock_reason, feature_name):
     status = get_feature_status(feature_name)
     return status.get("message") or f"{feature_label} is not unlocked."
@@ -86,9 +122,15 @@ def sync_license_state_to_native(
         from ..licensing.manager import get_license_manager
 
         manager = get_license_manager()
-        if native_integrity_failed(get_license_status):
-            logger.debug("Native integrity validation failed for %s; not applying license state.", feature_id)
-            return
+        native_failure_reason = get_native_failure_reason(get_license_status)
+        if native_reason_requires_redownload(native_failure_reason):
+            if not native_reason_allows_grant_refresh(native_failure_reason):
+                logger.debug(
+                    "Native integrity validation failed for %s; not applying license state. reason=%s",
+                    feature_id,
+                    native_failure_reason,
+                )
+                return
 
         if is_feature_ready_for_native(feature_id):
             trust_bundle_token = manager.get_trust_bundle_token(allow_network=True)
