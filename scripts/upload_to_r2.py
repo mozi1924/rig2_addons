@@ -5,7 +5,7 @@ Target R2 structure (per R2_STORAGE_STRUCTURE.md):
     {storage_prefix}/{module}/{platform}/{arch}/{artifact}
 
 Where artifact is the platform-inferred filename:
-    mac → mac.dylib   linux → linux.so   win → win.dll
+    mac → mac.dylib   linux → linux.so   win → win.pyd
 
 Requires boto3 (install with: pip install boto3).
 """

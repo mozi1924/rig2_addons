@@ -15,6 +15,16 @@ SPEC.loader.exec_module(native_artifacts)
 
 
 class NativeArtifactsTest(unittest.TestCase):
+    def test_windows_runtime_artifacts_use_pyd_extension(self):
+        windows_specs = [
+            spec
+            for spec in native_artifacts.RUNTIME_ARTIFACT_SPECS
+            if spec.platform == "win"
+        ]
+
+        self.assertTrue(windows_specs)
+        self.assertTrue(all(spec.artifact_name == "win.pyd" for spec in windows_specs))
+
     def test_validate_runtime_layout_requires_all_three_modules_per_tag(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

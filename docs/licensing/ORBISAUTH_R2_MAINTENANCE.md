@@ -214,8 +214,8 @@ session 文件名固定为：
 - `darwin-arm64-abi3` -> `mac/arm64/mac.dylib`
 - `linux-x86_64-abi3` -> `linux/amd64/linux.so`
 - `linux-arm64-abi3` -> `linux/arm64/linux.so`
-- `win32-x86_64-abi3` -> `win/amd64/win.dll`
-- `win32-arm64-abi3` -> `win/arm64/win.dll`
+- `win32-x86_64-abi3` -> `win/amd64/win.pyd`
+- `win32-arm64-abi3` -> `win/arm64/win.pyd`
 
 所以最终路径大概长这样：
 
@@ -223,7 +223,7 @@ session 文件名固定为：
 rig2/rig2_face_cap/mac/arm64/mac.dylib
 rig2/rig2_face_cap/mac/amd64/mac.dylib
 rig2/rig2_face_cap/linux/amd64/linux.so
-rig2/rig2_face_cap/win/amd64/win.dll
+rig2/rig2_face_cap/win/amd64/win.pyd
 rig2/rig2_miframes/mac/arm64/mac.dylib
 ...
 ```
@@ -366,7 +366,7 @@ export R2_BUCKET_NAME=...
 
 - `mac.dylib`
 - `linux.so`
-- `win.dll`
+- `win.pyd`
 
 以后如果服务端下载逻辑按原 wheel 文件名找，很可能对不上。现在这套约定明显是“服务端知道标准 artifact 名，不依赖原始编译文件名”。
 
@@ -398,7 +398,7 @@ export R2_BUCKET_NAME=...
 - feature 名：`face_cap`、`miframes`
 - module 名：`rig2_face_cap`、`rig2_miframes`
 - R2 storage prefix：`rig2`
-- artifact 名：`mac.dylib`、`linux.so`、`win.dll`
+- artifact 名：`mac.dylib`、`linux.so`、`win.pyd`
 
 这些名字一旦有一处改了，常常会连锁影响：
 

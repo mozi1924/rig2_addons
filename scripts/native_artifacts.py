@@ -72,8 +72,8 @@ RUNTIME_ARTIFACT_SPECS = (
     RuntimeArtifactSpec("darwin-arm64-abi3", "mac", "arm64", "mac.dylib"),
     RuntimeArtifactSpec("linux-x86_64-abi3", "linux", "amd64", "linux.so"),
     RuntimeArtifactSpec("linux-arm64-abi3", "linux", "arm64", "linux.so"),
-    RuntimeArtifactSpec("win32-x86_64-abi3", "win", "amd64", "win.dll"),
-    RuntimeArtifactSpec("win32-arm64-abi3", "win", "arm64", "win.dll"),
+    RuntimeArtifactSpec("win32-x86_64-abi3", "win", "amd64", "win.pyd"),
+    RuntimeArtifactSpec("win32-arm64-abi3", "win", "arm64", "win.pyd"),
 )
 RUNTIME_TAG_MAP = {spec.runtime_tag: spec for spec in RUNTIME_ARTIFACT_SPECS}
 

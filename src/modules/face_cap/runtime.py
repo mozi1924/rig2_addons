@@ -154,9 +154,6 @@ class FaceCapRuntimeService:
 
     def get_status_snapshot(self):
         self.refresh_backend()
-        native_stats = self._get_native_stats() if self._native_receiver_enabled else None
-        if native_stats:
-            self._apply_native_stats(native_stats)
 
         with self._lock:
             if self._last_packet_time > 0.0:
@@ -221,34 +218,15 @@ class FaceCapRuntimeService:
             self.set_error(f"Face Capture native receiver failed on ws://{host}:{port}: {exc}")
             return
 
-        deadline = time.time() + FACE_CAP_STARTUP_TIMEOUT_SECONDS
-        last_stats = None
-        while time.time() < deadline:
-            stats = self._get_native_stats()
-            if stats:
-                last_stats = stats
-                self._apply_native_stats(stats)
-                if stats.get("is_listening"):
-                    return
-                if stats.get("bind_failed") or stats.get("last_error"):
-                    return
-                status_message = str(stats.get("status_message", "") or "").strip().lower()
-                if status_message and status_message not in {"starting", "stopped"}:
-                    break
-            time.sleep(FACE_CAP_STARTUP_POLL_INTERVAL_SECONDS)
-
-        if last_stats:
-            if last_stats.get("last_error"):
-                self.set_error(str(last_stats.get("last_error")))
-                return
-            if last_stats.get("status_message") and not last_stats.get("is_listening"):
-                self.set_error(str(last_stats.get("status_message")))
-                return
-
-        self.set_error(
-            "Face Capture receiver did not enter listening state. "
-            "Update or reinstall the Face Capture binary."
-        )
+        with self._lock:
+            self._native_is_listening = True
+            self._native_bind_failed = False
+            self._client_address = ""
+            self._status_message = f"Listening on ws://{host}:{int(port)}"
+            self._last_error = ""
+            self._transport_mode = "websocket"
+            self._transport_encoding = None
+        return
 
     def restart(self, host=None, port=None):
         self.start(host, port)
@@ -474,22 +452,18 @@ class FaceCapRuntimeService:
     def _poll_native_packet(self):
         packet = None
         transport_encoding = None
-        stats = None
         try:
             poll_latest_packet = self._runtime_bindings.get("poll_latest_packet")
             polled = poll_latest_packet() if callable(poll_latest_packet) else None
             if isinstance(polled, dict):
                 packet = polled.get("packet")
                 transport_encoding = polled.get("transport_encoding")
-            stats = self._get_native_stats()
         except Exception as exc:
             self.set_error(f"Native Face Capture receiver error: {exc}")
             return
 
         if packet is not None:
             self.ingest_packet_data(packet, transport_encoding=transport_encoding or "json")
-        if stats:
-            self._apply_native_stats(stats)
 
     def refresh_backend(self):
         backend_service = get_face_cap_backend_service()

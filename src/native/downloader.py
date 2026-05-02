@@ -93,7 +93,7 @@ def _get_download_request_variants():
     artifact_name = {
         "mac": "mac.dylib",
         "linux": "linux.so",
-        "win": "win.dll",
+        "win": "win.pyd",
     }.get(platform_name, "")
     variants = []
     if platform_name:

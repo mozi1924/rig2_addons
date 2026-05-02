@@ -132,6 +132,58 @@ class FaceCapRuntimeTest(unittest.TestCase):
         self.assertFalse(runtime._native_is_listening)
         self.assertEqual(runtime._native_port, 0)
 
+    def test_status_snapshot_uses_cached_state_without_native_stats(self):
+        module, service_state = load_runtime_module()
+        stats_calls = []
+        unlocked_bindings = {
+            "start_receiver": lambda *args, **kwargs: None,
+            "stop_receiver": lambda: None,
+            "poll_latest_packet": lambda: None,
+            "get_receiver_stats": lambda: stats_calls.append("called") or {
+                "status_message": "unexpected",
+            },
+        }
+        service_state["service"] = types.SimpleNamespace(
+            get_runtime_bindings=lambda: unlocked_bindings,
+            is_feature_unlocked=lambda: True,
+            get_lock_reason=lambda: "locked",
+        )
+        runtime = module.FaceCapRuntimeService()
+        runtime._runtime_bindings = unlocked_bindings
+        runtime._native_receiver_enabled = True
+        runtime._status_message = "Cached"
+
+        snapshot = runtime.get_status_snapshot()
+
+        self.assertEqual(stats_calls, [])
+        self.assertEqual(snapshot["status_message"], "Cached")
+
+    def test_start_receiver_does_not_poll_native_stats_during_startup(self):
+        module, service_state = load_runtime_module()
+        start_calls = []
+        stats_calls = []
+        unlocked_bindings = {
+            "start_receiver": lambda *args, **kwargs: start_calls.append((args, kwargs)),
+            "stop_receiver": lambda: None,
+            "poll_latest_packet": lambda: None,
+            "get_receiver_stats": lambda: stats_calls.append("called") or None,
+        }
+        service_state["service"] = types.SimpleNamespace(
+            get_runtime_bindings=lambda: unlocked_bindings,
+            is_feature_unlocked=lambda: True,
+            get_lock_reason=lambda: "locked",
+        )
+        runtime = module.FaceCapRuntimeService()
+        runtime._runtime_bindings = unlocked_bindings
+        runtime._native_receiver_enabled = True
+
+        runtime.start(host="127.0.0.1", port=9000, settings=object())
+
+        self.assertEqual(len(start_calls), 1)
+        self.assertEqual(stats_calls, [])
+        self.assertTrue(runtime._native_is_listening)
+        self.assertEqual(runtime._status_message, "Listening on ws://127.0.0.1:9000")
+
 
 if __name__ == "__main__":
     unittest.main()

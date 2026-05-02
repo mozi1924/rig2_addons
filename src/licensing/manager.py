@@ -686,7 +686,7 @@ class LicenseManager:
         artifact_name = {
             "mac": "mac.dylib",
             "linux": "linux.so",
-            "win": "win.dll",
+            "win": "win.pyd",
         }.get(platform_name, "")
         return platform_name, arch_name, artifact_name
 
