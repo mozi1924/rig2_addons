@@ -142,8 +142,7 @@ class FaceCapBackendService(NativeLicensedFeatureService):
         }
 
     def load_offline_face_cap_payload(self, filepath):
-        self.require_feature_unlocked()
-        return self.get_backend().load_offline_face_cap_payload(filepath)
+        return self.call_unlocked_backend("load_offline_face_cap_payload", filepath)
 
 
 _face_cap_backend_service = FaceCapBackendService()

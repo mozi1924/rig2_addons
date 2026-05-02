@@ -32,24 +32,19 @@ class MiframesBackendService(NativeLicensedFeatureService):
         return _LockedMiframesBackend(lock_reason)
 
     def plan_miframes_keyframe_ops(self, data, config, start_frame, fps_scale):
-        self.require_feature_unlocked()
-        return self.get_backend().plan_miframes_keyframe_ops(data, config, start_frame, fps_scale)
+        return self.call_unlocked_backend(
+            "plan_miframes_keyframe_ops",
+            data,
+            config,
+            start_frame,
+            fps_scale,
+        )
 
     def get_models(self):
-        if not self.is_feature_unlocked():
-            return {}
-        getter = getattr(self.get_backend(), "get_models", None)
-        if callable(getter):
-            return getter()
-        return {}
+        return self.call_optional_backend("get_models", default={})
 
     def get_model_config(self, model_key):
-        if not self.is_feature_unlocked():
-            return None
-        getter = getattr(self.get_backend(), "get_model_config", None)
-        if callable(getter):
-            return getter(model_key)
-        return None
+        return self.call_optional_backend("get_model_config", model_key, default=None)
 
 
 _miframes_backend_service = MiframesBackendService()

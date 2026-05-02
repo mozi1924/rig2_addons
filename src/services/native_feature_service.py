@@ -127,3 +127,18 @@ class NativeLicensedFeatureService:
         if self.is_feature_unlocked():
             return
         raise FeatureLockedError(self.spec.label, self.get_lock_reason())
+
+    def call_unlocked_backend(self, method_name: str, /, *args, **kwargs):
+        """Call a backend method after enforcing unlocked feature access."""
+        self.require_feature_unlocked()
+        method = getattr(self.get_backend(), method_name)
+        return method(*args, **kwargs)
+
+    def call_optional_backend(self, method_name: str, /, *args, default=None, **kwargs):
+        """Call a backend method only when feature is unlocked and callable."""
+        if not self.is_feature_unlocked():
+            return default
+        method = getattr(self.get_backend(), method_name, None)
+        if not callable(method):
+            return default
+        return method(*args, **kwargs)
