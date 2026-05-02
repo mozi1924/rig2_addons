@@ -1,9 +1,11 @@
 import importlib.util
 import importlib.machinery
+import json
 import os
 import platform
 import pathlib
 import sys
+import hashlib
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Optional, Sequence
@@ -76,6 +78,64 @@ def get_primary_native_module_path(module_name):
         get_abi3_platform_tag(),
         module_name + get_preferred_extension_suffix(),
     )
+
+
+def get_binary_manifest_path(module_path):
+    return module_path + ".orbis.json"
+
+
+def compute_file_sha256(path):
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(65536)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def load_binary_manifest(module_path):
+    manifest_path = get_binary_manifest_path(module_path)
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(f"Binary manifest is not an object: {manifest_path}")
+    return data
+
+
+def validate_binary_artifact(module_path):
+    manifest_path = get_binary_manifest_path(module_path)
+    if not os.path.exists(manifest_path):
+        return f"Native backend is locked: missing binary manifest for '{module_path}'."
+
+    try:
+        manifest = load_binary_manifest(module_path)
+    except Exception as exc:
+        return f"Native backend is locked: invalid binary manifest for '{module_path}': {exc}"
+
+    expected_sha = str(manifest.get("artifact_sha256", "") or "")
+    expected_size = int(manifest.get("artifact_size", 0) or 0)
+    if not expected_sha or expected_size <= 0:
+        return f"Native backend is locked: incomplete binary manifest for '{module_path}'."
+
+    try:
+        actual_size = os.path.getsize(module_path)
+        if actual_size != expected_size:
+            return (
+                "Native backend is locked: artifact size mismatch for "
+                f"'{module_path}' (expected {expected_size}, got {actual_size})."
+            )
+        actual_sha = compute_file_sha256(module_path)
+    except Exception as exc:
+        return f"Native backend is locked: failed to hash '{module_path}': {exc}"
+
+    if actual_sha != expected_sha:
+        return (
+            "Native backend is locked: artifact digest mismatch for "
+            f"'{module_path}'."
+        )
+    return ""
 
 
 def list_existing_native_module_paths(module_name):
@@ -225,6 +285,11 @@ def load_native_extension_result(
             continue
 
         try:
+            manifest_error = validate_binary_artifact(module_path)
+            if manifest_error:
+                last_error = manifest_error
+                continue
+
             spec = importlib.util.spec_from_file_location(module_name, module_path)
             if spec is None or spec.loader is None:
                 last_error = f"Native backend is locked: could not create import spec for '{module_path}'."

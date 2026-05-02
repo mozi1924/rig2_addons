@@ -14,16 +14,7 @@ namespace {
 
 constexpr int kApiVersion = 1;
 
-static const unsigned char kLicenseSecret[32] = {
-    0x4a, 0xb8, 0xf0, 0x3d, 0x1c, 0x27, 0x5a, 0x6e,
-    0xb9, 0x94, 0x0d, 0x8b, 0x6f, 0x3a, 0x12, 0x45,
-    0x72, 0xef, 0x39, 0xac, 0xb5, 0x41, 0x68, 0xd0,
-    0xc2, 0xe7, 0x7f, 0xab, 0x90, 0x43, 0x1d, 0xe6,
-};
-
 static rig2_shared::LicenseState g_license_state;
-
-#include "integrity_hashes.h"
 
 using rig2_shared::PyRef;
 
@@ -146,30 +137,23 @@ PyObject* build_entry_dict(const Entry& entry) {
   return result;
 }
 
-static PyObject* method_set_license_state(PyObject*, PyObject* args) {
-  const char* device_id = nullptr;
-  const char* hmac_hex = nullptr;
-  uint64_t expires_at = 0;
-  if (!PyArg_ParseTuple(args, "sKs:set_license_state", &device_id, &expires_at, &hmac_hex)) {
+static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
+  const char* grant_token = nullptr;
+  const char* jwks_json = nullptr;
+  const char* addon_root = nullptr;
+  const char* module_path = nullptr;
+  if (!PyArg_ParseTuple(args, "ssss:apply_native_grant", &grant_token, &jwks_json, &addon_root, &module_path)) {
     return nullptr;
   }
 
-  rig2_shared::apply_license_state(
-      &g_license_state,
-      rig2_shared::hmac_sha256_verify(kLicenseSecret, device_id, static_cast<int64_t>(expires_at), hmac_hex),
-      static_cast<int64_t>(expires_at),
-      "R2BB native license verification failed. Re-sync the license or reinstall the binary.");
+  rig2_shared::apply_native_grant(
+      &g_license_state, grant_token, jwks_json, addon_root, module_path, "r2bb", "rig2_r2bb");
   Py_RETURN_NONE;
 }
 
-static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
-  PyObject* hashes_dict = nullptr;
-  if (!PyArg_ParseTuple(args, "O!:verify_integrity", &PyDict_Type, &hashes_dict)) {
-    return nullptr;
-  }
-
-  rig2_shared::verify_integrity_hashes(
-      hashes_dict, kExpectedPyHashes_rig2_r2bb, "R2BB", &g_license_state);
+static PyObject* method_clear_license_state(PyObject*, PyObject*) {
+  rig2_shared::clear_license_state(
+      &g_license_state, "License required. Activate your license in Addon Preferences.");
   Py_RETURN_NONE;
 }
 
@@ -311,8 +295,8 @@ PyMethodDef kMethods[] = {
     {"mapping_entries_to_export_name_map", method_mapping_entries_to_export_name_map, METH_VARARGS, "Build MI->export name map."},
     {"mapping_entries_to_rotation_axis_signs", method_mapping_entries_to_rotation_axis_signs, METH_VARARGS, "Build MI rotation sign map."},
     {"mapping_entries_to_transform_axis_signs", method_mapping_entries_to_transform_axis_signs, METH_VARARGS, "Build MI transform sign map."},
-    {"set_license_state", method_set_license_state, METH_VARARGS, "Set internal license state."},
-    {"verify_integrity", method_verify_integrity, METH_VARARGS, "Verify protected Python source hashes."},
+    {"apply_native_grant", method_apply_native_grant, METH_VARARGS, "Apply a signed native grant token."},
+    {"clear_license_state", method_clear_license_state, METH_NOARGS, "Clear the native license state."},
     {"get_license_status", method_get_license_status, METH_NOARGS, "Return native license status."},
     {nullptr, nullptr, 0, nullptr},
 };

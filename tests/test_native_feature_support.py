@@ -13,10 +13,9 @@ MODULE_PATH = ROOT / "src" / "services" / "_native_feature_support.py"
 def load_support_module(*, ready_for_sync, verify_error=None, initial_native_status=None):
     package_name = "rig2testpkg_native_support"
     module_name = f"{package_name}.services._native_feature_support"
-    proof_name = f"{package_name}.licensing._hmac_proof"
-    registry_name = f"{package_name}.licensing.registry"
     manager_name = f"{package_name}.licensing.manager"
     feature_access_name = f"{package_name}.licensing.feature_access"
+    jwt_name = f"{package_name}.orbisauth._jwt"
 
     for name in list(sys.modules):
         if name == package_name or name.startswith(package_name + "."):
@@ -28,17 +27,16 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     services_pkg.__path__ = []
     licensing_pkg = types.ModuleType(f"{package_name}.licensing")
     licensing_pkg.__path__ = []
-
-    proof_mod = types.ModuleType(proof_name)
-    proof_mod.compute_feature_proof = lambda feature_id, device_id: (1234567890, "proof-ok")
-
-    registry_mod = types.ModuleType(registry_name)
-    registry_mod.get_feature_spec = lambda feature_id: types.SimpleNamespace(
-        integrity_targets=(("manager.py", "licensing/manager.py"),)
-    )
+    orbisauth_pkg = types.ModuleType(f"{package_name}.orbisauth")
+    orbisauth_pkg.__path__ = []
+    jwt_mod = types.ModuleType(jwt_name)
+    jwt_mod.fetch_jwks = lambda server_url, timeout=30.0: {"keys": [{"kid": "test-key"}]}
 
     manager_mod = types.ModuleType(manager_name)
-    manager_mod.get_license_manager = lambda: types.SimpleNamespace(get_device_id=lambda: "dev-123")
+    manager_mod.get_license_manager = lambda: types.SimpleNamespace(
+        request_native_grant=lambda feature_id: types.SimpleNamespace(grant_token="grant-ok"),
+        _client=types.SimpleNamespace(server_url="https://example.invalid", timeout_seconds=5.0),
+    )
 
     feature_access_mod = types.ModuleType(feature_access_name)
     feature_access_mod.get_feature_status = lambda feature_name: {"effective_state": "needs_redownload"}
@@ -47,8 +45,8 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     sys.modules[package_name] = pkg
     sys.modules[f"{package_name}.services"] = services_pkg
     sys.modules[f"{package_name}.licensing"] = licensing_pkg
-    sys.modules[proof_name] = proof_mod
-    sys.modules[registry_name] = registry_mod
+    sys.modules[f"{package_name}.orbisauth"] = orbisauth_pkg
+    sys.modules[jwt_name] = jwt_mod
     sys.modules[manager_name] = manager_mod
     sys.modules[feature_access_name] = feature_access_mod
 
@@ -58,60 +56,61 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
 
-    verify_calls = []
-    set_calls = []
+    apply_calls = []
+    clear_calls = []
     native_status = dict(initial_native_status or {"authorized": False, "reason": ""})
-
-    def verify_func(hashes):
-        verify_calls.append(dict(hashes))
-        if verify_error is not None:
-            raise verify_error
 
     def get_license_status():
         return dict(native_status)
 
-    def set_license_state(device_id, expires_at, hmac_proof):
-        set_calls.append((device_id, expires_at, hmac_proof))
+    def apply_grant(grant_token, jwks_json, addon_root):
+        if verify_error is not None:
+            raise verify_error
+        apply_calls.append((grant_token, jwks_json, addon_root))
 
-    return module, verify_calls, set_calls, verify_func, set_license_state, get_license_status
+    def clear_license_state():
+        clear_calls.append(True)
+
+    return module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status
 
 
 class NativeFeatureSupportTest(unittest.TestCase):
     def test_sync_authorizes_feature_when_pre_native_state_is_ready(self):
-        module, verify_calls, set_calls, verify_func, set_license_state, get_license_status = load_support_module(
+        module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
             ready_for_sync=True,
         )
 
         module.sync_license_state_to_native(
             logger=types.SimpleNamespace(debug=lambda *args, **kwargs: None),
             feature_id="face_cap",
-            set_license_state=set_license_state,
-            verify_func=verify_func,
+            apply_grant=apply_grant,
+            clear_license_state=clear_license_state,
             get_license_status=get_license_status,
         )
 
-        self.assertEqual(len(verify_calls), 1)
-        self.assertEqual(set_calls[-1], ("dev-123", 1234567890, "proof-ok"))
+        self.assertEqual(len(apply_calls), 1)
+        self.assertEqual(apply_calls[-1][0], "grant-ok")
+        self.assertEqual(clear_calls, [])
 
     def test_sync_marks_invalid_when_integrity_verification_fails(self):
-        module, verify_calls, set_calls, verify_func, set_license_state, get_license_status = load_support_module(
+        module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
             ready_for_sync=True,
-            verify_error=RuntimeError("hash mismatch"),
+            verify_error=RuntimeError("grant failed"),
         )
 
         module.sync_license_state_to_native(
             logger=types.SimpleNamespace(debug=lambda *args, **kwargs: None),
             feature_id="face_cap",
-            set_license_state=set_license_state,
-            verify_func=verify_func,
+            apply_grant=apply_grant,
+            clear_license_state=clear_license_state,
             get_license_status=get_license_status,
         )
 
-        self.assertEqual(len(verify_calls), 1)
-        self.assertEqual(set_calls[-1], ("", 0, "invalid"))
+        self.assertEqual(apply_calls, [])
+        self.assertEqual(len(clear_calls), 1)
 
     def test_sync_does_not_reauthorize_after_native_integrity_failure(self):
-        module, verify_calls, set_calls, verify_func, set_license_state, get_license_status = load_support_module(
+        module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
             ready_for_sync=True,
             initial_native_status={
                 "authorized": False,
@@ -122,13 +121,13 @@ class NativeFeatureSupportTest(unittest.TestCase):
         module.sync_license_state_to_native(
             logger=types.SimpleNamespace(debug=lambda *args, **kwargs: None),
             feature_id="face_cap",
-            set_license_state=set_license_state,
-            verify_func=verify_func,
+            apply_grant=apply_grant,
+            clear_license_state=clear_license_state,
             get_license_status=get_license_status,
         )
 
-        self.assertEqual(len(verify_calls), 1)
-        self.assertEqual(set_calls, [])
+        self.assertEqual(apply_calls, [])
+        self.assertEqual(clear_calls, [])
 
 
 if __name__ == "__main__":

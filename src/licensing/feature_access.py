@@ -10,6 +10,7 @@ from enum import Enum
 from .paths import get_feature_status_path
 from .registry import get_feature_spec, iter_feature_specs
 from ..native.licensed_wrapper import get_native_wrapper
+from ..services._native_feature_support import native_reason_requires_redownload
 
 _log = logging.getLogger(__name__)
 
@@ -318,11 +319,12 @@ def get_feature_status(feature_id):
                 native_license = wrapper.get_license_status()
                 if isinstance(native_license, dict) and native_license:
                     if not native_license.get("authorized", False):
-                        effective_state = "needs_redownload"
-                        license_state = "licensed"
                         _native_auth_reason = str(
                             native_license.get("reason", "") or ""
                         ).strip()
+                        if native_reason_requires_redownload(_native_auth_reason):
+                            effective_state = "needs_redownload"
+                            license_state = "licensed"
             except Exception:
                 pass
 

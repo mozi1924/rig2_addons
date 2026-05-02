@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 NATIVE_CPP_SRC = ROOT / "native_cpp" / "src"
 SETUP_PY = ROOT / "native_cpp" / "setup.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"
-REQUIRED_NATIVE_CALLABLES = frozenset({"backend_name", "set_license_state", "verify_integrity"})
+REQUIRED_NATIVE_CALLABLES = frozenset({"backend_name", "apply_native_grant"})
 
 
 def _load_registry_module():
@@ -95,8 +95,6 @@ def validate_feature_chain() -> list[str]:
             errors.append(
                 f"{feature.feature_id}: required_callables missing {sorted(missing_callables)!r}"
             )
-        if not spec.shared_secret:
-            errors.append(f"{feature.feature_id}: shared_secret must not be empty")
         if not spec.integrity_targets:
             errors.append(f"{feature.feature_id}: integrity_targets must not be empty")
         for _, relative_path in spec.integrity_targets:
@@ -121,7 +119,7 @@ def main() -> int:
     print("  - registry entry with Orbisauth/download metadata")
     print("  - native_cpp/src/<module>.cpp")
     print("  - native build/package/upload manifests")
-    print("  - native license hooks: backend_name, set_license_state, verify_integrity")
+    print("  - native license hooks: backend_name, apply_native_grant")
     return 0
 
 

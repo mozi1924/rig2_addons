@@ -11,6 +11,7 @@ on:
       - "src/modules/r2bb/mapping.py"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
+      - "scripts/generate_native_manifests.py"
       - "scripts/native_artifacts.py"
       - "scripts/validate_feature_chain.py"
       - "scripts/upload_to_r2.py"
@@ -24,6 +25,7 @@ on:
       - "src/modules/r2bb/mapping.py"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
+      - "scripts/generate_native_manifests.py"
       - "scripts/native_artifacts.py"
       - "scripts/validate_feature_chain.py"
       - "scripts/upload_to_r2.py"
@@ -123,11 +125,24 @@ jobs:
         run: |
           python scripts/verify_native_dist.py native_dist --require-complete-matrix
 
+      - name: Generate native licensing manifests
+        run: |
+          python scripts/generate_native_manifests.py \
+            --binary-dir native_dist \
+            --output-dir native_manifests
+
       - name: Upload runtime binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-binaries
           path: native_dist/**
+          if-no-files-found: error
+
+      - name: Upload native manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-manifests
+          path: native_manifests/**
           if-no-files-found: error
 
   upload-r2:
@@ -151,6 +166,12 @@ jobs:
           name: native-binaries
           path: native_dist
 
+      - name: Download native manifest artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-manifests
+          path: native_manifests
+
       - name: Install upload dependencies
         run: pip install boto3
 
@@ -163,4 +184,5 @@ jobs:
         run: |
           python scripts/upload_to_r2.py \
             --binary-dir native_dist \
+            --manifest-dir native_manifests \
             --storage-prefix rig2

@@ -7,8 +7,60 @@ Orbisauth download API (backed by Cloudflare R2).
 
 import logging
 import os
+import json
+import hashlib
 
 _log = logging.getLogger(__name__)
+
+
+def _sha256_file(path):
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(65536)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _binary_manifest_path(module_path):
+    return module_path + ".orbis.json"
+
+
+def _write_binary_manifest(module_path, download_info):
+    manifest = {
+        "module": getattr(download_info, "module", ""),
+        "artifact_key": getattr(download_info, "artifact_key", ""),
+        "feature_id": getattr(download_info, "feature_id", ""),
+        "addon_version": getattr(download_info, "addon_version", ""),
+        "artifact_sha256": getattr(download_info, "artifact_sha256", ""),
+        "artifact_size": int(getattr(download_info, "artifact_size", 0) or 0),
+        "artifact_manifest_version": int(getattr(download_info, "artifact_manifest_version", 0) or 0),
+        "signed_artifact_manifest": getattr(download_info, "signed_artifact_manifest", ""),
+    }
+    manifest_path = _binary_manifest_path(module_path)
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def _validate_downloaded_artifact(temp_path, download_info):
+    expected_size = int(getattr(download_info, "artifact_size", 0) or 0)
+    expected_sha = str(getattr(download_info, "artifact_sha256", "") or "")
+    if expected_size:
+        actual_size = os.path.getsize(temp_path)
+        if actual_size != expected_size:
+            raise ValueError(
+                f"Downloaded artifact size mismatch: expected {expected_size}, got {actual_size}"
+            )
+    if expected_sha:
+        actual_sha = _sha256_file(temp_path)
+        if actual_sha != expected_sha:
+            raise ValueError(
+                "Downloaded artifact digest mismatch. "
+                f"Expected {expected_sha}, got {actual_sha}"
+            )
 
 
 def _get_platform_tag():
@@ -162,7 +214,9 @@ def ensure_native_binary(module_name, force=False):
         if os.path.exists(temp_path):
             os.remove(temp_path)
         mgr.download_file(download_info, temp_path)
+        _validate_downloaded_artifact(temp_path, download_info)
         os.replace(temp_path, dest_path)
+        _write_binary_manifest(dest_path, download_info)
         _log.info("Downloaded '%s' to '%s'.", module_name, dest_path)
         return os.path.exists(dest_path)
 

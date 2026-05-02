@@ -34,12 +34,12 @@ def backend_path():
     return _wrapper().backend_path()
 
 
-def set_license_state(device_id, expires_at, hmac_proof):
-    _wrapper().set_license_state(device_id, expires_at, hmac_proof)
+def apply_native_grant(grant_token, jwks_json, addon_root):
+    _wrapper().apply_native_grant(grant_token, jwks_json, addon_root)
 
 
-def verify_integrity(file_hashes):
-    _wrapper().verify_integrity(file_hashes)
+def clear_license_state():
+    _wrapper().clear_license_state()
 
 
 def get_license_status():

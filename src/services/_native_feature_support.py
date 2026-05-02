@@ -1,9 +1,21 @@
-import hashlib
+import json
 import logging
 import os
 
-from ..licensing._hmac_proof import compute_feature_proof
-from ..licensing.registry import get_feature_spec
+from ..orbisauth._jwt import fetch_jwks
+
+
+_NATIVE_REDOWNLOAD_REASON_MARKERS = (
+    "integrity check failed",
+    "digest mismatch",
+    "size mismatch",
+    "artifact manifest",
+    "manifest mismatch",
+    "module mismatch",
+    "binary validation failed",
+    "source root not found",
+    "missing file",
+)
 
 def get_feature_status(feature_name):
     from ..licensing.feature_access import get_feature_status as _get_feature_status
@@ -19,20 +31,8 @@ def is_feature_licensed(feature_name):
         return False
 
 
-def verify_source_integrity(feature_name, verify_func):
-    """Compute registered source hashes for a feature and pass them to native code."""
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    spec = get_feature_spec(feature_name)
-    hashes = {}
-    for name, relative_path in spec.integrity_targets:
-        path = os.path.join(base_dir, relative_path)
-        try:
-            with open(path, "rb") as handle:
-                hashes[name] = hashlib.sha256(handle.read()).hexdigest()
-        except Exception:
-            hashes[name] = ""
-
-    verify_func(hashes)
+def get_addon_source_root():
+    return os.path.dirname(os.path.dirname(__file__))
 
 
 def native_integrity_failed(get_license_status):
@@ -50,6 +50,13 @@ def native_integrity_failed(get_license_status):
     return "integrity check failed" in reason
 
 
+def native_reason_requires_redownload(reason):
+    detail = str(reason or "").strip().lower()
+    if not detail:
+        return False
+    return any(marker in detail for marker in _NATIVE_REDOWNLOAD_REASON_MARKERS)
+
+
 def get_feature_lock_reason(*, feature_label, binary_available, binary_lock_reason, feature_name):
     status = get_feature_status(feature_name)
     return status.get("message") or f"{feature_label} is not unlocked."
@@ -59,8 +66,8 @@ def sync_license_state_to_native(
     *,
     logger: logging.Logger,
     feature_id,
-    set_license_state,
-    verify_func,
+    apply_grant,
+    clear_license_state,
     get_license_status=None,
 ):
     """Propagate the current license state to a native backend."""
@@ -68,20 +75,26 @@ def sync_license_state_to_native(
         from ..licensing.manager import get_license_manager
 
         manager = get_license_manager()
-        device_id = manager.get_device_id()
-        verify_source_integrity(feature_id, verify_func)
         if native_integrity_failed(get_license_status):
             logger.debug("Native integrity validation failed for %s; not applying license state.", feature_id)
             return
 
         if is_feature_ready_for_native(feature_id):
-            expires_at, hmac_proof = compute_feature_proof(feature_id, device_id)
-            set_license_state(device_id, expires_at, hmac_proof)
+            grant = manager.request_native_grant(feature_id)
+            if grant is None:
+                clear_license_state()
+                return
+            jwks = fetch_jwks(manager._client.server_url, timeout=manager._client.timeout_seconds)
+            apply_grant(
+                grant.grant_token,
+                json.dumps(jwks, sort_keys=True),
+                get_addon_source_root(),
+            )
         else:
-            set_license_state(device_id, 0, "invalid")
+            clear_license_state()
     except Exception as exc:
         try:
-            set_license_state("", 0, "invalid")
+            clear_license_state()
         except Exception:
             pass
         logger.debug("Failed to sync license to native %s: %s", feature_id, exc)

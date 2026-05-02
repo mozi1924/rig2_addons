@@ -13,6 +13,7 @@ Requires boto3 (install with: pip install boto3).
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -65,6 +66,12 @@ def main() -> int:
         default=os.environ.get("R2_SECRET_ACCESS_KEY", ""),
         help="R2 secret access key",
     )
+    parser.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=None,
+        help="Optional directory containing generated native manifest JSON files.",
+    )
     args = parser.parse_args()
 
     if not args.bucket:
@@ -114,6 +121,23 @@ def main() -> int:
             )
             print(f"[r2-upload] {binary_path.name} -> s3://{args.bucket}/{key}")
             _upload_file(s3, binary_path, args.bucket, key)
+            uploaded += 1
+
+    if args.manifest_dir:
+        manifest_dir = args.manifest_dir
+    else:
+        manifest_dir = Path("dist") / "native_manifests"
+
+    if manifest_dir.is_dir():
+        for manifest_path in sorted(manifest_dir.rglob("*.json")):
+            rel = manifest_path.relative_to(manifest_dir)
+            version = rel.parts[0] if len(rel.parts) >= 2 else ""
+            feature_name = manifest_path.stem
+            if not version:
+                continue
+            key = f"{args.storage_prefix}/native-builds/{version}/{feature_name}.json"
+            print(f"[r2-upload] {manifest_path.name} -> s3://{args.bucket}/{key}")
+            _upload_file(s3, manifest_path, args.bucket, key)
             uploaded += 1
 
     if uploaded == 0:

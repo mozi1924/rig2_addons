@@ -5,7 +5,11 @@ import logging
 from ..licensing.feature_access import get_feature_status
 from ..licensing.registry import get_feature_spec
 from ..native.licensed_wrapper import get_native_wrapper
-from ._native_feature_support import get_feature_lock_reason, sync_license_state_to_native
+from ._native_feature_support import (
+    get_feature_lock_reason,
+    native_reason_requires_redownload,
+    sync_license_state_to_native,
+)
 from .errors import FeatureLockedError
 
 
@@ -35,7 +39,10 @@ class NativeLicensedFeatureService:
 
     def is_feature_unlocked(self):
         status = self.get_feature_status()
-        return status.get("effective_state") in {"ready", "session_warning"}
+        return (
+            status.get("effective_state") in {"ready", "session_warning"}
+            and bool(status.get("native_authorized", False))
+        )
 
     def get_feature_status(self):
         status = get_feature_status(self.feature_id)
@@ -45,12 +52,20 @@ class NativeLicensedFeatureService:
         status["native_expires_at"] = int(native_status.get("expires_at", 0) or 0)
 
         if status["effective_state"] in {"ready", "session_warning"} and not status["native_authorized"]:
-            status["effective_state"] = "needs_redownload"
             status["native_state"] = "validation_failed"
-            status["message"] = status["native_reason"] or f"{self.spec.label} native validation failed."
-            status["action"] = "download_binary"
-            status["can_download"] = True
-            status["can_retry"] = True
+            native_reason = status["native_reason"]
+            if native_reason_requires_redownload(native_reason):
+                status["effective_state"] = "needs_redownload"
+                status["message"] = native_reason or f"{self.spec.label} native validation failed."
+                status["action"] = "download_binary"
+                status["can_download"] = True
+                status["can_retry"] = True
+            else:
+                status["effective_state"] = "session_warning"
+                status["message"] = native_reason or f"{self.spec.label} native authorization is syncing."
+                status["action"] = "open_preferences"
+                status["can_download"] = False
+                status["can_retry"] = True
         return status
 
     def get_native_authorization_status(self):
@@ -90,9 +105,9 @@ class NativeLicensedFeatureService:
         sync_license_state_to_native(
             logger=self._log,
             feature_id=self.feature_id,
-            verify_func=self.wrapper.verify_integrity,
             get_license_status=self.wrapper.get_license_status,
-            set_license_state=self.wrapper.set_license_state,
+            apply_grant=self.wrapper.apply_native_grant,
+            clear_license_state=self.wrapper.clear_license_state,
         )
 
     def require_feature_unlocked(self):

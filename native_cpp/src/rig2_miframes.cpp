@@ -10,47 +10,27 @@ namespace {
 
 constexpr int kApiVersion = 2;
 
-// Embedded license secret shared with the Python licensing layer.
-static const unsigned char kLicenseSecret[32] = {
-    0xc8, 0x47, 0x3d, 0x91, 0xe0, 0x5a, 0x2f, 0x6b,
-    0x78, 0xd1, 0xc3, 0x9e, 0x4a, 0x0b, 0x57, 0x26,
-    0xf9, 0x31, 0x8c, 0x4d, 0x2e, 0x7a, 0x5b, 0x06,
-    0xf1, 0xd3, 0xc8, 0xe9, 0xa4, 0xb7, 0xf2, 0x05,
-};
-
 // License state — set via set_license_state(), checked by plan_miframes_keyframe_ops.
 static rig2_shared::LicenseState g_license_state;
 
-// Expected SHA-256 hashes of critical Python files (hex).
-// Generated at build time by scripts/generate_integrity_hashes.py.
-#include "integrity_hashes.h"
-
-static PyObject* method_set_license_state(PyObject*, PyObject* args) {
-    const char* device_id = nullptr;
-    const char* hmac_hex = nullptr;
-    uint64_t expires_at = 0;
-    if (!PyArg_ParseTuple(args, "sKs:set_license_state",
-                          &device_id, &expires_at, &hmac_hex))
+static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
+    const char* grant_token = nullptr;
+    const char* jwks_json = nullptr;
+    const char* addon_root = nullptr;
+    const char* module_path = nullptr;
+    if (!PyArg_ParseTuple(args, "ssss:apply_native_grant",
+                          &grant_token, &jwks_json, &addon_root, &module_path))
         return nullptr;
 
-    rig2_shared::apply_license_state(
-        &g_license_state,
-        rig2_shared::hmac_sha256_verify(kLicenseSecret, device_id, (int64_t)expires_at,
-                                        hmac_hex),
-        (int64_t)expires_at,
-        "MIFrames native license verification failed. "
-        "Re-sync the license or reinstall the binary.");
+    rig2_shared::apply_native_grant(
+        &g_license_state, grant_token, jwks_json, addon_root, module_path, "miframes", "rig2_miframes");
     Py_RETURN_NONE;
 }
 
-static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
-    PyObject* hashes_dict = nullptr;
-    if (!PyArg_ParseTuple(args, "O!:verify_integrity", &PyDict_Type,
-                          &hashes_dict))
-        return nullptr;
-
-    rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes_rig2_miframes, "MIFrames",
-                                         &g_license_state);
+static PyObject* method_clear_license_state(PyObject*, PyObject*) {
+    rig2_shared::clear_license_state(
+        &g_license_state,
+        "License required. Activate your license in Addon Preferences.");
     Py_RETURN_NONE;
 }
 
@@ -659,10 +639,10 @@ PyMethodDef kMethods[] = {
         METH_VARARGS,
         "Plan miframes keyframe operations.",
     },
-    {"set_license_state", method_set_license_state, METH_VARARGS,
-     "Set internal license state (device_id, expires_at, hmac_proof)."},
-    {"verify_integrity", method_verify_integrity, METH_VARARGS,
-     "Verify integrity of critical Python source files."},
+    {"apply_native_grant", method_apply_native_grant, METH_VARARGS,
+     "Apply a signed native grant token and verify manifests."},
+    {"clear_license_state", method_clear_license_state, METH_NOARGS,
+     "Clear the current native authorization state."},
     {"get_license_status", method_get_license_status, METH_NOARGS,
      "Return native authorization status."},
     {nullptr, nullptr, 0, nullptr},

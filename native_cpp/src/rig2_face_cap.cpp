@@ -44,48 +44,27 @@ namespace {
 
 constexpr int kApiVersion = 3;
 
-// Embedded license secret shared with the Python licensing layer.
-// Each native module has an independent secret.
-static const unsigned char kLicenseSecret[32] = {
-    0xa3, 0xf7, 0xb2, 0xc9, 0xd1, 0xe4, 0x58, 0x07,
-    0x6f, 0x32, 0x19, 0xac, 0x4b, 0x6d, 0x0e, 0x87,
-    0x15, 0xc2, 0xf9, 0x3a, 0x8b, 0x4e, 0x76, 0x12,
-    0xd5, 0xa0, 0x98, 0xc3, 0xf7, 0xe1, 0xb6, 0x49,
-};
-
 // License state — set via set_license_state(), checked by sensitive methods.
 static rig2_shared::LicenseState g_license_state;
 
-// Expected SHA-256 hashes of critical Python files (hex).
-// Generated at build time by scripts/generate_integrity_hashes.py.
-#include "integrity_hashes.h"
-
-static PyObject* method_set_license_state(PyObject*, PyObject* args) {
-    const char* device_id = nullptr;
-    const char* hmac_hex = nullptr;
-    uint64_t expires_at = 0;
-    if (!PyArg_ParseTuple(args, "sKs:set_license_state",
-                          &device_id, &expires_at, &hmac_hex))
+static PyObject* method_apply_native_grant(PyObject*, PyObject* args) {
+    const char* grant_token = nullptr;
+    const char* jwks_json = nullptr;
+    const char* addon_root = nullptr;
+    const char* module_path = nullptr;
+    if (!PyArg_ParseTuple(args, "ssss:apply_native_grant",
+                          &grant_token, &jwks_json, &addon_root, &module_path))
         return nullptr;
 
-    rig2_shared::apply_license_state(
-        &g_license_state,
-        rig2_shared::hmac_sha256_verify(kLicenseSecret, device_id, (int64_t)expires_at,
-                                        hmac_hex),
-        (int64_t)expires_at,
-        "Face Capture native license verification failed. "
-        "Re-sync the license or reinstall the binary.");
+    rig2_shared::apply_native_grant(
+        &g_license_state, grant_token, jwks_json, addon_root, module_path, "face_cap", "rig2_face_cap");
     Py_RETURN_NONE;
 }
 
-static PyObject* method_verify_integrity(PyObject*, PyObject* args) {
-    PyObject* hashes_dict = nullptr;
-    if (!PyArg_ParseTuple(args, "O!:verify_integrity", &PyDict_Type,
-                          &hashes_dict))
-        return nullptr;
-
-    rig2_shared::verify_integrity_hashes(hashes_dict, kExpectedPyHashes_rig2_face_cap, "Face Capture",
-                                         &g_license_state);
+static PyObject* method_clear_license_state(PyObject*, PyObject*) {
+    rig2_shared::clear_license_state(
+        &g_license_state,
+        "License required. Activate your license in Addon Preferences.");
     Py_RETURN_NONE;
 }
 
@@ -1677,10 +1656,10 @@ PyMethodDef kMethods[] = {
     {"stop_receiver", method_stop_receiver, METH_NOARGS, "Stop native websocket receiver."},
     {"poll_latest_packet", method_poll_latest_packet, METH_NOARGS, "Poll latest packet from receiver."},
     {"get_receiver_stats", method_get_receiver_stats, METH_NOARGS, "Get receiver runtime stats."},
-    {"set_license_state", method_set_license_state, METH_VARARGS,
-     "Set internal license state (device_id, expires_at, hmac_proof)."},
-    {"verify_integrity", method_verify_integrity, METH_VARARGS,
-     "Verify integrity of critical Python source files."},
+    {"apply_native_grant", method_apply_native_grant, METH_VARARGS,
+     "Apply a signed native grant token and verify manifests."},
+    {"clear_license_state", method_clear_license_state, METH_NOARGS,
+     "Clear the current native authorization state."},
     {"get_license_status", method_get_license_status, METH_NOARGS,
      "Return native authorization status."},
     {nullptr, nullptr, 0, nullptr},

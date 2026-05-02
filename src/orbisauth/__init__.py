@@ -8,6 +8,7 @@ from ._client import (
     Device,
     DownloadInfo,
     HeartbeatResponse,
+    NativeGrantInfo,
     OrbisAuthClient,
 )
 from ._errors import (
@@ -41,6 +42,7 @@ __all__ = [
     "Device",
     "HeartbeatResponse",
     "DownloadInfo",
+    "NativeGrantInfo",
     # JWT utilities
     "verify_access_token",
     "fetch_jwks",

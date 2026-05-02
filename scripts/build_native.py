@@ -210,6 +210,8 @@ def main() -> int:
         for copied in copied_paths:
             print(f"[rig2-native] {module_name}: {copied}")
 
+    _run_script("scripts/generate_native_manifests.py")
+
     return 0
 
 

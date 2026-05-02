@@ -569,10 +569,26 @@ class LicenseManager:
             return None
         return self._client.request_download(
             module=module,
+            addon_version=self.get_addon_version(),
             platform=platform_tag,
             arch=arch,
             artifact=artifact,
         )
+
+    def request_native_grant(self, feature_id: str):
+        """Request a signed native grant for a managed feature."""
+        if self._client.session is None:
+            return None
+        return self._client.request_native_grant(
+            feature_id=feature_id,
+            addon_version=self.get_addon_version(),
+        )
+
+    @staticmethod
+    def get_addon_version() -> str:
+        from ..core.versioning import SEMVER
+
+        return SEMVER
 
     def download_file(self, download_info, dest_path, progress_callback=None):
         """Download a binary artifact to a local file."""

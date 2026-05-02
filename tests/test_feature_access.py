@@ -24,6 +24,7 @@ class WrapperState:
         self.load_ok = False
         self.error = ""
         self.refresh_count = 0
+        self.native_status = {"authorized": False, "reason": "", "expires_at": 0}
 
     def refresh(self):
         self.refresh_count += 1
@@ -42,6 +43,9 @@ class WrapperState:
             "is_available": self.is_native_backend(),
             "candidate_paths": (self.path,),
         }
+
+    def get_license_status(self):
+        return dict(self.native_status)
 
 
 class FakeManager:
@@ -97,6 +101,7 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     face_wrapper_name = f"{package_name}.native.face_cap_wrapper"
     miframes_wrapper_name = f"{package_name}.native.miframes_wrapper"
     runtime_name = f"{package_name}.modules.face_cap.runtime"
+    native_support_name = f"{package_name}.services._native_feature_support"
 
     for name in list(sys.modules):
         if name == package_name or name.startswith(package_name + "."):
@@ -108,6 +113,8 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     licensing_pkg.__path__ = []
     native_pkg = types.ModuleType(f"{package_name}.native")
     native_pkg.__path__ = []
+    services_pkg = types.ModuleType(f"{package_name}.services")
+    services_pkg.__path__ = []
     modules_pkg = types.ModuleType(f"{package_name}.modules")
     modules_pkg.__path__ = []
     face_cap_pkg = types.ModuleType(f"{package_name}.modules.face_cap")
@@ -186,11 +193,28 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     runtime_mod = types.ModuleType(runtime_name)
     runtime_mod.get_runtime_service = lambda: runtime_service
 
+    native_support_mod = types.ModuleType(native_support_name)
+    native_support_mod.native_reason_requires_redownload = lambda reason: any(
+        marker in str(reason or "").lower()
+        for marker in (
+            "integrity check failed",
+            "digest mismatch",
+            "size mismatch",
+            "artifact manifest",
+            "manifest mismatch",
+            "module mismatch",
+            "binary validation failed",
+            "source root not found",
+            "missing file",
+        )
+    )
+
     licensing_pkg.sync_license_to_native_modules = lambda: None
 
     sys.modules[package_name] = pkg
     sys.modules[f"{package_name}.licensing"] = licensing_pkg
     sys.modules[f"{package_name}.native"] = native_pkg
+    sys.modules[f"{package_name}.services"] = services_pkg
     sys.modules[f"{package_name}.modules"] = modules_pkg
     sys.modules[f"{package_name}.modules.face_cap"] = face_cap_pkg
     sys.modules[config_name] = config_mod
@@ -203,6 +227,7 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
     sys.modules[face_wrapper_name] = make_wrapper_module(wrapper_states["face_cap"])
     sys.modules[miframes_wrapper_name] = make_wrapper_module(wrapper_states["miframes"])
     sys.modules[runtime_name] = runtime_mod
+    sys.modules[native_support_name] = native_support_mod
 
     spec = importlib.util.spec_from_file_location(module_name, FEATURE_ACCESS_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -405,6 +430,69 @@ class FeatureAccessTest(unittest.TestCase):
             status = feature_access.get_feature_status("face_cap")
             self.assertEqual(status["effective_state"], "needs_redownload")
             self.assertIn("does not match the installed addon source", status["download_error"])
+
+    def test_native_sync_pending_does_not_force_needs_redownload(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with open(wrapper_states["face_cap"].path, "wb") as handle:
+                handle.write(b"bin")
+            wrapper_states["face_cap"].load_ok = True
+            wrapper_states["face_cap"].native_status = {
+                "authorized": False,
+                "reason": "",
+                "expires_at": 0,
+            }
+
+            status = feature_access.get_feature_status("face_cap")
+
+            self.assertEqual(status["effective_state"], "ready")
+            self.assertEqual(status["native_reason"], "")
+            self.assertFalse(status["can_download"])
+
+    def test_native_digest_mismatch_requires_redownload(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with open(wrapper_states["face_cap"].path, "wb") as handle:
+                handle.write(b"bin")
+            wrapper_states["face_cap"].load_ok = True
+            wrapper_states["face_cap"].native_status = {
+                "authorized": False,
+                "reason": "artifact digest mismatch for rig2_face_cap.abi3.so",
+                "expires_at": 0,
+            }
+
+            status = feature_access.get_feature_status("face_cap")
+
+            self.assertEqual(status["effective_state"], "needs_redownload")
+            self.assertIn("artifact digest mismatch", status["message"])
 
 
 if __name__ == "__main__":

@@ -48,6 +48,23 @@ class DownloadInfo:
     download_token: str
     token_type: str
     expires_in: int
+    addon_version: str = ""
+    feature_id: str = ""
+    artifact_sha256: str = ""
+    artifact_size: int = 0
+    artifact_manifest_version: int = 0
+    signed_artifact_manifest: str = ""
+
+
+@dataclass
+class NativeGrantInfo:
+    feature_id: str
+    addon_version: str
+    grant_token: str
+    token_type: str
+    expires_in: int
+    py_manifest: dict[str, Any]
+    artifact_manifest: dict[str, Any]
 
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 300
@@ -361,9 +378,43 @@ class OrbisAuthClient:
     # Download
     # ------------------------------------------------------------------
 
+    def request_native_grant(
+        self,
+        feature_id: str,
+        addon_version: str,
+    ) -> NativeGrantInfo:
+        self._ensure_authenticated()
+        assert self.session is not None
+
+        url = _api_url(self.server_url, "native-grant")
+        data = _api_request(
+            "POST",
+            url,
+            json_body={
+                "feature_id": feature_id,
+                "addon_version": addon_version,
+            },
+            headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
+            timeout=self.timeout_seconds,
+        )
+        return NativeGrantInfo(
+            feature_id=str(data.get("feature_id", feature_id) or feature_id),
+            addon_version=str(data.get("addon_version", addon_version) or addon_version),
+            grant_token=data["grant_token"],
+            token_type=data.get("token_type", "Bearer"),
+            expires_in=int(data.get("expires_in", 0) or 0),
+            py_manifest=data.get("py_manifest", {}) if isinstance(data.get("py_manifest"), dict) else {},
+            artifact_manifest=(
+                data.get("artifact_manifest", {})
+                if isinstance(data.get("artifact_manifest"), dict)
+                else {}
+            ),
+        )
+
     def request_download(
         self,
         module: str,
+        addon_version: str,
         platform: str = "",
         arch: str = "",
         artifact: str = "",
@@ -385,6 +436,7 @@ class OrbisAuthClient:
 
         params: list[str] = []
         params.append(f"module={_urlencode(module)}")
+        params.append(f"addon_version={_urlencode(addon_version)}")
         if platform:
             params.append(f"platform={_urlencode(platform)}")
         if arch:
@@ -407,6 +459,12 @@ class OrbisAuthClient:
             download_token=data["download_token"],
             token_type=data.get("token_type", "Bearer"),
             expires_in=data["expires_in"],
+            addon_version=str(data.get("addon_version", addon_version) or addon_version),
+            feature_id=str(data.get("feature_id", "") or ""),
+            artifact_sha256=str(data.get("artifact_sha256", "") or ""),
+            artifact_size=int(data.get("artifact_size", 0) or 0),
+            artifact_manifest_version=int(data.get("artifact_manifest_version", 0) or 0),
+            signed_artifact_manifest=str(data.get("signed_artifact_manifest", "") or ""),
         )
 
     def download_file(

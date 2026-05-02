@@ -23,7 +23,6 @@ class FeatureSpec:
     expected_native_api_version: int
     required_callables: tuple[str, ...]
     required_attributes: tuple[str, ...]
-    shared_secret: bytes
     integrity_targets: tuple[tuple[str, str], ...]
     download_module_name: str
     service_kind: str
@@ -67,18 +66,13 @@ _FEATURE_SPECS = {
             "stop_receiver",
             "poll_latest_packet",
             "get_receiver_stats",
-            "set_license_state",
-            "verify_integrity",
+            "apply_native_grant",
         ),
         required_attributes=(
             "RIG2_FACE_CAP_API_VERSION",
             "BINARY_SUBPROTOCOL",
             "JSON_SUBPROTOCOL",
             "WEBSOCKET_MAGIC",
-        ),
-        shared_secret=bytes.fromhex(
-            "a3f7b2c9d1e458076f3219ac4b6d0e87"
-            "15c2f93a8b4e7612d5a098c3f7e1b649"
         ),
         integrity_targets=(
             ("face_cap_service.py", "services/face_cap_service.py"),
@@ -101,14 +95,9 @@ _FEATURE_SPECS = {
             "get_models",
             "get_model_config",
             "plan_miframes_keyframe_ops",
-            "set_license_state",
-            "verify_integrity",
+            "apply_native_grant",
         ),
         required_attributes=("RIG2_MIFRAMES_API_VERSION",),
-        shared_secret=bytes.fromhex(
-            "c8473d91e05a2f6b78d1c39e4a0b5726"
-            "f9318c4d2e7a5b06f1d3c8e9a4b7f205"
-        ),
         integrity_targets=(
             ("miframes_service.py", "services/miframes_service.py"),
             ("manager.py", "licensing/manager.py"),
@@ -133,14 +122,9 @@ _FEATURE_SPECS = {
             "mapping_entries_to_export_name_map",
             "mapping_entries_to_rotation_axis_signs",
             "mapping_entries_to_transform_axis_signs",
-            "set_license_state",
-            "verify_integrity",
+            "apply_native_grant",
         ),
         required_attributes=("RIG2_R2BB_API_VERSION",),
-        shared_secret=bytes.fromhex(
-            "4ab8f03d1c275a6eb9940d8b6f3a1245"
-            "72ef39acb54168d0c2e77fab90431de6"
-        ),
         integrity_targets=(
             ("mapping.py", "modules/r2bb/mapping.py"),
             ("r2bb_service.py", "services/r2bb_service.py"),
