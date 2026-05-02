@@ -462,9 +462,9 @@ class FeatureAccessTest(unittest.TestCase):
                 self.assertEqual(wrapper_states["face_cap"].refresh_count, 0)
 
                 status = feature_access.get_feature_status("face_cap")
-                self.assertEqual(status["effective_state"], "session_warning")
-                self.assertTrue(status["pending_restart"])
+                self.assertEqual(status["effective_state"], "needs_restart")
                 self.assertIn("Restart Blender", status["message"])
+                self.assertFalse(status["can_download"])
                 self.assertEqual(wrapper_states["face_cap"].refresh_count, 0)
 
     def test_native_sync_pending_does_not_force_needs_redownload(self):
@@ -523,6 +523,7 @@ class FeatureAccessTest(unittest.TestCase):
                 "authorized": False,
                 "reason": "artifact digest mismatch for rig2_face_cap.abi3.so",
                 "expires_at": 0,
+                "needs_redownload": True,
             }
 
             status = feature_access.get_feature_status("face_cap", probe_native=True)

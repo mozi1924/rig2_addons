@@ -153,6 +153,7 @@ class NativeFeatureServiceTest(unittest.TestCase):
                 "authorized": False,
                 "reason": "artifact digest mismatch for rig2_face_cap.abi3.so",
                 "expires_at": 0,
+                "needs_redownload": True,
             },
         )
 

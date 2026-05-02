@@ -1,6 +1,7 @@
 import bpy
 
 from .core.utils import tag_context_redraw
+from .i18n import iface as _
 from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB
 from .services.registry import get_feature_service
 from .licensing.ui_helpers import (
@@ -354,9 +355,13 @@ def _draw_feature_status(box, feature_name):
         icon=_feature_icon(status["effective_state"]),
     )
 
+    message_text = status["message"]
+    if status["effective_state"] == "needs_restart":
+        message_text = _("Binary updated. Restart Blender to enable this feature.")
+
     message_row = box.row()
     message_row.scale_y = 0.9
-    message_row.label(text=status["message"], icon="INFO")
+    message_row.label(text=message_text, icon="INFO")
 
     if status.get("load_error") and status["effective_state"] == "needs_redownload":
         error_row = box.row()
@@ -378,7 +383,7 @@ def _draw_feature_status(box, feature_name):
         action_row = box.row()
         action_row.operator(
             RIG2_OT_download_native.bl_idname,
-            text="Retry Download" if status["can_retry"] else "Download Binary",
+            text=_("Retry Download") if status["can_retry"] else _("Download Binary"),
             icon="IMPORT",
         ).feature_name = feature_name
 
@@ -392,6 +397,7 @@ def _feature_icon(effective_state):
         "download_failed",
         "binary_missing",
         "needs_redownload",
+        "needs_restart",
         "session_error",
     }:
         return "ERROR"
@@ -400,9 +406,11 @@ def _feature_icon(effective_state):
 
 def _feature_label(effective_state):
     if effective_state in {"binary_missing", "download_failed", "needs_redownload"}:
-        return "Disabled"
+        return _("Disabled")
+    if effective_state == "needs_restart":
+        return _("Restart Required")
     if effective_state == "session_warning":
-        return "Needs Attention"
+        return _("Needs Attention")
     return effective_state.replace("_", " ").title()
 
 

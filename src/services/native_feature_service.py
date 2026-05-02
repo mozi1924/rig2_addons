@@ -7,7 +7,6 @@ from ..licensing.registry import get_feature_spec
 from ..native.licensed_wrapper import get_native_wrapper
 from ._native_feature_support import (
     get_feature_lock_reason,
-    native_reason_requires_redownload,
     sync_license_state_to_native,
 )
 from .errors import FeatureLockedError
@@ -57,9 +56,8 @@ class NativeLicensedFeatureService:
         status["native_expires_at"] = int(native_status.get("expires_at", 0) or 0)
 
         if status["effective_state"] in {"ready", "session_warning"} and not status["native_authorized"]:
-            status["native_state"] = "validation_failed"
             native_reason = status["native_reason"]
-            if native_reason_requires_redownload(native_reason):
+            if bool(native_status.get("needs_redownload", False)):
                 status["effective_state"] = "needs_redownload"
                 status["message"] = native_reason or f"{self.spec.label} native validation failed."
                 status["action"] = "download_binary"

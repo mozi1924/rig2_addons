@@ -11,7 +11,6 @@ from enum import Enum
 from .paths import get_feature_status_path
 from .registry import get_feature_spec, iter_feature_specs
 from ..native.licensed_wrapper import get_native_wrapper
-from ..services._native_feature_support import native_reason_requires_redownload
 
 _log = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class FeatureVisibility(Enum):
 
 
 _HIDDEN_STATES = frozenset({"unactivated", "session_error", "unlicensed"})
-_DISABLED_STATES = frozenset({"binary_missing", "download_failed", "needs_redownload"})
+_DISABLED_STATES = frozenset({"binary_missing", "download_failed", "needs_redownload", "needs_restart"})
 _ENABLED_STATES = frozenset({"ready", "session_warning"})
 
 
@@ -211,13 +210,11 @@ def _get_license_snapshot():
 def _get_binary_snapshot(feature_id, *, pending_restart=False, probe_native=False):
     wrapper = get_native_wrapper(feature_id)
     from ..native.loader import (
-        get_primary_native_module_path,
         get_residual_native_module_paths,
         list_existing_native_module_paths,
     )
 
     spec = get_feature_spec(feature_id)
-    primary_path = get_primary_native_module_path(spec.native_module_name)
     existing_paths = list_existing_native_module_paths(spec.native_module_name)
     residual_paths = get_residual_native_module_paths(spec.native_module_name)
     if pending_restart:
@@ -246,8 +243,6 @@ def _get_binary_snapshot(feature_id, *, pending_restart=False, probe_native=Fals
         "load_state": load_state,
         "native_backend_available": native_backend_available,
         "binary_present": bool(existing_paths),
-        "primary_path": primary_path,
-        "existing_paths": existing_paths,
         "residual_paths": residual_paths,
         "pending_restart": bool(pending_restart),
     }
@@ -269,7 +264,7 @@ def _resolve_pre_native_effective_state(*, feature_id, license_snapshot, binary_
     if binary_snapshot["residual_paths"]:
         return "needs_redownload", "licensed"
     if binary_snapshot["pending_restart"]:
-        return "session_warning", "warning"
+        return "needs_restart", "warning"
     if not binary_snapshot["native_backend_available"]:
         return "needs_redownload", "licensed"
     if status.get("warnings"):
@@ -286,6 +281,10 @@ def _build_message(*, label, effective_state, download_error=""):
         return f"{label} binary is missing. Download it in Addon Preferences."
     if effective_state == "needs_redownload":
         return f"{label} binary is outdated or incompatible with this addon version. Update the binary in Addon Preferences."
+    if effective_state == "needs_restart":
+        return (
+            f"{label} binary is updated, but Blender must restart before the native backend can load safely."
+        )
     if effective_state == "download_failed":
         if download_error:
             return f"{label} download failed: {download_error}. Retry from Addon Preferences."
@@ -302,6 +301,8 @@ def _build_action(effective_state):
         return "activate_license"
     if effective_state in {"binary_missing", "needs_redownload"}:
         return "download_binary"
+    if effective_state == "needs_restart":
+        return "restart_blender"
     if effective_state == "download_failed":
         return "retry_download"
     if effective_state in {"unlicensed", "session_error", "session_warning"}:
@@ -349,7 +350,7 @@ def get_feature_status(feature_id, *, probe_native=False):
     )
     wrapper = binary_snapshot["wrapper"]
     status = license_snapshot["status"]
-    effective_state, license_state = _resolve_pre_native_effective_state(
+    effective_state, _license_state = _resolve_pre_native_effective_state(
         feature_id=feature_id,
         license_snapshot=license_snapshot,
         binary_snapshot=binary_snapshot,
@@ -373,9 +374,8 @@ def get_feature_status(feature_id, *, probe_native=False):
                         _native_auth_reason = str(
                             native_license.get("reason", "") or ""
                         ).strip()
-                        if native_reason_requires_redownload(_native_auth_reason):
+                        if bool(native_license.get("needs_redownload", False)):
                             effective_state = "needs_redownload"
-                            license_state = "licensed"
             except Exception:
                 pass
 
@@ -385,13 +385,7 @@ def get_feature_status(feature_id, *, probe_native=False):
     elif effective_state == "needs_redownload":
         binary_state = "invalid"
 
-    native_state = "loaded" if binary_snapshot["native_backend_available"] else "unavailable"
-    if effective_state == "ready":
-        native_state = "authorized"
-    elif effective_state == "session_warning":
-        native_state = "authorized_warning"
-
-    if pending_restart and effective_state == "session_warning":
+    if pending_restart and effective_state == "needs_restart":
         message = (
             f"{spec.label} binary downloaded. Restart Blender to finish loading "
             "the native backend safely on Windows."
@@ -411,9 +405,7 @@ def get_feature_status(feature_id, *, probe_native=False):
         "feature_name": feature_id,
         "label": spec.label,
         "module_name": spec.native_module_name,
-        "license_state": license_state,
         "binary_state": binary_state,
-        "native_state": native_state,
         "effective_state": effective_state,
         "message": message,
         "action": _build_action(effective_state),
@@ -424,10 +416,7 @@ def get_feature_status(feature_id, *, probe_native=False):
         "warnings": list(status.get("warnings", [])),
         "module_path": binary_snapshot["load_state"].get("module_path", ""),
         "load_error": binary_snapshot["load_state"].get("error", ""),
-        "primary_module_path": binary_snapshot["primary_path"],
-        "existing_module_paths": binary_snapshot["existing_paths"],
         "residual_module_paths": binary_snapshot["residual_paths"],
-        "pending_restart": pending_restart,
     }
 
 

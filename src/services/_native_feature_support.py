@@ -1,27 +1,6 @@
 import logging
 import os
 
-_NATIVE_REDOWNLOAD_REASON_MARKERS = (
-    "integrity check failed",
-    "digest mismatch",
-    "size mismatch",
-    "artifact manifest",
-    "manifest mismatch",
-    "module mismatch",
-    "feature mismatch",
-    "binary validation failed",
-    "native binary path is unavailable",
-    "native grant missing artifact manifest",
-    "native grant missing python manifest",
-    "artifact manifest is incomplete",
-    "python manifest entry is invalid",
-    "python manifest entry is incomplete",
-    "failed to hash protected source file",
-    "source root not found",
-    "missing file",
-    "authorization state is unavailable",
-)
-
 _NATIVE_GRANT_REFRESH_REASON_MARKERS = (
     "digest mismatch",
     "size mismatch",
@@ -66,18 +45,7 @@ def native_integrity_failed(get_license_status):
         return False
     if status.get("authorized", False):
         return False
-    if status.get("needs_redownload", False):
-        return True
-    # Fallback: substring match for older native modules
-    reason = str(status.get("reason", "") or "").lower()
-    return native_reason_requires_redownload(reason)
-
-
-def native_reason_requires_redownload(reason):
-    detail = str(reason or "").strip().lower()
-    if not detail:
-        return False
-    return any(marker in detail for marker in _NATIVE_REDOWNLOAD_REASON_MARKERS)
+    return bool(status.get("needs_redownload", False))
 
 
 def native_reason_allows_grant_refresh(reason):

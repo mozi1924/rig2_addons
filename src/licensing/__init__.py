@@ -187,9 +187,12 @@ def register():
 
     try:
         mgr = get_license_manager()
-        # Do not block Blender startup on native grant / JWKS network requests.
-        # Kick off startup sync in a background thread instead.
         if mgr._client.session is not None:
+            # Apply cached trust/native grants immediately on the main thread so
+            # startup can unlock native features without waiting for heartbeat.
+            sync_license_to_native_modules(allow_network=False)
+            # Do not block Blender startup on network refresh; continue in
+            # background to update cache material opportunistically.
             _request_async_native_sync(prewarm_verification=True)
         if mgr.should_trigger_immediate_heartbeat():
             mgr.request_heartbeat(reason="register_overdue")
