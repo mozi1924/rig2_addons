@@ -6,6 +6,7 @@ import re
 from mathutils import Euler
 from ....services.miframes_service import get_miframes_backend_service
 from ....core.utils import refresh_rig_drivers
+from ....licensing.ui_gate import report_blocking_license_warnings
 
 # Rig2 depends on mi2bl for the core MI parsing and easing logic.
 # This fulfills the "Rig2 needs mi2bl" requirement and merges duplicate code.
@@ -66,16 +67,8 @@ class MI_OT_ImportAction(bpy.types.Operator, MIBaseImporter):
     )
 
     def execute(self, context):
-        # Check for critical license warnings first.
-        try:
-            from ....licensing.manager import get_license_manager
-            status = get_license_manager().get_status()
-            for w in status.get("warnings", []):
-                if w.get("level") in ("CRITICAL", "ERROR"):
-                    self.report({"ERROR"}, w.get("message", ""))
-                    return {"CANCELLED"}
-        except Exception:
-            pass
+        if report_blocking_license_warnings(self):
+            return {"CANCELLED"}
 
         miframes_service = get_miframes_backend_service()
         if not miframes_service.is_feature_unlocked():

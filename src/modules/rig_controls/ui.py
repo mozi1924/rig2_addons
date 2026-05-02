@@ -5,6 +5,7 @@ from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import iface as _
 from ...licensing.api import FEATURE_MIFRAMES, get_feature_access
+from ...licensing.ui_gate import draw_license_warnings
 from ...preferences import get_preferences
 from ...services.miframes_service import get_miframes_backend_service
 from ...ui.base import RIG2_PT_PanelBase, RIG2_PT_SidePanelBase
@@ -356,19 +357,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
 
         layout = self.layout
 
-        # Show license warnings.
-        try:
-            from ...licensing.manager import get_license_manager
-            status = get_license_manager().get_status()
-            for w in status.get("warnings", []):
-                row = layout.row()
-                row.alert = True
-                row.label(
-                    text=w.get("message", ""),
-                    icon="ERROR" if w.get("level") == "ERROR" else "WARNING",
-                )
-        except Exception:
-            pass
+        draw_license_warnings(layout)
 
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
         miframes_access = get_feature_access(FEATURE_MIFRAMES)
