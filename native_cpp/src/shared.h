@@ -13,6 +13,10 @@
 #include <utility>
 #include <string>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 #include "orbisauth_trusted_keys.h"
 
 namespace rig2_shared {
@@ -223,6 +227,93 @@ inline std::string lowercase_ascii(std::string text) {
   return text;
 }
 
+inline std::string join_utf8_paths(std::string base_path, const std::string& relative_path) {
+  if (base_path.empty()) {
+    return relative_path;
+  }
+  const char tail = base_path.back();
+  if (tail != '/' && tail != '\\') {
+    base_path.push_back('/');
+  }
+  return base_path + relative_path;
+}
+
+#if defined(_WIN32)
+inline std::wstring utf8_to_wstring(const std::string& text) {
+  if (text.empty()) {
+    return std::wstring();
+  }
+  const int required = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+  if (required <= 0) {
+    return std::wstring();
+  }
+  std::wstring result(static_cast<size_t>(required - 1), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, result.data(), required) <= 0) {
+    return std::wstring();
+  }
+  return result;
+}
+#endif
+
+inline FILE* open_file_read_utf8(const std::string& path, bool binary) {
+#if defined(_WIN32)
+  const std::wstring wide_path = utf8_to_wstring(path);
+  if (wide_path.empty()) {
+    return nullptr;
+  }
+  return _wfopen(wide_path.c_str(), binary ? L"rb" : L"r");
+#else
+  return std::fopen(path.c_str(), binary ? "rb" : "r");
+#endif
+}
+
+inline bool read_file_bytes_utf8(const std::string& path, std::string* out) {
+  if (!out) {
+    return false;
+  }
+
+  FILE* handle = open_file_read_utf8(path, true);
+  if (!handle) {
+    return false;
+  }
+
+  std::string data;
+  char buffer[65536];
+  size_t read_count = 0;
+  while ((read_count = std::fread(buffer, 1, sizeof(buffer), handle)) > 0) {
+    data.append(buffer, read_count);
+  }
+  const bool ok = std::ferror(handle) == 0;
+  std::fclose(handle);
+  if (!ok) {
+    return false;
+  }
+  *out = std::move(data);
+  return true;
+}
+
+inline bool get_file_size_utf8(const std::string& path, long long* size_out) {
+  if (!size_out) {
+    return false;
+  }
+
+  FILE* handle = open_file_read_utf8(path, true);
+  if (!handle) {
+    return false;
+  }
+  if (std::fseek(handle, 0, SEEK_END) != 0) {
+    std::fclose(handle);
+    return false;
+  }
+  const long long size = static_cast<long long>(std::ftell(handle));
+  std::fclose(handle);
+  if (size < 0) {
+    return false;
+  }
+  *size_out = size;
+  return true;
+}
+
 inline std::string normalize_ascii_key(PyObject* obj, const char* fallback) {
   const std::string fallback_value = fallback ? fallback : "";
   if (!obj) {
@@ -350,13 +441,10 @@ inline PyObject* py_int_from_bytes(PyObject* bytes_obj) {
 }
 
 inline std::string sha256_hex_file(const std::string& path) {
-  std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
-  if (!input) {
+  std::string data;
+  if (!read_file_bytes_utf8(path, &data)) {
     return std::string();
   }
-  std::ostringstream buffer;
-  buffer << input.rdbuf();
-  const std::string data = buffer.str();
 
   PyRef hashlib_module(PyImport_ImportModule("hashlib"));
   if (!hashlib_module) {
@@ -690,7 +778,7 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
       if (error_out) *error_out = "Python manifest entry is incomplete.";
       return false;
     }
-    const std::string actual_sha = sha256_hex_file(addon_root + "/" + relative_path);
+    const std::string actual_sha = sha256_hex_file(join_utf8_paths(addon_root, relative_path));
     if (actual_sha.empty()) {
       if (error_out) *error_out = "Failed to hash protected source file: " + relative_path;
       return false;
@@ -719,12 +807,11 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
     PyErr_Clear();
     return false;
   }
-  std::ifstream binary_input(module_path.c_str(), std::ios::binary | std::ios::ate);
-  if (!binary_input) {
+  long long actual_size = 0;
+  if (!get_file_size_utf8(module_path, &actual_size)) {
     if (error_out) *error_out = "Native binary path is unavailable for verification.";
     return false;
   }
-  const long long actual_size = static_cast<long long>(binary_input.tellg());
   if (actual_size != expected_size) {
     if (error_out) *error_out = "Native binary size mismatch.";
     return false;

@@ -500,19 +500,7 @@ PyObject* sanitize_packet_payload(PyObject* packet) {
 }
 
 bool read_file_utf8(const std::string& filepath, std::string* out) {
-  if (!out) {
-    return false;
-  }
-
-  std::ifstream input(filepath, std::ios::in | std::ios::binary);
-  if (!input.is_open()) {
-    return false;
-  }
-
-  std::ostringstream buffer;
-  buffer << input.rdbuf();
-  *out = buffer.str();
-  return true;
+  return rig2_shared::read_file_bytes_utf8(filepath, out);
 }
 
 bool read_u16_le(const unsigned char* bytes, Py_ssize_t len, Py_ssize_t offset, uint16_t* out) {
