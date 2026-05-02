@@ -443,18 +443,28 @@ class OrbisAuthClient:
         self,
         feature_id: str,
         addon_version: str,
+        platform: str = "",
+        arch: str = "",
+        artifact: str = "",
     ) -> NativeGrantInfo:
         self._ensure_authenticated()
         assert self.session is not None
 
         url = _api_url(self.server_url, "native-grant")
+        body = {
+            "feature_id": feature_id,
+            "addon_version": addon_version,
+        }
+        if platform:
+            body["platform"] = platform
+        if arch:
+            body["arch"] = arch
+        if artifact:
+            body["artifact"] = artifact
         data = _api_request(
             "POST",
             url,
-            json_body={
-                "feature_id": feature_id,
-                "addon_version": addon_version,
-            },
+            json_body=body,
             headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
             timeout=self.timeout_seconds,
         )

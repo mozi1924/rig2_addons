@@ -614,9 +614,13 @@ class LicenseManager:
         """Request a signed native grant for a managed feature."""
         if self._client.session is None:
             return None
+        platform_name, arch_name, artifact_name = self._native_runtime_selector()
         grant = self._client.request_native_grant(
             feature_id=feature_id,
             addon_version=self.get_addon_version(),
+            platform=platform_name,
+            arch=arch_name,
+            artifact=artifact_name,
         )
         try:
             expires_at = int(get_token_expiry(grant.grant_token) or 0)
@@ -663,6 +667,28 @@ class LicenseManager:
             except Exception:
                 pass
         return self.get_cached_trust_bundle_token()
+
+    @staticmethod
+    def _native_runtime_selector() -> tuple[str, str, str]:
+        import sys
+        from ..native.loader import get_arch_tag
+
+        platform_name = {
+            "darwin": "mac",
+            "linux": "linux",
+            "win32": "win",
+        }.get(sys.platform, sys.platform)
+        arch_name = {
+            "x86_64": "amd64",
+            "arm64": "arm64",
+            "aarch64": "arm64",
+        }.get(get_arch_tag(), get_arch_tag())
+        artifact_name = {
+            "mac": "mac.dylib",
+            "linux": "linux.so",
+            "win": "win.dll",
+        }.get(platform_name, "")
+        return platform_name, arch_name, artifact_name
 
     @staticmethod
     def get_addon_version() -> str:
