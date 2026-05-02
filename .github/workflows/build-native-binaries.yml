@@ -73,6 +73,9 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Compile Python sources
+        run: python -m compileall src scripts native_cpp
+
       - name: Generate integrity hashes header
         run: |
           python scripts/generate_orbisauth_trust.py
@@ -97,18 +100,35 @@ jobs:
           CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap, rig2_r2bb; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name(), rig2_r2bb.backend_name())\""
         run: python -m cibuildwheel native_cpp --output-dir wheelhouse
 
-      - name: Verify cp311 wheel tags
+      - name: Verify wheel compatibility tags
         shell: bash
         run: |
           python - <<'PY'
           import pathlib
+
           wheels = sorted(pathlib.Path("wheelhouse").glob("*.whl"))
           if not wheels:
               raise SystemExit("no wheels produced")
-          invalid = [w.name for w in wheels if "-cp311-" not in w.name]
+
+          invalid = []
+          for wheel in wheels:
+              parts = wheel.name[:-4].split("-")
+              if len(parts) < 5:
+                  invalid.append(f"{wheel.name} (invalid wheel filename)")
+                  continue
+
+              python_tag = parts[-3]
+              abi_tag = parts[-2]
+              if abi_tag != "abi3":
+                  invalid.append(f"{wheel.name} (expected abi3 ABI tag, got {abi_tag})")
+                  continue
+              if not python_tag.startswith("cp3"):
+                  invalid.append(f"{wheel.name} (unexpected python tag {python_tag})")
+
           if invalid:
-              raise SystemExit("non-cp311 wheels detected: " + ", ".join(invalid))
-          print("verified cp311 wheels:", len(wheels))
+              raise SystemExit("invalid wheels detected:\n" + "\n".join(invalid))
+
+          print("verified abi3 wheel tags:", len(wheels))
           PY
 
       - name: Upload wheelhouse

@@ -48,7 +48,12 @@ class NativeLoaderTest(unittest.TestCase):
     def test_preferred_suffix_prefers_abi3(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             loader = load_loader_module(temp_dir)
-            self.assertIn(".abi3.", loader.get_preferred_extension_suffix())
+            preferred = loader.get_preferred_extension_suffix()
+            all_suffixes = loader.get_extension_suffixes()
+            if any(".abi3." in suffix for suffix in all_suffixes):
+                self.assertIn(".abi3.", preferred)
+            else:
+                self.assertIn(preferred, all_suffixes)
 
     def test_r2bb_missing_binary_reports_locked(self):
         with tempfile.TemporaryDirectory() as temp_dir:

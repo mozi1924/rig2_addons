@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import struct
 import subprocess
 import sys
@@ -152,6 +153,10 @@ def sign_native_grant(payload: dict) -> str:
 
 
 def sign_jwt(payload: dict, private_key_pem: str, kid: str) -> str:
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise unittest.SkipTest("openssl executable is required for native contract JWT signing tests")
+
     header = {"alg": "RS256", "typ": "JWT", "kid": kid}
     header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
     payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -160,13 +165,16 @@ def sign_jwt(payload: dict, private_key_pem: str, kid: str) -> str:
         key_file.write(private_key_pem)
         key_path = key_file.name
     try:
-        proc = subprocess.run(
-            ["openssl", "dgst", "-sha256", "-sign", key_path],
-            input=signing_input,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
+        try:
+            proc = subprocess.run(
+                [openssl, "dgst", "-sha256", "-sign", key_path],
+                input=signing_input,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise unittest.SkipTest("openssl executable is required for native contract JWT signing tests") from exc
     finally:
         os.remove(key_path)
     signature_b64 = _b64url_encode(proc.stdout)

@@ -38,6 +38,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Compile Python sources
+        run: python -m compileall src scripts
+
       - name: Resolve addon version
         id: version
         run: |

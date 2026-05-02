@@ -388,7 +388,7 @@ def load_native_extension_result(
         )
 
     last_error = ""
-    for module_path in build_native_module_path(module_name):
+    for module_path in checked_paths:
         if not os.path.exists(module_path):
             continue
 
