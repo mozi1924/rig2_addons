@@ -427,6 +427,9 @@ def refresh_feature_runtime(feature_id=None):
 
 
 def download_feature_binary(feature_id, force=False):
+    import sys
+    import time
+
     from ..native.downloader import ensure_native_binary
 
     spec = get_feature_spec(feature_id)
@@ -437,6 +440,12 @@ def download_feature_binary(feature_id, force=False):
         if not ok:
             _mark_download_failure(feature_id, "Download not available for this feature.")
             return {"ok": False, "feature_name": feature_id, "error": "Download not available for this feature."}
+
+        # On Windows, give the filesystem and any antivirus hooks a moment
+        # to settle before we attempt to LoadLibrary the newly written .pyd.
+        if sys.platform == "win32":
+            time.sleep(0.1)
+
         refresh_feature_runtime(feature_id)
         post_status = get_feature_status(feature_id)
         post_error = _build_post_download_error(label=spec.label, status=post_status, had_loaded_backend=had_loaded_backend)

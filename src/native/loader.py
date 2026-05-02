@@ -1,6 +1,7 @@
 import importlib.util
 import importlib.machinery
 import json
+import logging
 import os
 import platform
 import pathlib
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Optional, Sequence
 
+_log = logging.getLogger(__name__)
+
 _LOADED_MODULES: dict[str, ModuleType] = {}
 """Cache of successfully loaded native modules keyed by module_name.
 
@@ -18,6 +21,29 @@ PyInit_* which calls PyModule_Create() with the same static PyModuleDef —
 this is undefined behaviour and crashes Blender.  We cache the first
 successful load and reuse it for the lifetime of the process.
 """
+
+
+def _validate_pe_header(path):
+    """Return None if the file looks like a valid PE/DLL, or an error string.
+
+    On Windows, .pyd files are DLLs with a PE header starting with 'MZ'.
+    Validating before calling LoadLibrary catches truncated or corrupted
+    downloads early, before they can trigger a loader crash.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        with open(path, "rb") as fh:
+            magic = fh.read(2)
+    except OSError as exc:
+        return f"Native backend is locked: cannot read binary header '{path}': {exc}"
+    if magic != b"MZ":
+        return (
+            f"Native backend is locked: '{path}' is not a valid Windows DLL "
+            f"(bad header: {magic!r}). The binary may be corrupted or built "
+            f"for the wrong platform."
+        )
+    return None
 
 
 def get_native_root():
@@ -372,12 +398,10 @@ def load_native_extension_result(
                 last_error = manifest_error
                 continue
 
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            if spec is None or spec.loader is None:
-                last_error = f"Native backend is locked: could not create import spec for '{module_path}'."
+            pe_error = _validate_pe_header(module_path)
+            if pe_error:
+                last_error = pe_error
                 continue
-
-            module = importlib.util.module_from_spec(spec)
 
             # Verify the file is readable before attempting to load it.
             # On Windows a .pyd that is locked by antivirus or still being
@@ -392,27 +416,44 @@ def load_native_extension_result(
                 )
                 continue
 
-            # On Windows, the .pyd resides in a non-standard directory that is
-            # not in the DLL search path.  Without add_dll_directory the loader
-            # cannot resolve transitive DLL dependencies, which causes either
-            # ImportError or a hard crash.
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if spec is None or spec.loader is None:
+                last_error = f"Native backend is locked: could not create import spec for '{module_path}'."
+                continue
+
+            module = importlib.util.module_from_spec(spec)
+
             _binary_dir = os.path.dirname(module_path)
             _dll_ctx = None
-            if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
-                try:
-                    _dll_ctx = os.add_dll_directory(_binary_dir)
-                    _dll_ctx.__enter__()
-                except OSError:
-                    _dll_ctx = None
+            _saved_path = list(sys.path)
 
+            # On Windows, the .pyd resides in a non-standard directory.
+            # 1. add_dll_directory  —  tells the Windows loader where to
+            #    search for transitive DLL dependencies.
+            # 2. sys.path insertion —  some importlib internals require
+            #    the directory to be on sys.path for extension modules.
+            if sys.platform == "win32":
+                if hasattr(os, "add_dll_directory"):
+                    try:
+                        _dll_ctx = os.add_dll_directory(_binary_dir)
+                        _dll_ctx.__enter__()
+                    except OSError:
+                        _dll_ctx = None
+                if _binary_dir not in sys.path:
+                    sys.path.insert(0, _binary_dir)
+
+            _log.debug("Loading native module '%s' from '%s'", module_name, module_path)
             try:
                 spec.loader.exec_module(module)
+                _log.debug("Loaded native module '%s' successfully.", module_name)
             finally:
                 if _dll_ctx is not None:
                     try:
                         _dll_ctx.__exit__(None, None, None)
                     except Exception:
                         pass
+                if sys.platform == "win32":
+                    sys.path[:] = _saved_path
 
             validation_error = _validate_native_module_interface(
                 module_name=module_name,
