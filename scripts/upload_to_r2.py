@@ -18,13 +18,17 @@ import os
 import sys
 from pathlib import Path
 
-from native_artifacts import MODULE_NAMES, RUNTIME_ARTIFACT_SPECS, validate_runtime_layout
+from native_artifacts import EXTENSIONS, MODULE_NAMES, RUNTIME_ARTIFACT_SPECS, validate_runtime_layout
 
 
 def _find_binary(platform_dir: Path, module_name: str) -> Path | None:
     """Return the first file in *platform_dir* whose name starts with *module_name*."""
     for candidate in platform_dir.iterdir():
-        if candidate.is_file() and candidate.name.startswith(module_name):
+        if (
+            candidate.is_file()
+            and candidate.name.startswith(module_name)
+            and candidate.suffix.lower() in EXTENSIONS
+        ):
             return candidate
     return None
 

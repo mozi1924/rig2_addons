@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "src" / "licensing" / "registry.py"
 EXTENSIONS = (".so", ".pyd", ".dylib")
+SIDECAR_SUFFIX = ".orbis.json"
 _VERSION_SPECIFIC_FILENAME_RE = re.compile(r"(cpython-|\.cp\d{2,3}-)")
 
 
@@ -124,6 +125,10 @@ def is_version_specific_binary(filename: str) -> bool:
     return bool(_VERSION_SPECIFIC_FILENAME_RE.search(filename.lower()))
 
 
+def is_sidecar_metadata(filename: str) -> bool:
+    return filename.lower().endswith(SIDECAR_SUFFIX)
+
+
 def validate_runtime_layout(root: Path, *, require_complete_matrix: bool = False) -> list[str]:
     files = sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
     if not files:
@@ -150,6 +155,8 @@ def validate_runtime_layout(root: Path, *, require_complete_matrix: bool = False
             continue
 
         lowered = filename.lower()
+        if is_sidecar_metadata(filename):
+            continue
         if is_version_specific_binary(filename):
             errors.append(f"version-specific filename: {rel}")
         if not lowered.endswith(EXTENSIONS):

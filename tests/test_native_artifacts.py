@@ -40,6 +40,20 @@ class NativeArtifactsTest(unittest.TestCase):
 
             self.assertTrue(any("version-specific filename" in error for error in errors))
 
+    def test_validate_runtime_layout_allows_orbis_sidecars(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            tag_dir = root / "darwin-arm64-abi3"
+            tag_dir.mkdir(parents=True, exist_ok=True)
+            for module_name in native_artifacts.MODULE_NAMES:
+                binary_name = f"{module_name}.abi3.so"
+                (tag_dir / binary_name).write_bytes(b"x")
+                (tag_dir / f"{binary_name}.orbis.json").write_text("{}", encoding="utf-8")
+
+            errors = native_artifacts.validate_runtime_layout(root)
+
+            self.assertEqual(errors, [])
+
     def test_map_wheel_platform_tag_to_runtime_tags_includes_r2bb_supported_targets(self):
         self.assertEqual(
             native_artifacts.map_wheel_platform_tag_to_runtime_tags("macosx_11_0_universal2"),
