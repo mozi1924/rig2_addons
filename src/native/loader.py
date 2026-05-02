@@ -378,7 +378,42 @@ def load_native_extension_result(
                 continue
 
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+
+            # Verify the file is readable before attempting to load it.
+            # On Windows a .pyd that is locked by antivirus or still being
+            # written will fail here with a clear error instead of a crash.
+            try:
+                with open(module_path, "rb") as _test:
+                    pass
+            except OSError as _exc:
+                last_error = (
+                    f"Native backend is locked: cannot read binary "
+                    f"'{module_path}': {_exc}"
+                )
+                continue
+
+            # On Windows, the .pyd resides in a non-standard directory that is
+            # not in the DLL search path.  Without add_dll_directory the loader
+            # cannot resolve transitive DLL dependencies, which causes either
+            # ImportError or a hard crash.
+            _binary_dir = os.path.dirname(module_path)
+            _dll_ctx = None
+            if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+                try:
+                    _dll_ctx = os.add_dll_directory(_binary_dir)
+                    _dll_ctx.__enter__()
+                except OSError:
+                    _dll_ctx = None
+
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                if _dll_ctx is not None:
+                    try:
+                        _dll_ctx.__exit__(None, None, None)
+                    except Exception:
+                        pass
+
             validation_error = _validate_native_module_interface(
                 module_name=module_name,
                 module=module,
