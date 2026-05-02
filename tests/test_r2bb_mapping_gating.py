@@ -90,16 +90,15 @@ class R2BBMappingGatingTest(unittest.TestCase):
                 {"base_bone": "Base", "mi_bone": "MI"},
             ])
 
-    def test_unexpected_service_failure_can_still_use_python_fallback(self):
+    def test_unexpected_service_failure_does_not_fall_back_to_python_mapping_helpers(self):
         mapping_mod, _FeatureLockedError = _load_mapping_module(
             service_factory=lambda: _ExplodingService(),
         )
 
-        result = mapping_mod.mapping_entries_to_pairs([
-            {"base_bone": "Base", "mi_bone": "MI"},
-        ])
-
-        self.assertEqual(result, (("Base", "MI"),))
+        with self.assertRaises(RuntimeError):
+            mapping_mod.mapping_entries_to_pairs([
+                {"base_bone": "Base", "mi_bone": "MI"},
+            ])
 
 
 if __name__ == "__main__":

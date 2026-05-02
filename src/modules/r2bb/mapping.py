@@ -145,13 +145,7 @@ def _get_r2bb_service_if_unlocked():
 
 
 def normalize_mapping_entries(entries):
-    try:
-        return _get_r2bb_service_if_unlocked().normalize_mapping_entries(entries)
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-    return _normalize_mapping_entries_python(entries)
+    return _get_r2bb_service_if_unlocked().normalize_mapping_entries(entries)
 
 
 def _build_builtin_entries():
@@ -288,7 +282,7 @@ def load_preset_definition(preset_id):
 
 
 def save_custom_preset(name, entries, preset_id=None):
-    normalized_entries = _normalize_mapping_entries_python(entries)
+    normalized_entries = normalize_mapping_entries(entries)
     if not normalized_entries:
         raise ValueError("Cannot save an empty mapping preset")
 
@@ -330,87 +324,24 @@ def delete_custom_preset(preset_id):
 
 def mapping_entries_to_pairs(entries):
     normalized = normalize_mapping_entries(entries)
-    try:
-        return tuple(tuple(item) for item in _get_r2bb_service_if_unlocked().mapping_entries_to_pairs(normalized))
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-
-    pairs = []
-    for entry in normalized:
-        base_bone = entry["base_bone"]
-        mi_bone = entry["mi_bone"]
-        if base_bone and mi_bone:
-            pairs.append((base_bone, mi_bone))
-    return tuple(pairs)
+    return tuple(tuple(item) for item in _get_r2bb_service_if_unlocked().mapping_entries_to_pairs(normalized))
 
 
 def mapping_entries_to_export_bones(entries):
     normalized = normalize_mapping_entries(entries)
-    try:
-        return tuple(_get_r2bb_service_if_unlocked().mapping_entries_to_export_bones(normalized))
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-
-    export_bones = []
-    seen = set()
-    for entry in normalized:
-        mi_bone = entry["mi_bone"]
-        if not mi_bone or mi_bone in seen:
-            continue
-        seen.add(mi_bone)
-        export_bones.append(mi_bone)
-    return tuple(export_bones)
+    return tuple(_get_r2bb_service_if_unlocked().mapping_entries_to_export_bones(normalized))
 
 
 def mapping_entries_to_export_name_map(entries):
     normalized = normalize_mapping_entries(entries)
-    try:
-        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_export_name_map(normalized))
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-
-    export_map = {}
-    for entry in normalized:
-        mi_bone = entry["mi_bone"]
-        export_name = entry["export_name"]
-        if mi_bone and export_name:
-            export_map[mi_bone] = export_name
-    return export_map
+    return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_export_name_map(normalized))
 
 
 def mapping_entries_to_rotation_axis_signs(entries):
     normalized = normalize_mapping_entries(entries)
-    try:
-        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_rotation_axis_signs(normalized))
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-
-    return {
-        entry["mi_bone"]: entry["rotation_axis_signs"]
-        for entry in normalized
-        if entry["mi_bone"]
-    }
+    return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_rotation_axis_signs(normalized))
 
 
 def mapping_entries_to_transform_axis_signs(entries):
     normalized = normalize_mapping_entries(entries)
-    try:
-        return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_transform_axis_signs(normalized))
-    except FeatureLockedError:
-        raise
-    except Exception:
-        pass
-
-    return {
-        entry["mi_bone"]: entry["transform_axis_signs"]
-        for entry in normalized
-        if entry["mi_bone"]
-    }
+    return dict(_get_r2bb_service_if_unlocked().mapping_entries_to_transform_axis_signs(normalized))
