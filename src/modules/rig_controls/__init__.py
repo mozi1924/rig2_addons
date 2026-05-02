@@ -1,11 +1,14 @@
 from . import props, ops, ui
+from ...core.registration import register_modules, unregister_modules
+
+_MODULES = (
+    props,
+    ops,
+    ui,
+)
 
 def register():
-    props.register()
-    ops.register()
-    ui.register()
+    register_modules(_MODULES, module_name="RigControls")
 
 def unregister():
-    ui.unregister()
-    ops.unregister()
-    props.unregister()
+    unregister_modules(_MODULES, module_name="RigControls")

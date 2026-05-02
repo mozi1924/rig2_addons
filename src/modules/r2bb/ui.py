@@ -1,5 +1,6 @@
 import bpy
 
+from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...services.r2bb_service import get_r2bb_backend_service
 from .props import get_editor_runtime_entries, get_editor_state
@@ -157,16 +158,8 @@ classes = (R2BB_PT_ControlCenter,)
 
 
 def register():
-    for cls in classes:
-        try:
-            bpy.utils.register_class(cls)
-        except Exception as exc:
-            print(f"R2BB register error for {cls.__name__}: {exc}")
+    register_classes(classes, module_name="R2BB")
 
 
 def unregister():
-    for cls in reversed(classes):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+    unregister_classes(classes)

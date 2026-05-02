@@ -472,17 +472,25 @@ def refresh_feature_runtime(feature_id=None):
         _log.debug("Failed to sync license to native modules after refresh: %s", exc)
 
     try:
-        from ..modules.face_cap.runtime import get_runtime_service
-        get_runtime_service().refresh_backend()
-    except Exception as exc:
-        _log.debug("Failed to refresh face_cap runtime: %s", exc)
+        from .runtime_refresh import refresh_runtime_bindings
 
-    try:
-        from ..feature_registration import reconcile_feature_modules
-
-        reconcile_feature_modules()
+        refresh_runtime_bindings(logger=_log)
     except Exception as exc:
-        _log.debug("Failed to reconcile feature modules: %s", exc)
+        # Keep backward compatibility with isolated test package shims that
+        # only preload selected licensing modules.
+        _log.debug("Shared runtime refresh helper unavailable: %s", exc)
+        try:
+            from ..modules.face_cap.runtime import get_runtime_service
+
+            get_runtime_service().refresh_backend()
+        except Exception as runtime_exc:
+            _log.debug("Failed to refresh face_cap runtime: %s", runtime_exc)
+        try:
+            from ..feature_registration import reconcile_feature_modules
+
+            reconcile_feature_modules()
+        except Exception as reconcile_exc:
+            _log.debug("Failed to reconcile feature modules: %s", reconcile_exc)
 
     return refreshed
 

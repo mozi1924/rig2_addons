@@ -4,6 +4,7 @@ import threading
 from .manager import LicenseManager, get_license_manager
 from .config import HEARTBEAT_INTERVAL_SECONDS
 from .registry import iter_feature_specs
+from .runtime_refresh import refresh_runtime_bindings
 
 _log = logging.getLogger(__name__)
 
@@ -99,21 +100,6 @@ def _consume_async_native_sync_result():
     }
 
 
-def _refresh_runtime_bindings():
-    try:
-        from ..modules.face_cap.runtime import get_runtime_service
-
-        get_runtime_service().refresh_backend()
-    except Exception:
-        pass
-    try:
-        from ..feature_registration import reconcile_feature_modules
-
-        reconcile_feature_modules()
-    except Exception:
-        pass
-
-
 def process_pending_native_sync():
     """Apply pending native grants on Blender main thread using cached material."""
     global _MAIN_THREAD_NATIVE_SYNC_PENDING, _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
@@ -139,7 +125,7 @@ def process_pending_native_sync():
     _MAIN_THREAD_NATIVE_SYNC_PENDING = False
     _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
     if refresh_runtime:
-        _refresh_runtime_bindings()
+        refresh_runtime_bindings(logger=_log)
     return True
 
 

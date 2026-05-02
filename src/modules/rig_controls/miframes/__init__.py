@@ -1,25 +1,14 @@
-import bpy
-from . import importer
-from . import mi_to_fk
+from ....core.registration import register_classes, unregister_classes
+from . import importer, mi_to_fk
+
+_CLASSES = (
+    importer.MI_OT_ImportAction,
+    importer.MI_OT_ImportConfirmDialog,
+    mi_to_fk.MI_OT_BakeToFK,
+)
 
 def register():
-    try:
-        bpy.utils.register_class(importer.MI_OT_ImportAction)
-    except Exception:
-        pass
-    try:
-        bpy.utils.register_class(importer.MI_OT_ImportConfirmDialog)
-    except Exception:
-        pass
-    try:
-        bpy.utils.register_class(mi_to_fk.MI_OT_BakeToFK)
-    except Exception:
-        pass
+    register_classes(_CLASSES, module_name="MIFrames")
 
 def unregister():
-    try:
-        bpy.utils.unregister_class(mi_to_fk.MI_OT_BakeToFK)
-        bpy.utils.unregister_class(importer.MI_OT_ImportConfirmDialog)
-        bpy.utils.unregister_class(importer.MI_OT_ImportAction)
-    except:
-        pass
+    unregister_classes(_CLASSES)
