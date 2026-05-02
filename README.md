@@ -13,6 +13,7 @@ Rig2 Binding Tool is a Blender addon for Rig2 armatures. This repository is also
 - `assets/`: bundled addon assets such as `rig2-remake.blend`.
 - `native_cpp/`: C++ extension sources and packaging metadata.
 - `scripts/`: build, extraction, integrity, and upload utilities.
+- `scripts/legacy/`: archived local utilities not used by CI/release flow.
 - `tests/`: runtime contract tests and perf helpers.
 - `docs/architecture/`: architecture plans and long-form design notes.
 - `docs/refactor/`: refactor targets, migration candidates, and optimization tasks.

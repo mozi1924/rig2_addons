@@ -1,5 +1,6 @@
 import bpy
 
+from .core.utils import tag_context_redraw
 from .licensing.config import FEATURE_FACE_CAP, FEATURE_MIFRAMES, FEATURE_R2BB
 from .services.registry import get_feature_service
 from .licensing.ui_helpers import (
@@ -445,9 +446,7 @@ class RIG2_OT_download_native(bpy.types.Operator):
 
 def _refresh_ui():
     """Tag all windows for redraw so the preferences panel updates."""
-    for window in bpy.context.window_manager.windows:
-        for area in window.screen.areas:
-            area.tag_redraw()
+    tag_context_redraw()
 
 
 def get_preferences():

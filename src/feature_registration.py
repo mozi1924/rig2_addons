@@ -4,6 +4,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 
+from .core.utils import tag_context_redraw
 from .licensing.feature_access import FeatureVisibility, get_feature_visibility
 
 _log = logging.getLogger(__name__)
@@ -44,11 +45,7 @@ def _load_module(module_path: str):
 
 def _refresh_ui():
     try:
-        import bpy
-
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                area.tag_redraw()
+        tag_context_redraw()
     except Exception:
         pass
 
