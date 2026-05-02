@@ -45,7 +45,12 @@ class NativeLicensedFeatureService:
         )
 
     def get_feature_status(self):
-        status = get_feature_status(self.feature_id)
+        try:
+            status = get_feature_status(self.feature_id, probe_native=True)
+        except TypeError:
+            # Backward-compatible for tests or older shims that only accept
+            # positional feature_id.
+            status = get_feature_status(self.feature_id)
         native_status = self.get_native_authorization_status()
         status["native_authorized"] = bool(native_status.get("authorized", False))
         status["native_reason"] = str(native_status.get("reason", "") or "")
@@ -108,13 +113,14 @@ class NativeLicensedFeatureService:
             )
         )
 
-    def sync_license_to_native(self):
+    def sync_license_to_native(self, *, allow_network=True):
         sync_license_state_to_native(
             logger=self._log,
             feature_id=self.feature_id,
             get_license_status=self.wrapper.get_license_status,
             apply_grant=self.wrapper.apply_native_grant,
             clear_license_state=self.wrapper.clear_license_state,
+            allow_network=allow_network,
         )
 
     def require_feature_unlocked(self):

@@ -93,6 +93,7 @@ def _load_manager_module():
     runtime_cache_mod.load_cached_native_grants = lambda path: {}
     runtime_cache_mod.load_cached_trust_bundle = lambda path: ""
     runtime_cache_mod.save_cached_native_grant = lambda path, grant: None
+    runtime_cache_mod.save_cached_trust_bundle = lambda path, token: None
 
     versioning_mod = types.ModuleType(versioning_name)
     versioning_mod.SEMVER = "1.1.0"
@@ -384,6 +385,41 @@ class LicenseManagerTest(unittest.TestCase):
         self.assertFalse(status["activated"])
         self.assertEqual(status["features"], {"face_cap": True})
 
+    def test_prepare_native_sync_material_fetches_and_caches_grants(self):
+        manager_mod, fake_client_cls, expiry_map = _load_manager_module()
+        fake_client_cls.default_session = None
+        manager = manager_mod.LicenseManager()
+
+        now = time.time()
+        session = _make_session(
+            now,
+            access_exp=now + 900,
+            refresh_exp=now + 3600,
+            features={"face_cap": True, "miframes": False, "r2bb": True},
+        )
+        manager._client.session = session
+        expiry_map["access-token"] = now + 900
+        expiry_map["refresh-token"] = now + 3600
+
+        requested = []
+        manager.request_native_grant = lambda feature_id: requested.append(feature_id) or types.SimpleNamespace(
+            feature_id=feature_id,
+            addon_version="1.1.0",
+            grant_token="grant-token",
+            token_type="Bearer",
+            expires_in=300,
+            py_manifest={},
+            artifact_manifest={},
+        )
+        manager.get_trust_bundle_token = lambda allow_network=True: "trust-bundle-token"
+
+        result = manager.prepare_native_sync_material(prewarm_verification=True, allow_network=True)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(set(requested), {"face_cap", "r2bb"})
+        self.assertEqual(set(result["prepared_features"]), {"face_cap", "r2bb"})
+        self.assertEqual(result["failed_features"], ())
+
 
 class LicensingTimerTest(unittest.TestCase):
     def test_timer_queues_async_native_sync_and_fast_polls_after_result(self):
@@ -395,6 +431,7 @@ class LicensingTimerTest(unittest.TestCase):
             request_heartbeat=lambda reason: False,
             get_status=lambda: {"is_refresh_expired": False},
             is_heartbeat_in_flight=lambda: False,
+            prepare_native_sync_material=lambda **kwargs: {"ok": True},
         )
         licensing_mod, feature_access_mod = _load_licensing_init_module(manager)
 
@@ -419,6 +456,7 @@ class LicensingTimerTest(unittest.TestCase):
             request_heartbeat=lambda reason: requests.append(reason) or True,
             get_status=lambda: {"is_refresh_expired": False},
             is_heartbeat_in_flight=lambda: False,
+            prepare_native_sync_material=lambda **kwargs: {"ok": True},
         )
         licensing_mod, _feature_access_mod = _load_licensing_init_module(manager)
         licensing_mod._HEARTBEAT_TIMER_ACTIVE = True

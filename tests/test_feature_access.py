@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -327,7 +328,8 @@ class FeatureAccessTest(unittest.TestCase):
             missing_status = feature_access.get_feature_status("r2bb")
             self.assertEqual(missing_status["effective_state"], "binary_missing")
 
-            result = feature_access.download_feature_binary("r2bb")
+            with mock.patch.object(feature_access.sys, "platform", "linux"):
+                result = feature_access.download_feature_binary("r2bb")
             self.assertTrue(result["ok"])
             ready_status = feature_access.get_feature_status("r2bb")
             self.assertEqual(ready_status["effective_state"], "ready")
@@ -336,7 +338,7 @@ class FeatureAccessTest(unittest.TestCase):
                 handle.write(b"bin")
             wrapper_states["face_cap"].load_ok = False
             wrapper_states["face_cap"].error = "validation failed"
-            invalid_status = feature_access.get_feature_status("face_cap")
+            invalid_status = feature_access.get_feature_status("face_cap", probe_native=True)
             self.assertEqual(invalid_status["effective_state"], "needs_redownload")
             self.assertEqual(invalid_status["load_error"], "validation failed")
             self.assertTrue(invalid_status["can_download"])
@@ -387,7 +389,8 @@ class FeatureAccessTest(unittest.TestCase):
                 runtime_service=runtime_service,
             )
 
-            result = feature_access.activate_and_prepare_features("KEY-123")
+            with mock.patch.object(feature_access.sys, "platform", "linux"):
+                result = feature_access.activate_and_prepare_features("KEY-123")
 
             self.assertEqual(result["licensed_features"], ["face_cap", "miframes"])
             self.assertTrue(result["download_results"]["face_cap"]["ok"])
@@ -423,13 +426,46 @@ class FeatureAccessTest(unittest.TestCase):
                 runtime_service=runtime_service,
             )
 
-            result = feature_access.download_feature_binary("face_cap", force=True)
+            with mock.patch.object(feature_access.sys, "platform", "linux"):
+                result = feature_access.download_feature_binary("face_cap", force=True)
 
             self.assertFalse(result["ok"])
             self.assertIn("does not match the installed addon source", result["error"])
-            status = feature_access.get_feature_status("face_cap")
+            status = feature_access.get_feature_status("face_cap", probe_native=True)
             self.assertEqual(status["effective_state"], "needs_redownload")
             self.assertIn("does not match the installed addon source", status["download_error"])
+
+    def test_download_feature_binary_windows_defers_runtime_reload_until_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                with open(wrapper_states["face_cap"].path, "wb") as handle:
+                    handle.write(b"bin")
+                wrapper_states["face_cap"].load_ok = False
+                return True
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with mock.patch.object(feature_access.sys, "platform", "win32"):
+                result = feature_access.download_feature_binary("face_cap", force=True)
+                self.assertTrue(result["ok"])
+                self.assertIn("Restart Blender", result.get("message", ""))
+                self.assertEqual(wrapper_states["face_cap"].refresh_count, 0)
+
+                status = feature_access.get_feature_status("face_cap")
+                self.assertEqual(status["effective_state"], "session_warning")
+                self.assertTrue(status["pending_restart"])
+                self.assertIn("Restart Blender", status["message"])
+                self.assertEqual(wrapper_states["face_cap"].refresh_count, 0)
 
     def test_native_sync_pending_does_not_force_needs_redownload(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -489,7 +525,7 @@ class FeatureAccessTest(unittest.TestCase):
                 "expires_at": 0,
             }
 
-            status = feature_access.get_feature_status("face_cap")
+            status = feature_access.get_feature_status("face_cap", probe_native=True)
 
             self.assertEqual(status["effective_state"], "needs_redownload")
             self.assertIn("artifact digest mismatch", status["message"])

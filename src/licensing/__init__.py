@@ -12,6 +12,7 @@ __all__ = [
     "get_license_manager",
     "is_runtime_ready",
     "sync_license_to_native_modules",
+    "process_pending_native_sync",
 ]
 
 _HEARTBEAT_TIMER_ACTIVE = False
@@ -21,6 +22,8 @@ _ASYNC_NATIVE_SYNC_LOCK = threading.Lock()
 _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
 _ASYNC_NATIVE_SYNC_RESULT_PENDING = False
 _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
+_MAIN_THREAD_NATIVE_SYNC_PENDING = False
+_MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
 
 
 def is_runtime_ready():
@@ -28,13 +31,15 @@ def is_runtime_ready():
     return _LICENSE_RUNTIME_READY
 
 
-def sync_license_to_native_modules():
+def sync_license_to_native_modules(*, allow_network=True):
     """Propagate the current license state to all native C++ modules."""
     from ..services.registry import get_feature_service
 
     for spec in iter_feature_specs():
         try:
-            get_feature_service(spec.feature_id).sync_license_to_native()
+            get_feature_service(spec.feature_id).sync_license_to_native(
+                allow_network=allow_network,
+            )
         except Exception as exc:
             _log.debug("sync %s license: %s", spec.feature_id, exc)
 
@@ -54,12 +59,12 @@ def _request_async_native_sync(*, prewarm_verification=False, refresh_runtime=Fa
     def _worker():
         global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_RESULT_PENDING
         try:
-            if prewarm_verification:
-                try:
-                    get_license_manager().warm_verification_cache()
-                except Exception as exc:
-                    _log.debug("Background verification warmup failed: %s", exc)
-            sync_license_to_native_modules()
+            mgr = get_license_manager()
+            if mgr._client.session is not None:
+                mgr.prepare_native_sync_material(
+                    prewarm_verification=prewarm_verification,
+                    allow_network=True,
+                )
         except Exception as exc:
             _log.debug("Async native sync failed: %s", exc)
         finally:
@@ -94,6 +99,50 @@ def _consume_async_native_sync_result():
     }
 
 
+def _refresh_runtime_bindings():
+    try:
+        from ..modules.face_cap.runtime import get_runtime_service
+
+        get_runtime_service().refresh_backend()
+    except Exception:
+        pass
+    try:
+        from ..feature_registration import reconcile_feature_modules
+
+        reconcile_feature_modules()
+    except Exception:
+        pass
+
+
+def process_pending_native_sync():
+    """Apply pending native grants on Blender main thread using cached material."""
+    global _MAIN_THREAD_NATIVE_SYNC_PENDING, _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+
+    async_result = _consume_async_native_sync_result()
+    if async_result is not None:
+        _MAIN_THREAD_NATIVE_SYNC_PENDING = True
+        _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = (
+            _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+            or bool(async_result.get("refresh_runtime"))
+        )
+
+    mgr = get_license_manager()
+    if not _MAIN_THREAD_NATIVE_SYNC_PENDING:
+        return False
+    if mgr._client.session is None:
+        _MAIN_THREAD_NATIVE_SYNC_PENDING = False
+        _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
+        return False
+
+    sync_license_to_native_modules(allow_network=False)
+    refresh_runtime = bool(_MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING)
+    _MAIN_THREAD_NATIVE_SYNC_PENDING = False
+    _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
+    if refresh_runtime:
+        _refresh_runtime_bindings()
+    return True
+
+
 def _heartbeat_timer():
     """Blender timer callback — sends heartbeat and reschedules itself."""
     global _HEARTBEAT_TIMER_ACTIVE
@@ -108,20 +157,7 @@ def _heartbeat_timer():
         heartbeat_result = None
 
     try:
-        async_result = _consume_async_native_sync_result()
-        if async_result is not None:
-            try:
-                from ..modules.face_cap.runtime import get_runtime_service
-
-                get_runtime_service().refresh_backend()
-            except Exception:
-                pass
-            try:
-                from ..feature_registration import reconcile_feature_modules
-
-                reconcile_feature_modules()
-            except Exception:
-                pass
+        process_pending_native_sync()
 
         actions = mgr.pop_post_heartbeat_actions()
         if actions.get("sync_native") and mgr._client.session is not None:

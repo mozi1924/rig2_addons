@@ -113,6 +113,7 @@ def sync_license_state_to_native(
     apply_grant,
     clear_license_state,
     get_license_status=None,
+    allow_network=True,
 ):
     """Propagate the current license state to a native backend."""
     def _clear_with_reason(message: str):
@@ -125,22 +126,19 @@ def sync_license_state_to_native(
         from ..licensing.manager import get_license_manager
 
         manager = get_license_manager()
-        native_failure_reason = get_native_failure_reason(get_license_status)
-        if native_reason_requires_redownload(native_failure_reason):
-            if not native_reason_allows_grant_refresh(native_failure_reason):
-                logger.debug(
-                    "Native integrity validation failed for %s; not applying license state. reason=%s",
-                    feature_id,
-                    native_failure_reason,
-                )
-                return
 
         if is_feature_ready_for_native(feature_id):
-            trust_bundle_token = manager.get_trust_bundle_token(allow_network=True)
+            current_reason = get_native_failure_reason(get_license_status)
+            if current_reason and not native_reason_allows_grant_refresh(current_reason):
+                return
+            trust_bundle_token = manager.get_trust_bundle_token(allow_network=allow_network)
             grant = None
-            try:
-                grant = manager.request_native_grant(feature_id)
-            except Exception:
+            if allow_network:
+                try:
+                    grant = manager.request_native_grant(feature_id)
+                except Exception:
+                    grant = manager.get_cached_native_grant(feature_id)
+            else:
                 grant = manager.get_cached_native_grant(feature_id)
             if grant is None:
                 _clear_with_reason("Native grant unavailable. Activate or re-sync your license.")

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <cstdio>
 #include <cstring>
@@ -29,6 +30,22 @@
 
 namespace rig2_shared {
 
+#ifndef RIG2_DEV_BUILD
+#define RIG2_DEV_BUILD 0
+#endif
+
+#if defined(_WIN32)
+// Blender/Python extension entrypoints run under the GIL, and our license
+// state is only touched by Python-callable methods. Avoid std::recursive_mutex
+// on Windows to sidestep startup crashes observed inside MSVCP140.dll lock code.
+struct LicenseMutex {
+  void lock() {}
+  void unlock() {}
+};
+#else
+using LicenseMutex = std::recursive_mutex;
+#endif
+
 // ---------------------------------------------------------------------------
 // License state
 // ---------------------------------------------------------------------------
@@ -40,7 +57,7 @@ struct LicenseState {
   std::string device_id;
   std::string feature_id;
   std::string error;
-  std::recursive_mutex mutex;
+  LicenseMutex mutex;
 };
 
 inline void set_license_error(LicenseState* state, const std::string& message) {
@@ -53,7 +70,7 @@ inline void clear_license_state(LicenseState* state, const char* failure_message
   if (!state) {
     return;
   }
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
+  std::lock_guard<LicenseMutex> lock(state->mutex);
   state->ok = 0;
   state->integrity_ok = 0;
   state->expires_at = 0;
@@ -68,7 +85,7 @@ inline void apply_authorized_license_state(LicenseState* state, const std::strin
   if (!state) {
     return;
   }
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
+  std::lock_guard<LicenseMutex> lock(state->mutex);
   state->ok = 1;
   state->integrity_ok = 1;
   state->expires_at = expires_at;
@@ -106,7 +123,7 @@ inline bool license_error_indicates_redownload(const std::string& error) {
 }
 
 inline PyObject* build_license_status(LicenseState& state) {
-  std::lock_guard<std::recursive_mutex> lock(state.mutex);
+  std::lock_guard<LicenseMutex> lock(state.mutex);
   PyObject* result = PyDict_New();
   if (!result) {
     return nullptr;
@@ -148,7 +165,7 @@ inline PyObject* build_license_status(LicenseState& state) {
 }
 
 inline const char* license_error_message(LicenseState& state) {
-  std::lock_guard<std::recursive_mutex> lock(state.mutex);
+  std::lock_guard<LicenseMutex> lock(state.mutex);
   return state.error.empty() ? "License required. Activate your license in Addon Preferences."
                              : state.error.c_str();
 }
@@ -380,6 +397,23 @@ inline bool get_file_size_utf8(const std::string& path, long long* size_out) {
   return true;
 }
 
+inline bool runtime_profile_is_dev() {
+  const char* env = std::getenv("RIG2_RUNTIME_PROFILE");
+  if (!env || !env[0]) {
+    return false;
+  }
+  const std::string normalized = lowercase_ascii(trim_ascii(std::string(env)));
+  return normalized == "dev" || normalized == "development";
+}
+
+inline bool allow_dev_artifact_mismatch() {
+#if RIG2_DEV_BUILD
+  return runtime_profile_is_dev();
+#else
+  return false;
+#endif
+}
+
 inline std::string normalize_ascii_key(PyObject* obj, const char* fallback) {
   const std::string fallback_value = fallback ? fallback : "";
   if (!obj) {
@@ -511,6 +545,61 @@ inline std::string sha256_hex_file(const std::string& path) {
   if (!read_file_bytes_utf8(path, &data)) {
     return std::string();
   }
+
+  PyRef hashlib_module(PyImport_ImportModule("hashlib"));
+  if (!hashlib_module) {
+    PyErr_Clear();
+    return std::string();
+  }
+  PyRef sha256_fn(PyObject_GetAttrString(hashlib_module.get(), "sha256"));
+  if (!sha256_fn || !PyCallable_Check(sha256_fn.get())) {
+    PyErr_Clear();
+    return std::string();
+  }
+  PyRef payload(PyBytes_FromStringAndSize(data.data(), static_cast<Py_ssize_t>(data.size())));
+  if (!payload) {
+    PyErr_Clear();
+    return std::string();
+  }
+  PyRef sha_obj(PyObject_CallFunctionObjArgs(sha256_fn.get(), payload.get(), nullptr));
+  if (!sha_obj) {
+    PyErr_Clear();
+    return std::string();
+  }
+  PyRef hex_obj(PyObject_CallMethod(sha_obj.get(), "hexdigest", nullptr));
+  if (!hex_obj) {
+    PyErr_Clear();
+    return std::string();
+  }
+  return py_object_to_utf8(hex_obj.get());
+}
+
+inline std::string normalize_newlines_lf(std::string input) {
+  if (input.empty()) {
+    return input;
+  }
+  std::string out;
+  out.reserve(input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    const char c = input[i];
+    if (c == '\r') {
+      if (i + 1 < input.size() && input[i + 1] == '\n') {
+        ++i;
+      }
+      out.push_back('\n');
+      continue;
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
+inline std::string sha256_hex_text_file_normalized(const std::string& path) {
+  std::string data;
+  if (!read_file_bytes_utf8(path, &data)) {
+    return std::string();
+  }
+  data = normalize_newlines_lf(std::move(data));
 
   PyRef hashlib_module(PyImport_ImportModule("hashlib"));
   if (!hashlib_module) {
@@ -852,7 +941,8 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
       if (error_out) *error_out = "Python manifest entry is incomplete.";
       return false;
     }
-    const std::string actual_sha = sha256_hex_file(join_utf8_paths(addon_root, relative_path));
+    const std::string source_path = join_utf8_paths(addon_root, relative_path);
+    const std::string actual_sha = sha256_hex_text_file_normalized(source_path);
     if (actual_sha.empty()) {
       if (error_out) *error_out = "Failed to hash protected source file: " + relative_path;
       return false;
@@ -886,14 +976,17 @@ inline bool validate_native_manifest(PyObject* payload_obj, const std::string& a
     if (error_out) *error_out = "Native binary path is unavailable for verification.";
     return false;
   }
-  if (actual_size != expected_size) {
-    if (error_out) *error_out = "Native binary size mismatch.";
-    return false;
-  }
   const std::string actual_sha = sha256_hex_file(module_path);
-  if (actual_sha != expected_sha) {
-    if (error_out) *error_out = "Native binary digest mismatch.";
-    return false;
+  const bool artifact_mismatch = (actual_size != expected_size) || (actual_sha != expected_sha);
+  if (artifact_mismatch) {
+    if (!allow_dev_artifact_mismatch()) {
+      if (actual_size != expected_size) {
+        if (error_out) *error_out = "Native binary size mismatch.";
+      } else {
+        if (error_out) *error_out = "Native binary digest mismatch.";
+      }
+      return false;
+    }
   }
   return true;
 }
@@ -952,7 +1045,7 @@ inline bool ensure_license_valid(LicenseState* state) {
   if (!state || !state->ok) {
     return false;
   }
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
+  std::lock_guard<LicenseMutex> lock(state->mutex);
   if (!state->integrity_ok) {
     clear_license_state(state, "Native integrity check failed. Reinstall the addon and binary.");
     return false;

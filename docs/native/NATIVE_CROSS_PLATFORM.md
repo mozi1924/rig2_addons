@@ -1,6 +1,9 @@
 # Native Cross-Platform Build Notes
 
-This addon now builds native backends as CPython `abi3` modules (target: `Py3.9+`).
+This addon builds native backends as CPython `abi3` modules.
+
+- CI build interpreter baseline: Python `3.11` (Blender 4.5 aligned)
+- Runtime compatibility target: `abi3` (`Py3.9+`)
 
 ## Runtime Tags
 
@@ -23,7 +26,7 @@ Examples:
 python3 scripts/build_native.py
 ```
 
-Outputs are copied into `src/native/binaries/*` for both new and legacy tag formats.
+Outputs are copied into `src/native/binaries/<platform-arch-abi3>/`.
 
 ## CI Build Matrix
 
@@ -41,6 +44,18 @@ python scripts/extract_native_from_wheels.py --wheelhouse wheelhouse --output na
 
 Resulting `native_dist` can be published as release artifacts and copied into
 `src/native/binaries/` in platform-specific packages.
+
+## Runtime Security Profile
+
+Native grant verification always validates JWT signatures and Python source
+integrity manifests. Artifact hash/size handling is profile-based:
+
+- `RIG2_RUNTIME_PROFILE=prod` (default): strict artifact hash + size check.
+- `RIG2_RUNTIME_PROFILE=dev`: artifact mismatch is only allowed when binaries
+  are compiled with `RIG2_DEV_BUILD=1`.
+
+Official CI builds force `RIG2_DEV_BUILD=0`, so production artifacts cannot be
+downgraded into dev behavior via environment variable alone.
 
 For the full local workflow, including cleanup expectations, see
 [`docs/dev/build-and-release.md`](/Users/jaxlocke/rig2_ecosystem/rig2_addons/docs/dev/build-and-release.md).

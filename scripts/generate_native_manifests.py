@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from native_artifacts import RUNTIME_ARTIFACT_SPECS
+from native_artifacts import EXTENSIONS, RUNTIME_ARTIFACT_SPECS, is_sidecar_metadata
 from versioning import load_version_info, semver
 
 
@@ -45,6 +45,16 @@ def _sha256_file(path: Path) -> str:
                 break
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _normalize_newlines_lf(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _sha256_text_file_normalized(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    normalized = _normalize_newlines_lf(text).encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()
 
 
 def _build_sidecar_path(binary_path: Path) -> Path:
@@ -78,7 +88,8 @@ def generate_manifests(output_root: Path, *, binary_dir: Path) -> list[Path]:
             manifest["py_files"].append(
                 {
                     "path": relative_path,
-                    "sha256": _sha256_file(source_path),
+                    # Normalize LF/CRLF so grants stay portable across platforms.
+                    "sha256": _sha256_text_file_normalized(source_path),
                 }
             )
 
@@ -86,7 +97,17 @@ def generate_manifests(output_root: Path, *, binary_dir: Path) -> list[Path]:
             runtime_dir = binaries_root / runtime_spec.runtime_tag
             if not runtime_dir.is_dir():
                 continue
-            candidates = sorted(path for path in runtime_dir.iterdir() if path.is_file() and path.name.startswith(spec.native_module_name))
+            candidates = sorted(
+                (
+                    path
+                    for path in runtime_dir.iterdir()
+                    if path.is_file()
+                    and path.name.startswith(spec.native_module_name)
+                    and not is_sidecar_metadata(path.name)
+                    and path.suffix.lower() in EXTENSIONS
+                ),
+                key=lambda path: (len(path.name), path.name.lower()),
+            )
             if not candidates:
                 continue
             binary_path = candidates[0]

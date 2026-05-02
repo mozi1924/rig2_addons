@@ -20,6 +20,7 @@ from .runtime_cache import (
     load_cached_native_grants,
     load_cached_trust_bundle,
     save_cached_native_grant,
+    save_cached_trust_bundle,
 )
 
 _log = logging.getLogger(__name__)
@@ -120,6 +121,89 @@ class LicenseManager:
             return self._client.get_features()
         except (OrbisAuthTokenError, OrbisAuthError):
             return {}
+
+    def _iter_licensed_native_feature_ids(self):
+        """Return managed native feature ids that are currently entitled."""
+        features = self._verified_features()
+        if not features:
+            return ()
+        try:
+            from .registry import iter_native_feature_specs
+        except Exception:
+            return tuple(
+                feature_id
+                for feature_id, enabled in sorted(features.items())
+                if bool(enabled)
+            )
+        return tuple(
+            spec.feature_id
+            for spec in iter_native_feature_specs()
+            if bool(features.get(spec.feature_id, False))
+        )
+
+    def prepare_native_sync_material(
+        self,
+        *,
+        feature_ids: tuple[str, ...] | None = None,
+        prewarm_verification: bool = False,
+        allow_network: bool = True,
+    ):
+        """Fetch/cache trust bundle + native grants without touching native modules.
+
+        This method is safe to call from background threads because it only
+        performs token/network/cache operations in Python.
+        """
+        if self._client.session is None:
+            return {
+                "ok": False,
+                "prepared_features": (),
+                "failed_features": (),
+                "used_network": False,
+                "reason": "no_session",
+            }
+
+        if prewarm_verification:
+            try:
+                self.warm_verification_cache()
+            except Exception:
+                pass
+
+        trust_bundle_token = self.get_trust_bundle_token(allow_network=allow_network)
+        used_network = bool(allow_network and trust_bundle_token)
+
+        target_feature_ids = tuple(feature_ids or self._iter_licensed_native_feature_ids())
+        prepared = []
+        failed = []
+        for feature_id in target_feature_ids:
+            grant = None
+            if allow_network:
+                try:
+                    grant = self.request_native_grant(feature_id)
+                except Exception:
+                    grant = self.get_cached_native_grant(feature_id)
+            else:
+                grant = self.get_cached_native_grant(feature_id)
+            if grant is None:
+                failed.append(feature_id)
+            else:
+                prepared.append(feature_id)
+
+        if not target_feature_ids:
+            return {
+                "ok": bool(trust_bundle_token),
+                "prepared_features": (),
+                "failed_features": (),
+                "used_network": used_network,
+                "reason": "no_entitled_native_features",
+            }
+
+        return {
+            "ok": bool(trust_bundle_token) and not failed,
+            "prepared_features": tuple(prepared),
+            "failed_features": tuple(failed),
+            "used_network": used_network,
+            "reason": "" if not failed else "grant_unavailable",
+        }
 
     def _build_inactive_status(self):
         return {
@@ -663,7 +747,10 @@ class LicenseManager:
     def get_trust_bundle_token(self, *, allow_network: bool = True) -> str:
         if allow_network:
             try:
-                return self._client.fetch_trust_bundle().bundle_token
+                token = str(self._client.fetch_trust_bundle().bundle_token or "").strip()
+                if token:
+                    save_cached_trust_bundle(self._trust_bundle_path, token)
+                    return token
             except Exception:
                 pass
         return self.get_cached_trust_bundle_token()

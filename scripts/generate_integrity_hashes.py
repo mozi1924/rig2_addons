@@ -25,15 +25,10 @@ def load_registry(repo_root: Path):
 
 
 def compute_hash(filepath: Path) -> str:
-    """Return the hex SHA-256 digest of a file."""
-    h = hashlib.sha256()
-    with open(filepath, "rb") as fh:
-        while True:
-            chunk = fh.read(65536)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
+    """Return SHA-256 digest of UTF-8 text with normalized LF newlines."""
+    text = filepath.read_text(encoding="utf-8")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()
 
 
 def generate_header(repo_root: Path, output_path: Path) -> None:

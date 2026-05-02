@@ -18,9 +18,14 @@ except Exception:  # Blender bundled Python may ship a partial setuptools.
 
 extra_compile_args = ["-O3"]
 define_macros = []
+dev_build_flag = os.environ.get("RIG2_DEV_BUILD", "0").strip().lower() in {"1", "true", "yes"}
+define_macros.append(("RIG2_DEV_BUILD", "1" if dev_build_flag else "0"))
 if os.name == "nt":
     extra_compile_args.extend(["/std:c++17"])
     define_macros.append(("NOMINMAX", "1"))
+    # Work around std::mutex crashes when the host process provides an older
+    # msvcp140 runtime than the toolset used to build this extension.
+    define_macros.append(("_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR", "1"))
 else:
     extra_compile_args.extend(["-std=c++17"])
 

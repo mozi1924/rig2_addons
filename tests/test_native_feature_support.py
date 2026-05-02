@@ -32,9 +32,19 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     jwt_mod.fetch_jwks = lambda server_url, timeout=30.0: {"keys": [{"kid": "test-key"}]}
 
     manager_mod = types.ModuleType(manager_name)
+    manager_state = {"request_calls": 0, "cached_calls": 0}
+
+    def _request_native_grant(feature_id):
+        manager_state["request_calls"] += 1
+        return types.SimpleNamespace(grant_token="grant-ok")
+
+    def _get_cached_native_grant(feature_id):
+        manager_state["cached_calls"] += 1
+        return types.SimpleNamespace(grant_token="grant-ok")
+
     manager_mod.get_license_manager = lambda: types.SimpleNamespace(
-        request_native_grant=lambda feature_id: types.SimpleNamespace(grant_token="grant-ok"),
-        get_cached_native_grant=lambda feature_id: None,
+        request_native_grant=_request_native_grant,
+        get_cached_native_grant=_get_cached_native_grant,
         get_trust_bundle_token=lambda allow_network=True: "trust-bundle-ok",
         _client=types.SimpleNamespace(server_url="https://example.invalid", timeout_seconds=5.0),
     )
@@ -56,6 +66,7 @@ def load_support_module(*, ready_for_sync, verify_error=None, initial_native_sta
     assert spec is not None and spec.loader is not None
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
+    module._test_manager_state = manager_state
 
     apply_calls = []
     clear_calls = []
@@ -151,6 +162,25 @@ class NativeFeatureSupportTest(unittest.TestCase):
         )
 
         self.assertEqual(apply_calls, [])
+        self.assertEqual(clear_calls, [])
+
+    def test_sync_with_allow_network_false_uses_cached_grant_only(self):
+        module, apply_calls, clear_calls, apply_grant, clear_license_state, get_license_status = load_support_module(
+            ready_for_sync=True,
+        )
+
+        module.sync_license_state_to_native(
+            logger=types.SimpleNamespace(debug=lambda *args, **kwargs: None),
+            feature_id="face_cap",
+            apply_grant=apply_grant,
+            clear_license_state=clear_license_state,
+            get_license_status=get_license_status,
+            allow_network=False,
+        )
+
+        self.assertEqual(len(apply_calls), 1)
+        self.assertEqual(module._test_manager_state["request_calls"], 0)
+        self.assertEqual(module._test_manager_state["cached_calls"], 1)
         self.assertEqual(clear_calls, [])
 
 

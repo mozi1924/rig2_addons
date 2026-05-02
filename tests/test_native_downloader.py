@@ -46,6 +46,20 @@ def load_downloader_module(*, manager, native_root, arch_tag="arm64", suffixes=N
     loader_mod.get_abi3_platform_tag = lambda: "darwin-arm64-abi3"
     loader_mod.build_native_module_path = build_native_module_path
     loader_mod.get_preferred_extension_suffix = lambda: ".abi3.so"
+    loader_mod.PlatformTarget = type(
+        "PlatformTarget",
+        (),
+        {
+            "current": staticmethod(
+                lambda: types.SimpleNamespace(
+                    platform_name="mac",
+                    arch_name="arm64",
+                    artifact_name="mac.dylib",
+                    abi3_tag="darwin-arm64-abi3",
+                )
+            )
+        },
+    )
 
     def list_existing_native_module_paths(module_name):
         matches = []

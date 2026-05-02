@@ -91,11 +91,25 @@ jobs:
 
       - name: Build wheels
         env:
-          CIBW_BUILD: "cp39-*"
+          CIBW_BUILD: "cp311-*"
           CIBW_SKIP: "pp* *-musllinux_* *-manylinux_i686 *-win32"
-          CIBW_ENVIRONMENT: "RIG2_ENABLE_ABI3=1"
+          CIBW_ENVIRONMENT: "RIG2_ENABLE_ABI3=1 RIG2_DEV_BUILD=0"
           CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap, rig2_r2bb; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name(), rig2_r2bb.backend_name())\""
         run: python -m cibuildwheel native_cpp --output-dir wheelhouse
+
+      - name: Verify cp311 wheel tags
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib
+          wheels = sorted(pathlib.Path("wheelhouse").glob("*.whl"))
+          if not wheels:
+              raise SystemExit("no wheels produced")
+          invalid = [w.name for w in wheels if "-cp311-" not in w.name]
+          if invalid:
+              raise SystemExit("non-cp311 wheels detected: " + ", ".join(invalid))
+          print("verified cp311 wheels:", len(wheels))
+          PY
 
       - name: Upload wheelhouse
         uses: actions/upload-artifact@v4

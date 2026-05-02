@@ -22,10 +22,18 @@ Build the three managed native modules into `src/native/binaries/`:
 python3 scripts/build_native.py
 ```
 
+For Blender 4.5 parity, use Python 3.11 to run the build script.
+
 Disable ABI3 when debugging version-specific behavior:
 
 ```bash
 RIG2_ENABLE_ABI3=0 python3 scripts/build_native.py
+```
+
+Enable development-profile native artifact mismatch support (local-only):
+
+```bash
+RIG2_DEV_BUILD=1 python3 scripts/build_native.py
 ```
 
 ## Wheel Extraction
@@ -99,6 +107,16 @@ Refresh generated integrity hashes before rebuilding protected native binaries:
 ```bash
 python3 scripts/generate_integrity_hashes.py
 ```
+
+## Runtime Profile
+
+Runtime grant enforcement profile is controlled by:
+
+- `RIG2_RUNTIME_PROFILE=prod` (default): strict artifact hash/size enforcement.
+- `RIG2_RUNTIME_PROFILE=dev`: only effective for binaries compiled with
+  `RIG2_DEV_BUILD=1`.
+
+Official CI artifacts are built with `RIG2_DEV_BUILD=0`.
 
 ## R2 Upload
 

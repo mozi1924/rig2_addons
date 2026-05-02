@@ -304,8 +304,17 @@ class RIG2_OT_sync_license_status(bpy.types.Operator):
 def _get_license_status():
     """Return license status dict safe for use during draw()."""
     try:
+        from .licensing import process_pending_native_sync
         from .licensing.manager import get_license_manager
-        return get_license_manager().get_status()
+        manager = get_license_manager()
+        status = manager.get_status()
+
+        try:
+            process_pending_native_sync()
+        except Exception:
+            pass
+
+        return status
     except Exception:
         return {
             "activated": False,
@@ -411,7 +420,10 @@ class RIG2_OT_download_native(bpy.types.Operator):
             result = download_feature_binary(self.feature_name, force=True)
             status = get_feature_status(self.feature_name)
             if result["ok"]:
-                self.report({"INFO"}, f"{status['label']} binary is ready.")
+                self.report(
+                    {"INFO"},
+                    result.get("message") or f"{status['label']} binary is ready.",
+                )
             else:
                 self.report({"ERROR"}, result["error"] or status["message"])
         except Exception as exc:

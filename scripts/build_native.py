@@ -185,7 +185,9 @@ def _copy_to_platform_dir(module_path: Path, tag: str, module_name: str) -> Path
 
 def copy_to_runtime_bins(module_path: Path, module_name: str) -> list[Path]:
     _clear_all_runtime_variants(module_name)
-    target_tag = abi3_platform_tag() if _is_abi3_binary(module_path) else platform_tag()
+    # Always publish to abi3 runtime tag so loader/distribution paths stay stable
+    # across local builds (even when setuptools emits plain ".pyd"/".so" names).
+    target_tag = abi3_platform_tag()
     return [_copy_to_platform_dir(module_path, target_tag, module_name)]
 
 
