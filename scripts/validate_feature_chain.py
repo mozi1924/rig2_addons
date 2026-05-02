@@ -12,7 +12,9 @@ If a feature is registered for licensing, we also expect:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -36,10 +38,27 @@ def _load_registry_module():
     return module
 
 
+def _workflow_path_filters(workflow_text: str) -> tuple[str, ...]:
+    return tuple(re.findall(r'^\s*-\s*"([^"]+)"\s*$', workflow_text, flags=re.MULTILINE))
+
+
+def _workflow_covers_path(target_path: str, workflow_patterns: tuple[str, ...]) -> bool:
+    for pattern in workflow_patterns:
+        if pattern == target_path:
+            return True
+        if any(ch in pattern for ch in "*?[]"):
+            if fnmatch.fnmatch(target_path, pattern):
+                return True
+            if pattern.endswith("/**") and target_path.startswith(pattern[:-2]):
+                return True
+    return False
+
+
 def validate_feature_chain() -> list[str]:
     errors: list[str] = []
     setup_text = SETUP_PY.read_text(encoding="utf-8")
     workflow_text = WORKFLOW.read_text(encoding="utf-8")
+    workflow_patterns = _workflow_path_filters(workflow_text)
     registry = _load_registry_module()
     registry_specs = {spec.feature_id: spec for spec in registry.iter_native_feature_specs()}
 
@@ -80,6 +99,12 @@ def validate_feature_chain() -> list[str]:
             errors.append(f"{feature.feature_id}: shared_secret must not be empty")
         if not spec.integrity_targets:
             errors.append(f"{feature.feature_id}: integrity_targets must not be empty")
+        for _, relative_path in spec.integrity_targets:
+            target_path = f"src/{relative_path}"
+            if not _workflow_covers_path(target_path, workflow_patterns):
+                errors.append(
+                    f"{feature.feature_id}: build-native workflow paths do not cover integrity target {target_path}"
+                )
     return errors
 
 
