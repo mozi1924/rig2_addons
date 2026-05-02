@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(Path(__file__).resolve().parent) not in sys.path:
@@ -52,6 +53,14 @@ def parse_args() -> argparse.Namespace:
         "--package-name",
         default=PACKAGE_ROOT_NAME,
         help="Root directory name inside the zip archive.",
+    )
+    parser.add_argument(
+        "--compresslevel",
+        type=int,
+        default=9,
+        choices=range(0, 10),
+        metavar="0-9",
+        help="ZIP deflate compression level. Defaults to 9 for smallest compatible archives.",
     )
     return parser.parse_args()
 
@@ -100,11 +109,27 @@ def inject_bl_info_version(init_file: Path, version_literal: tuple[int, int, int
     init_file.write_text(content, encoding="utf-8")
 
 
-def build_zip(package_root: Path, dist_dir: Path, package_name: str, version_string: str) -> Path:
+def build_zip(
+    package_root: Path,
+    dist_dir: Path,
+    package_name: str,
+    version_string: str,
+    compresslevel: int,
+) -> Path:
     dist_dir.mkdir(parents=True, exist_ok=True)
-    archive_base = dist_dir / f"{package_name}-{version_string}"
-    archive_path = shutil.make_archive(str(archive_base), "zip", package_root.parent, package_root.name)
-    return Path(archive_path)
+    archive_path = dist_dir / f"{package_name}-{version_string}.zip"
+    with zipfile.ZipFile(
+        archive_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=compresslevel,
+    ) as zf:
+        for source in sorted(package_root.rglob("*")):
+            if not source.is_file():
+                continue
+            archive_name = source.relative_to(package_root.parent)
+            zf.write(source, archive_name)
+    return archive_path
 
 
 def main() -> int:
@@ -123,7 +148,13 @@ def main() -> int:
         if native_dir is not None:
             overlay_native_binaries(package_root, native_dir)
         inject_bl_info_version(package_root / "__init__.py", blender_version)
-        archive_path = build_zip(package_root, args.dist_dir.resolve(), args.package_name, version_string)
+        archive_path = build_zip(
+            package_root,
+            args.dist_dir.resolve(),
+            args.package_name,
+            version_string,
+            args.compresslevel,
+        )
 
     print(archive_path)
     return 0

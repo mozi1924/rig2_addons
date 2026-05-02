@@ -50,6 +50,7 @@ Build the Blender addon zip into `dist/`:
 
 ```bash
 python3 scripts/package_addon.py
+python3 scripts/package_addon.py --compresslevel 9
 ```
 
 The packaging script rewrites the packaged `__init__.py` so `bl_info["version"]`

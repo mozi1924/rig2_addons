@@ -44,7 +44,7 @@ jobs:
           echo "semver=$(python scripts/versioning.py show --format semver)" >> "$GITHUB_OUTPUT"
 
       - name: Build addon zip
-        run: python scripts/package_addon.py
+        run: python scripts/package_addon.py --compresslevel 9
 
       - name: Upload addon artifact
         uses: actions/upload-artifact@v4
