@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -44,8 +45,10 @@ def load_downloader_module(*, manager, native_root, arch_tag="arm64", suffixes=N
     loader_mod.get_arch_tag = lambda: arch_tag
     loader_mod.get_native_root = lambda: native_root
     loader_mod.get_abi3_platform_tag = lambda: "darwin-arm64-abi3"
+    loader_mod.get_platform_tags = lambda: ("darwin-arm64-abi3",)
     loader_mod.build_native_module_path = build_native_module_path
     loader_mod.get_preferred_extension_suffix = lambda: ".abi3.so"
+    loader_mod.get_extension_suffixes = lambda: (".abi3.so",)
     loader_mod.PlatformTarget = type(
         "PlatformTarget",
         (),
@@ -121,7 +124,8 @@ class NativeDownloaderTest(unittest.TestCase):
             )
             downloader = load_downloader_module(manager=manager, native_root=temp_dir)
 
-            ok = downloader.ensure_native_binary("rig2_face_cap")
+            with mock.patch.object(downloader.sys, "platform", "darwin"):
+                ok = downloader.ensure_native_binary("rig2_face_cap")
 
             self.assertTrue(ok)
             dest_path = os.path.join(
@@ -159,8 +163,9 @@ class NativeDownloaderTest(unittest.TestCase):
             )
             downloader = load_downloader_module(manager=manager, native_root=temp_dir)
 
-            with self.assertRaisesRegex(ValueError, "runtime-tag request failed"):
-                downloader.ensure_native_binary("rig2_miframes")
+            with mock.patch.object(downloader.sys, "platform", "darwin"):
+                with self.assertRaisesRegex(ValueError, "runtime-tag request failed"):
+                    downloader.ensure_native_binary("rig2_miframes")
 
     def test_ensure_native_binary_removes_residual_variants_before_download(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -175,12 +180,66 @@ class NativeDownloaderTest(unittest.TestCase):
             with open(os.path.join(temp_dir, "darwin-abi3", "rig2_face_cap.cpython-311-darwin.so"), "wb") as handle:
                 handle.write(b"old")
 
-            ok = downloader.ensure_native_binary("rig2_face_cap", force=True)
+            with mock.patch.object(downloader.sys, "platform", "darwin"):
+                ok = downloader.ensure_native_binary("rig2_face_cap", force=True)
 
             self.assertTrue(ok)
             self.assertFalse(
                 os.path.exists(os.path.join(temp_dir, "darwin-abi3", "rig2_face_cap.cpython-311-darwin.so"))
             )
+
+    def test_ensure_native_binary_windows_stages_update_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager(
+                responses=[
+                    types.SimpleNamespace(download_url="https://example.invalid/file"),
+                ]
+            )
+            downloader = load_downloader_module(manager=manager, native_root=temp_dir)
+            dest_dir = os.path.join(temp_dir, "darwin-arm64-abi3")
+            os.makedirs(dest_dir, exist_ok=True)
+            dest_path = os.path.join(dest_dir, "rig2_face_cap.abi3.so")
+            with open(dest_path, "wb") as handle:
+                handle.write(b"old")
+
+            with mock.patch.object(downloader.sys, "platform", "win32"):
+                ok = downloader.ensure_native_binary("rig2_face_cap", force=True)
+
+            self.assertTrue(ok)
+            self.assertTrue(os.path.exists(dest_path + ".update"))
+            self.assertTrue(os.path.exists(dest_path + ".orbis.json.update"))
+            self.assertEqual(Path(dest_path).read_bytes(), b"old")
+
+    def test_apply_pending_native_updates_promotes_update_file_on_windows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager(
+                responses=[
+                    types.SimpleNamespace(download_url="https://example.invalid/file"),
+                ]
+            )
+            downloader = load_downloader_module(manager=manager, native_root=temp_dir)
+            dest_dir = os.path.join(temp_dir, "darwin-arm64-abi3")
+            os.makedirs(dest_dir, exist_ok=True)
+            dest_path = os.path.join(dest_dir, "rig2_face_cap.abi3.so")
+            update_path = dest_path + ".update"
+            manifest_path = dest_path + ".orbis.json"
+            manifest_update_path = manifest_path + ".update"
+            with open(dest_path, "wb") as handle:
+                handle.write(b"old")
+            with open(update_path, "wb") as handle:
+                handle.write(b"new")
+            with open(manifest_update_path, "w", encoding="utf-8") as handle:
+                handle.write("{}\n")
+
+            with mock.patch.object(downloader.sys, "platform", "win32"):
+                result = downloader.apply_pending_native_updates()
+
+            self.assertEqual(result["applied"], 1)
+            self.assertEqual(result["failed"], 0)
+            self.assertEqual(Path(dest_path).read_bytes(), b"new")
+            self.assertFalse(os.path.exists(update_path))
+            self.assertTrue(os.path.exists(manifest_path))
+            self.assertFalse(os.path.exists(manifest_update_path))
 
 
 if __name__ == "__main__":

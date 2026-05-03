@@ -209,15 +209,21 @@ def _get_license_snapshot():
 
 def _get_binary_snapshot(feature_id, *, pending_restart=False, probe_native=False):
     wrapper = get_native_wrapper(feature_id)
-    from ..native.loader import (
-        get_residual_native_module_paths,
-        list_existing_native_module_paths,
-    )
+    from ..native import loader as native_loader
 
     spec = get_feature_spec(feature_id)
-    existing_paths = list_existing_native_module_paths(spec.native_module_name)
-    residual_paths = get_residual_native_module_paths(spec.native_module_name)
-    if pending_restart:
+    existing_paths = native_loader.list_existing_native_module_paths(spec.native_module_name)
+    residual_paths = native_loader.get_residual_native_module_paths(spec.native_module_name)
+    pending_update_paths = ()
+    if sys.platform == "win32":
+        try:
+            getter = getattr(native_loader, "get_pending_update_module_paths", None)
+            if callable(getter):
+                pending_update_paths = getter(spec.native_module_name)
+        except Exception:
+            pending_update_paths = ()
+    pending_restart_active = bool(pending_restart) or bool(pending_update_paths)
+    if pending_restart_active:
         load_state = {
             "module_name": spec.native_module_name,
             "module_path": "",
@@ -244,7 +250,8 @@ def _get_binary_snapshot(feature_id, *, pending_restart=False, probe_native=Fals
         "native_backend_available": native_backend_available,
         "binary_present": bool(existing_paths),
         "residual_paths": residual_paths,
-        "pending_restart": bool(pending_restart),
+        "pending_restart": pending_restart_active,
+        "pending_update_paths": pending_update_paths,
     }
 
 
@@ -417,6 +424,7 @@ def get_feature_status(feature_id, *, probe_native=False):
         "module_path": binary_snapshot["load_state"].get("module_path", ""),
         "load_error": binary_snapshot["load_state"].get("error", ""),
         "residual_module_paths": binary_snapshot["residual_paths"],
+        "pending_update_paths": binary_snapshot.get("pending_update_paths", ()),
     }
 
 

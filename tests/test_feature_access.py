@@ -190,6 +190,13 @@ def load_feature_access_module(*, manager, temp_dir, downloader_behavior, runtim
         )
     )
     loader_mod.get_residual_native_module_paths = lambda module_name: ()
+    loader_mod.get_pending_update_module_paths = lambda module_name: tuple(
+        sorted(
+            state.path + ".update"
+            for state in wrapper_states.values()
+            if state.module_name == module_name and os.path.exists(state.path + ".update")
+        )
+    )
 
     runtime_mod = types.ModuleType(runtime_name)
     runtime_mod.get_runtime_service = lambda: runtime_service
@@ -466,6 +473,37 @@ class FeatureAccessTest(unittest.TestCase):
                 self.assertIn("Restart Blender", status["message"])
                 self.assertFalse(status["can_download"])
                 self.assertEqual(wrapper_states["face_cap"].refresh_count, 0)
+
+    def test_windows_pending_update_file_keeps_state_in_needs_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with open(wrapper_states["face_cap"].path, "wb") as handle:
+                handle.write(b"bin")
+            with open(wrapper_states["face_cap"].path + ".update", "wb") as handle:
+                handle.write(b"new")
+            wrapper_states["face_cap"].load_ok = True
+
+            with mock.patch.object(feature_access.sys, "platform", "win32"):
+                status = feature_access.get_feature_status("face_cap")
+
+            self.assertEqual(status["effective_state"], "needs_restart")
+            self.assertIn("must restart", status["message"])
+            self.assertFalse(status["can_download"])
+            self.assertTrue(status["pending_update_paths"])
 
     def test_native_sync_pending_does_not_force_needs_redownload(self):
         with tempfile.TemporaryDirectory() as temp_dir:

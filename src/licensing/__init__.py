@@ -186,6 +186,13 @@ def register():
     mgr = None
 
     try:
+        from ..native.downloader import apply_pending_native_updates
+
+        apply_pending_native_updates()
+    except Exception as exc:
+        _log.debug("Failed to apply deferred native updates: %s", exc)
+
+    try:
         mgr = get_license_manager()
         if mgr._client.session is not None:
             # Apply cached trust/native grants immediately on the main thread so

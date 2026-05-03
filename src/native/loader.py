@@ -12,6 +12,7 @@ from types import ModuleType
 from typing import Optional, Sequence
 
 _log = logging.getLogger(__name__)
+_UPDATE_SUFFIX = ".update"
 
 _LOADED_MODULES: dict[str, ModuleType] = {}
 """Cache of successfully loaded native modules keyed by module_name.
@@ -198,6 +199,16 @@ def get_residual_native_module_paths(module_name):
         for path in list_existing_native_module_paths(module_name)
         if os.path.normpath(path) != primary_path
     )
+
+
+def get_pending_update_module_paths(module_name):
+    """Return pending '*.update' files for managed native module candidates."""
+    pending = []
+    for module_path in build_native_module_path(module_name):
+        update_path = module_path + _UPDATE_SUFFIX
+        if os.path.exists(update_path):
+            pending.append(update_path)
+    return tuple(sorted(dict.fromkeys(pending)))
 
 
 @dataclass(frozen=True)

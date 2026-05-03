@@ -9,8 +9,10 @@ import logging
 import os
 import json
 import hashlib
+import sys
 
 _log = logging.getLogger(__name__)
+_UPDATE_SUFFIX = ".update"
 
 _PENDING_CLEANUP: set[str] = set()
 """Paths that could not be removed at download time (e.g. loaded .pyd on Windows).
@@ -34,6 +36,10 @@ def _binary_manifest_path(module_path):
     return module_path + ".orbis.json"
 
 
+def _update_path(path):
+    return path + _UPDATE_SUFFIX
+
+
 def _write_binary_manifest(module_path, download_info):
     manifest = {
         "module": getattr(download_info, "module", ""),
@@ -46,6 +52,22 @@ def _write_binary_manifest(module_path, download_info):
         "signed_artifact_manifest": getattr(download_info, "signed_artifact_manifest", ""),
     }
     manifest_path = _binary_manifest_path(module_path)
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def _write_binary_manifest_to_path(manifest_path, download_info):
+    manifest = {
+        "module": getattr(download_info, "module", ""),
+        "artifact_key": getattr(download_info, "artifact_key", ""),
+        "feature_id": getattr(download_info, "feature_id", ""),
+        "addon_version": getattr(download_info, "addon_version", ""),
+        "artifact_sha256": getattr(download_info, "artifact_sha256", ""),
+        "artifact_size": int(getattr(download_info, "artifact_size", 0) or 0),
+        "artifact_manifest_version": int(getattr(download_info, "artifact_manifest_version", 0) or 0),
+        "signed_artifact_manifest": getattr(download_info, "signed_artifact_manifest", ""),
+    }
     with open(manifest_path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
         handle.write("\n")
@@ -135,6 +157,93 @@ def _remove_existing_module_variants(module_name):
     return removed
 
 
+def _remove_existing_module_variants_except(module_name, keep_paths):
+    from .loader import list_existing_native_module_paths
+
+    keep = {os.path.normpath(path) for path in keep_paths}
+    removed = []
+    for path in list_existing_native_module_paths(module_name):
+        if os.path.normpath(path) in keep:
+            continue
+        try:
+            os.remove(path)
+            removed.append(path)
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            _log.warning("Cannot remove loaded native module '%s'; scheduled for cleanup on next startup.", path)
+            _PENDING_CLEANUP.add(path)
+        except OSError as exc:
+            _log.warning("Cannot remove native module '%s': %s", path, exc)
+    return removed
+
+
+def _iter_pending_module_update_paths():
+    from .loader import get_native_root
+
+    try:
+        from .loader import get_platform_tags
+
+        tags = tuple(get_platform_tags())
+    except Exception:
+        from .loader import get_abi3_platform_tag
+
+        tags = (get_abi3_platform_tag(),)
+
+    try:
+        from .loader import get_extension_suffixes
+
+        suffixes = tuple(get_extension_suffixes())
+    except Exception:
+        from .loader import get_preferred_extension_suffix
+
+        suffixes = (get_preferred_extension_suffix(),)
+
+    native_root = get_native_root()
+    found = []
+    for tag in tags:
+        directory = os.path.join(native_root, tag)
+        if not os.path.isdir(directory):
+            continue
+        try:
+            entries = os.listdir(directory)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.endswith(_UPDATE_SUFFIX):
+                continue
+            original_name = entry[: -len(_UPDATE_SUFFIX)]
+            if not any(original_name.endswith(suffix) for suffix in suffixes):
+                continue
+            found.append(os.path.join(directory, entry))
+    return tuple(sorted(dict.fromkeys(found)))
+
+
+def apply_pending_native_updates():
+    """Apply deferred native updates staged as '*.update' files on Windows."""
+    if sys.platform != "win32":
+        return {"applied": 0, "failed": 0}
+
+    applied = 0
+    failed = 0
+    for update_path in _iter_pending_module_update_paths():
+        dest_path = update_path[: -len(_UPDATE_SUFFIX)]
+        manifest_path = _binary_manifest_path(dest_path)
+        manifest_update_path = _update_path(manifest_path)
+        try:
+            os.replace(update_path, dest_path)
+            if os.path.exists(manifest_update_path):
+                os.replace(manifest_update_path, manifest_path)
+            applied += 1
+            _log.info("Applied deferred native update: %s", dest_path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failed += 1
+            _log.debug("Deferred native update still pending for '%s': %s", dest_path, exc)
+    return {"applied": applied, "failed": failed}
+
+
 def cleanup_pending_modules():
     """Remove native module files that were scheduled for deferred cleanup.
 
@@ -221,14 +330,27 @@ def ensure_native_binary(module_name, force=False):
 
         dest_filename = module_name + get_preferred_extension_suffix()
         dest_path = os.path.join(dest_dir, dest_filename)
-        temp_path = dest_path + ".part"
+        deferred_update = sys.platform == "win32"
+        final_path = _update_path(dest_path) if deferred_update else dest_path
+        temp_path = final_path + ".part"
 
-        _remove_existing_module_variants(module_name)
+        if deferred_update:
+            _remove_existing_module_variants_except(module_name, (dest_path,))
+        else:
+            _remove_existing_module_variants(module_name)
         if os.path.exists(temp_path):
             os.remove(temp_path)
         mgr.download_file(download_info, temp_path)
         _validate_downloaded_artifact(temp_path, download_info)
-        os.replace(temp_path, dest_path)
+        os.replace(temp_path, final_path)
+        if deferred_update:
+            _write_binary_manifest_to_path(
+                _update_path(_binary_manifest_path(dest_path)),
+                download_info,
+            )
+            _log.info("Downloaded '%s' to deferred update '%s'.", module_name, final_path)
+            return os.path.exists(final_path)
+
         _write_binary_manifest(dest_path, download_info)
         _log.info("Downloaded '%s' to '%s'.", module_name, dest_path)
         return os.path.exists(dest_path)
