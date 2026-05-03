@@ -266,12 +266,12 @@ def _resolve_pre_native_effective_state(*, feature_id, license_snapshot, binary_
         return "session_error", "expired"
     if not entitled:
         return "unlicensed", "unlicensed"
+    if binary_snapshot["pending_restart"]:
+        return "needs_restart", "warning"
     if not binary_snapshot["binary_present"]:
         return "binary_missing", "licensed"
     if binary_snapshot["residual_paths"]:
         return "needs_redownload", "licensed"
-    if binary_snapshot["pending_restart"]:
-        return "needs_restart", "warning"
     if not binary_snapshot["native_backend_available"]:
         return "needs_redownload", "licensed"
     if status.get("warnings"):
@@ -387,6 +387,8 @@ def get_feature_status(feature_id, *, probe_native=False):
                 pass
 
     binary_state = "installed" if binary_snapshot["binary_present"] else "missing"
+    if effective_state == "needs_restart":
+        binary_state = "installed"
     if effective_state == "download_failed":
         binary_state = "download_failed"
     elif effective_state == "needs_redownload":

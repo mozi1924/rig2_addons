@@ -505,6 +505,35 @@ class FeatureAccessTest(unittest.TestCase):
             self.assertFalse(status["can_download"])
             self.assertTrue(status["pending_update_paths"])
 
+    def test_windows_pending_update_without_primary_binary_still_shows_needs_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = True
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with open(wrapper_states["face_cap"].path + ".update", "wb") as handle:
+                handle.write(b"new")
+            wrapper_states["face_cap"].load_ok = False
+
+            with mock.patch.object(feature_access.sys, "platform", "win32"):
+                status = feature_access.get_feature_status("face_cap")
+
+            self.assertEqual(status["effective_state"], "needs_restart")
+            self.assertEqual(status["binary_state"], "installed")
+            self.assertFalse(status["can_download"])
+            self.assertTrue(status["pending_update_paths"])
+
     def test_native_sync_pending_does_not_force_needs_redownload(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = FakeManager()
