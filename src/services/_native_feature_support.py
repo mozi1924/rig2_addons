@@ -109,7 +109,10 @@ def sync_license_state_to_native(
             else:
                 grant = manager.get_cached_native_grant(feature_id)
             if grant is None:
-                _clear_with_reason("Native grant unavailable. Activate or re-sync your license.")
+                if current_reason and native_reason_allows_grant_refresh(current_reason):
+                    _clear_with_reason(current_reason)
+                else:
+                    _clear_with_reason("Native grant unavailable. Activate or re-sync your license.")
                 return
             apply_grant(
                 grant.grant_token,

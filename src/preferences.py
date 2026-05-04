@@ -11,6 +11,16 @@ from .licensing.ui_helpers import (
 )
 
 
+_SAFE_STATUS_ICONS = {"ERROR", "INFO", "CHECKMARK", "TIME", "LOCKED", "UNLOCKED"}
+
+
+def _safe_status_icon(icon_name: str, fallback: str = "INFO") -> str:
+    """Return a Blender-safe icon name for UI labels."""
+    if icon_name in _SAFE_STATUS_ICONS:
+        return icon_name
+    return fallback if fallback in _SAFE_STATUS_ICONS else "INFO"
+
+
 class Rig2AddonPreferences(bpy.types.AddonPreferences):
     # Get the root package name robustly
     bl_idname = __package__.partition('.')[0] if __package__ else "rig2_addons"
@@ -115,8 +125,15 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
             for w in status.get("warnings", []):
                 row = box.row()
                 row.alert = True
-                icon = "ERROR" if w["level"] == "ERROR" else ("WARNING" if w["level"] == "WARNING" else "INFO")
-                row.label(text=w["message"], icon=icon)
+                level = str(w.get("level", "")).upper()
+                if level in {"ERROR", "CRITICAL"}:
+                    icon = "ERROR"
+                elif level in {"WARNING", "WARN"}:
+                    # Blender icon sets vary; use safe icons only.
+                    icon = "INFO"
+                else:
+                    icon = "INFO"
+                row.label(text=w.get("message", "Unknown warning"), icon=_safe_status_icon(icon))
 
             licensed_features = [
                 f for f, v in status.get("features", {}).items() if v
@@ -129,7 +146,9 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
             else:
                 box.label(text="No features licensed", icon="LOCKED")
             action_row = box.row(align=True)
-            action_row.operator(
+            sync_row = action_row.row(align=True)
+            sync_row.enabled = not bool(status.get("is_refresh_expired"))
+            sync_row.operator(
                 RIG2_OT_sync_license_status.bl_idname,
                 text="Sync Now",
                 icon="FILE_REFRESH",
@@ -139,6 +158,12 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
                 text="Deactivate",
                 icon="UNLINKED",
             )
+            if status.get("is_refresh_expired"):
+                hint_row = box.row()
+                hint_row.label(
+                    text="Sync is unavailable for an expired session. Re-activate your license.",
+                    icon="INFO",
+                )
         else:
             box.label(text="Not activated", icon="LOCKED")
             col = box.column()
@@ -343,7 +368,11 @@ def _get_feature_status(feature_name):
         return get_feature_service(feature_name).get_feature_status()
     except Exception:
         from .licensing.feature_access import get_feature_status
-        return get_feature_status(feature_name)
+        try:
+            return get_feature_status(feature_name, probe_native=True)
+        except TypeError:
+            # Backward-compatible for tests or legacy shims.
+            return get_feature_status(feature_name)
 
 
 def _draw_feature_status(box, feature_name):

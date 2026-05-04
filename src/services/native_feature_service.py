@@ -7,6 +7,7 @@ from ..licensing.registry import get_feature_spec
 from ..native.licensed_wrapper import get_native_wrapper
 from ._native_feature_support import (
     get_feature_lock_reason,
+    native_reason_allows_grant_refresh,
     sync_license_state_to_native,
 )
 from .errors import FeatureLockedError
@@ -91,11 +92,18 @@ class NativeLicensedFeatureService:
                 "expires_at": 0,
                 "needs_redownload": True,
             }
+        authorized = bool(raw.get("authorized", False))
+        reason = str(raw.get("reason", "") or "")
+        needs_redownload = bool(raw.get("needs_redownload", False))
+        if (not authorized) and (not needs_redownload) and native_reason_allows_grant_refresh(reason):
+            # Integrity reasons (digest/size/manifest mismatch, etc.) should be
+            # surfaced as a binary re-download action, not a generic re-sync hint.
+            needs_redownload = True
         return {
-            "authorized": bool(raw.get("authorized", False)),
-            "reason": str(raw.get("reason", "") or ""),
+            "authorized": authorized,
+            "reason": reason,
             "expires_at": int(raw.get("expires_at", 0) or 0),
-            "needs_redownload": bool(raw.get("needs_redownload", False)),
+            "needs_redownload": needs_redownload,
         }
 
     def get_lock_reason(self):
