@@ -16,18 +16,19 @@ except Exception:  # Blender bundled Python may ship a partial setuptools.
     from distutils.core import Extension, setup
     _HAS_SETUPTOOLS = False
 
-extra_compile_args = ["-O3"]
+extra_compile_args = []
 define_macros = []
 dev_build_flag = os.environ.get("RIG2_DEV_BUILD", "0").strip().lower() in {"1", "true", "yes"}
 define_macros.append(("RIG2_DEV_BUILD", "1" if dev_build_flag else "0"))
 if os.name == "nt":
-    extra_compile_args.extend(["/std:c++17"])
+    # Use real MSVC optimization flags on Windows.
+    extra_compile_args.extend(["/std:c++17", "/O2", "/DNDEBUG"])
     define_macros.append(("NOMINMAX", "1"))
     # Work around std::mutex crashes when the host process provides an older
     # msvcp140 runtime than the toolset used to build this extension.
     define_macros.append(("_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR", "1"))
 else:
-    extra_compile_args.extend(["-std=c++17"])
+    extra_compile_args.extend(["-std=c++17", "-O3", "-DNDEBUG"])
 
 extension_kwargs = {
     "language": "c++",

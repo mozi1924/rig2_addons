@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -100,6 +101,9 @@ std::vector<Entry> normalize_entries(PyObject* entries_obj) {
   }
 
   const Py_ssize_t count = PySequence_Size(entries_obj);
+  if (count > 0) {
+    entries.reserve(static_cast<size_t>(count));
+  }
   for (Py_ssize_t index = 0; index < count; ++index) {
     PyRef item(PySequence_GetItem(entries_obj, index));
     Entry entry;
@@ -199,9 +203,12 @@ static PyObject* method_mapping_entries_to_export_bones(PyObject*, PyObject* arg
 
   const std::vector<Entry> entries = normalize_entries(entries_obj);
   std::vector<std::string> export_bones;
+  export_bones.reserve(entries.size());
+  std::unordered_set<std::string> seen_export_bones;
+  seen_export_bones.reserve(entries.size());
   for (const Entry& entry : entries) {
     if (entry.mi_bone.empty()) continue;
-    if (std::find(export_bones.begin(), export_bones.end(), entry.mi_bone) == export_bones.end()) {
+    if (seen_export_bones.insert(entry.mi_bone).second) {
       export_bones.push_back(entry.mi_bone);
     }
   }

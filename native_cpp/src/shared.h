@@ -448,38 +448,48 @@ inline PyObject* get_dict_or_empty(PyObject* obj, const char* key) {
 }
 
 inline PyObject* json_loads(PyObject* input_text, const char* failure_message = nullptr) {
-  PyRef json_module(PyImport_ImportModule("json"));
-  if (!json_module) {
-    return nullptr;
+  static PyObject* loads_fn = nullptr;
+  if (!loads_fn) {
+    PyRef json_module(PyImport_ImportModule("json"));
+    if (!json_module) {
+      return nullptr;
+    }
+
+    PyObject* resolved = PyObject_GetAttrString(json_module.get(), "loads");
+    if (!resolved || !PyCallable_Check(resolved)) {
+      Py_XDECREF(resolved);
+      PyErr_SetString(PyExc_RuntimeError,
+                      failure_message ? failure_message : "Failed to resolve json.loads");
+      return nullptr;
+    }
+    loads_fn = resolved;
   }
 
-  PyRef loads_fn(PyObject_GetAttrString(json_module.get(), "loads"));
-  if (!loads_fn || !PyCallable_Check(loads_fn.get())) {
-    PyErr_SetString(PyExc_RuntimeError,
-                    failure_message ? failure_message : "Failed to resolve json.loads");
-    return nullptr;
-  }
-
-  return PyObject_CallFunctionObjArgs(loads_fn.get(), input_text, nullptr);
+  return PyObject_CallFunctionObjArgs(loads_fn, input_text, nullptr);
 }
 
 inline std::string json_dumps(PyObject* obj) {
   if (!obj) {
     return std::string();
   }
-  PyRef json_module(PyImport_ImportModule("json"));
-  if (!json_module) {
-    PyErr_Clear();
-    return std::string();
+  static PyObject* dumps_fn = nullptr;
+  if (!dumps_fn) {
+    PyRef json_module(PyImport_ImportModule("json"));
+    if (!json_module) {
+      PyErr_Clear();
+      return std::string();
+    }
+
+    PyObject* resolved = PyObject_GetAttrString(json_module.get(), "dumps");
+    if (!resolved || !PyCallable_Check(resolved)) {
+      Py_XDECREF(resolved);
+      PyErr_Clear();
+      return std::string();
+    }
+    dumps_fn = resolved;
   }
 
-  PyRef dumps_fn(PyObject_GetAttrString(json_module.get(), "dumps"));
-  if (!dumps_fn || !PyCallable_Check(dumps_fn.get())) {
-    PyErr_Clear();
-    return std::string();
-  }
-
-  PyRef dumped(PyObject_CallFunctionObjArgs(dumps_fn.get(), obj, nullptr));
+  PyRef dumped(PyObject_CallFunctionObjArgs(dumps_fn, obj, nullptr));
   if (!dumped) {
     PyErr_Clear();
     return std::string();
