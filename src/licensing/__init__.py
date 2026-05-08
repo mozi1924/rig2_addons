@@ -1,5 +1,6 @@
 import logging
 import threading
+from collections import deque
 
 from .manager import LicenseManager, get_license_manager
 from .config import HEARTBEAT_INTERVAL_SECONDS
@@ -21,8 +22,8 @@ _FAST_HEARTBEAT_POLL_SECONDS = 1.0
 _LICENSE_RUNTIME_READY = False
 _ASYNC_NATIVE_SYNC_LOCK = threading.Lock()
 _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
-_ASYNC_NATIVE_SYNC_RESULT_PENDING = False
-_ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
+_ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = False
+_ASYNC_NATIVE_SYNC_RESULTS = deque()
 _MAIN_THREAD_NATIVE_SYNC_PENDING = False
 _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
 
@@ -46,19 +47,19 @@ def sync_license_to_native_modules(*, allow_network=True):
 
 
 def _request_async_native_sync(*, prewarm_verification=False, refresh_runtime=False):
-    global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
+    global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME
 
     with _ASYNC_NATIVE_SYNC_LOCK:
         if _ASYNC_NATIVE_SYNC_IN_FLIGHT:
-            _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = (
-                _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING or refresh_runtime
+            _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = (
+                _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME or refresh_runtime
             )
             return False
         _ASYNC_NATIVE_SYNC_IN_FLIGHT = True
-        _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = refresh_runtime
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = bool(refresh_runtime)
 
     def _worker():
-        global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_RESULT_PENDING
+        global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME
         try:
             mgr = get_license_manager()
             if mgr._client.session is not None:
@@ -70,8 +71,14 @@ def _request_async_native_sync(*, prewarm_verification=False, refresh_runtime=Fa
             _log.debug("Async native sync failed: %s", exc)
         finally:
             with _ASYNC_NATIVE_SYNC_LOCK:
+                refresh_runtime_pending = bool(_ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME)
+                _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = False
                 _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
-                _ASYNC_NATIVE_SYNC_RESULT_PENDING = True
+                _ASYNC_NATIVE_SYNC_RESULTS.append(
+                    {
+                        "refresh_runtime": refresh_runtime_pending,
+                    }
+                )
 
     thread = threading.Thread(
         target=_worker,
@@ -88,29 +95,29 @@ def _request_async_native_sync(*, prewarm_verification=False, refresh_runtime=Fa
 
 
 def _consume_async_native_sync_result():
-    global _ASYNC_NATIVE_SYNC_RESULT_PENDING, _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
     with _ASYNC_NATIVE_SYNC_LOCK:
-        if not _ASYNC_NATIVE_SYNC_RESULT_PENDING:
+        if not _ASYNC_NATIVE_SYNC_RESULTS:
             return None
-        refresh_runtime = _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
-        _ASYNC_NATIVE_SYNC_RESULT_PENDING = False
-        _ASYNC_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = False
-    return {
-        "refresh_runtime": refresh_runtime,
-    }
+        return _ASYNC_NATIVE_SYNC_RESULTS.popleft()
 
 
 def process_pending_native_sync():
     """Apply pending native grants on Blender main thread using cached material."""
     global _MAIN_THREAD_NATIVE_SYNC_PENDING, _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
 
-    async_result = _consume_async_native_sync_result()
-    if async_result is not None:
+    consumed = False
+    while True:
+        async_result = _consume_async_native_sync_result()
+        if async_result is None:
+            break
+        consumed = True
         _MAIN_THREAD_NATIVE_SYNC_PENDING = True
         _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING = (
             _MAIN_THREAD_NATIVE_SYNC_REFRESH_RUNTIME_PENDING
             or bool(async_result.get("refresh_runtime"))
         )
+    if consumed:
+        _MAIN_THREAD_NATIVE_SYNC_PENDING = True
 
     mgr = get_license_manager()
     if not _MAIN_THREAD_NATIVE_SYNC_PENDING:
@@ -184,6 +191,11 @@ def register():
     """Eagerly initialize the license manager and start the heartbeat timer."""
     global _HEARTBEAT_TIMER_ACTIVE, _LICENSE_RUNTIME_READY
     mgr = None
+    global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME
+    with _ASYNC_NATIVE_SYNC_LOCK:
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = False
+        _ASYNC_NATIVE_SYNC_RESULTS.clear()
 
     try:
         from ..native.downloader import apply_pending_native_updates
@@ -228,6 +240,11 @@ def unregister():
     global _HEARTBEAT_TIMER_ACTIVE, _LICENSE_RUNTIME_READY
     _HEARTBEAT_TIMER_ACTIVE = False
     _LICENSE_RUNTIME_READY = False
+    global _ASYNC_NATIVE_SYNC_IN_FLIGHT, _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME
+    with _ASYNC_NATIVE_SYNC_LOCK:
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT = False
+        _ASYNC_NATIVE_SYNC_IN_FLIGHT_REFRESH_RUNTIME = False
+        _ASYNC_NATIVE_SYNC_RESULTS.clear()
 
     try:
         import bpy

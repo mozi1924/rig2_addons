@@ -196,7 +196,10 @@ def _get_license_snapshot():
             str(name): bool(enabled)
             for name, enabled in dict(status.get("features", {}) or {}).items()
         }
-    warning_levels = [str(item.get("level", "")) for item in status.get("warnings", [])]
+    warning_levels = [
+        str(item.get("level", "") or "").strip().upper()
+        for item in status.get("warnings", [])
+    ]
     return {
         "status": status,
         "session": session,

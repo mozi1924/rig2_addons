@@ -7,7 +7,8 @@ from ..licensing.registry import get_feature_spec
 from ..native.licensed_wrapper import get_native_wrapper
 from ._native_feature_support import (
     get_feature_lock_reason,
-    native_reason_allows_grant_refresh,
+    native_reason_is_session_sync_issue,
+    native_reason_requires_redownload,
     sync_license_state_to_native,
 )
 from .errors import FeatureLockedError
@@ -69,7 +70,7 @@ class NativeLicensedFeatureService:
                 status["message"] = native_reason or f"{self.spec.label} native authorization is syncing."
                 status["action"] = "open_preferences"
                 status["can_download"] = False
-                status["can_retry"] = True
+                status["can_retry"] = False
         return status
 
     def get_native_authorization_status(self):
@@ -78,12 +79,12 @@ class NativeLicensedFeatureService:
                 "authorized": False,
                 "reason": self.wrapper.get_lock_reason(),
                 "expires_at": 0,
-                "needs_redownload": False,
+                "needs_redownload": True,
             }
         try:
             raw = self.wrapper.get_license_status()
         except Exception as exc:
-            return {"authorized": False, "reason": str(exc), "expires_at": 0, "needs_redownload": False}
+            return {"authorized": False, "reason": str(exc), "expires_at": 0, "needs_redownload": True}
 
         if not isinstance(raw, dict) or not raw:
             return {
@@ -95,10 +96,16 @@ class NativeLicensedFeatureService:
         authorized = bool(raw.get("authorized", False))
         reason = str(raw.get("reason", "") or "")
         needs_redownload = bool(raw.get("needs_redownload", False))
-        if (not authorized) and (not needs_redownload) and native_reason_allows_grant_refresh(reason):
+        if (not authorized) and (not needs_redownload) and native_reason_requires_redownload(reason):
             # Integrity reasons (digest/size/manifest mismatch, etc.) should be
             # surfaced as a binary re-download action, not a generic re-sync hint.
             needs_redownload = True
+        if (not authorized) and (not needs_redownload) and reason:
+            # Unknown non-empty native failures should not strand users in a
+            # perpetual "Needs Attention" state. If the reason does not look like
+            # a transient session sync issue, guide users to re-download.
+            if not native_reason_is_session_sync_issue(reason):
+                needs_redownload = True
         return {
             "authorized": authorized,
             "reason": reason,

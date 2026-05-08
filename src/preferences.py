@@ -331,17 +331,9 @@ class RIG2_OT_sync_license_status(bpy.types.Operator):
 def _get_license_status():
     """Return license status dict safe for use during draw()."""
     try:
-        from .licensing import process_pending_native_sync
         from .licensing.manager import get_license_manager
         manager = get_license_manager()
-        status = manager.get_status()
-
-        try:
-            process_pending_native_sync()
-        except Exception:
-            pass
-
-        return status
+        return manager.get_status()
     except Exception:
         return {
             "activated": False,

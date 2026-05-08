@@ -53,6 +53,7 @@ class LicenseManager:
         self._device_id = get_or_create_device_id()
         self._device_name = _generate_device_name()
         self._heartbeat_lock = threading.RLock()
+        self._heartbeat_epoch = 0
         self._reset_heartbeat_tracking()
         session_path = get_session_path()
         self._trust_bundle_path = get_trust_bundle_path()
@@ -82,6 +83,28 @@ class LicenseManager:
             self._heartbeat_result_pending = None
             self._native_sync_pending = False
             self._runtime_refresh_pending = False
+
+    def _cancel_heartbeat_requests(self, *, wait_timeout: float = 0.0):
+        """Invalidate in-flight heartbeat work and optionally wait for thread exit."""
+        with self._heartbeat_lock:
+            self._heartbeat_epoch += 1
+            thread = self._heartbeat_thread
+            self._heartbeat_thread = None
+            self._heartbeat_in_flight = False
+            self._heartbeat_result_pending = None
+            self._native_sync_pending = False
+            self._runtime_refresh_pending = False
+
+        if (
+            thread is not None
+            and thread.is_alive()
+            and thread is not threading.current_thread()
+            and wait_timeout > 0.0
+        ):
+            try:
+                thread.join(timeout=wait_timeout)
+            except Exception:
+                pass
 
     def _safe_token_expiry(self, token, fallback_expiry):
         try:
@@ -365,6 +388,7 @@ class LicenseManager:
         Raises:
             OrbisAuthError: if activation fails
         """
+        self._cancel_heartbeat_requests()
         session = self._client.activate(
             license_key=license_key,
             device_id=self._device_id,
@@ -381,6 +405,7 @@ class LicenseManager:
 
     def deactivate(self):
         """Deactivate the current session and clear persisted data."""
+        self._cancel_heartbeat_requests(wait_timeout=1.0)
         self._client.deactivate()
         self._reset_heartbeat_tracking()
         clear_cached_trust_bundle(self._trust_bundle_path)
@@ -557,9 +582,10 @@ class LicenseManager:
 
             self._heartbeat_in_flight = True
             self._last_heartbeat_attempt_time = now
+            epoch = self._heartbeat_epoch
             thread = threading.Thread(
                 target=self._run_heartbeat_task,
-                args=(reason, refresh_runtime, now),
+                args=(reason, refresh_runtime, now, epoch),
                 name="Rig2LicenseHeartbeat",
                 daemon=True,
             )
@@ -574,7 +600,7 @@ class LicenseManager:
                 self._heartbeat_thread = None
             raise
 
-    def _run_heartbeat_task(self, reason, refresh_runtime, attempted_at):
+    def _run_heartbeat_task(self, reason, refresh_runtime, attempted_at, epoch):
         result = {
             "ok": False,
             "reason": reason,
@@ -592,9 +618,10 @@ class LicenseManager:
             result["completed_at"] = time.time()
         finally:
             with self._heartbeat_lock:
-                self._heartbeat_result_pending = result
-                self._heartbeat_in_flight = False
-                self._heartbeat_thread = None
+                if epoch == self._heartbeat_epoch:
+                    self._heartbeat_result_pending = result
+                    self._heartbeat_in_flight = False
+                    self._heartbeat_thread = None
 
     def consume_heartbeat_result(self):
         """Apply any completed background heartbeat result to local state."""

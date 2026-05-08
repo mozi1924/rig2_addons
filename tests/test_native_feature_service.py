@@ -70,6 +70,29 @@ def load_service_module(*, feature_status, native_status):
             "authorization state is unavailable",
         )
     )
+    support_mod.native_reason_allows_grant_refresh = lambda reason: any(
+        marker in str(reason or "").lower()
+        for marker in (
+            "digest mismatch",
+            "size mismatch",
+            "artifact manifest",
+            "manifest mismatch",
+            "module mismatch",
+            "binary validation failed",
+            "authorization state is unavailable",
+        )
+    )
+    support_mod.native_reason_is_session_sync_issue = lambda reason: any(
+        marker in str(reason or "").lower()
+        for marker in (
+            "sync your license",
+            "authorization is syncing",
+            "native grant expired",
+            "grant unavailable",
+            "activate or re-sync your license",
+            "not ready for authorization yet",
+        )
+    )
 
     errors_mod = types.ModuleType(errors_name)
 
@@ -115,6 +138,7 @@ class NativeFeatureServiceTest(unittest.TestCase):
         self.assertEqual(status["effective_state"], "session_warning")
         self.assertEqual(status["message"], "Face Capture native authorization is syncing.")
         self.assertFalse(status["native_authorized"])
+        self.assertFalse(status["can_retry"])
         self.assertFalse(service.is_feature_unlocked())
 
     def test_expired_native_state_does_not_force_redownload(self):
@@ -139,6 +163,7 @@ class NativeFeatureServiceTest(unittest.TestCase):
         self.assertEqual(status["effective_state"], "session_warning")
         self.assertIn("expired", status["message"])
         self.assertFalse(status["can_download"])
+        self.assertFalse(status["can_retry"])
 
     def test_digest_mismatch_requires_redownload(self):
         module = load_service_module(
@@ -154,6 +179,29 @@ class NativeFeatureServiceTest(unittest.TestCase):
                 "reason": "artifact digest mismatch for rig2_face_cap.abi3.so",
                 "expires_at": 0,
                 "needs_redownload": True,
+            },
+        )
+
+        service = module.NativeLicensedFeatureService("face_cap", logging.getLogger("test"))
+        status = service.get_feature_status()
+
+        self.assertEqual(status["effective_state"], "needs_redownload")
+        self.assertTrue(status["can_download"])
+        self.assertFalse(service.is_feature_unlocked())
+
+    def test_integrity_check_failure_requires_redownload(self):
+        module = load_service_module(
+            feature_status={
+                "effective_state": "ready",
+                "message": "Face Capture is ready.",
+                "action": "",
+                "can_download": False,
+                "can_retry": False,
+            },
+            native_status={
+                "authorized": False,
+                "reason": "Face Capture integrity check failed: manager.py does not match the binary build.",
+                "expires_at": 0,
             },
         )
 
@@ -182,6 +230,29 @@ class NativeFeatureServiceTest(unittest.TestCase):
         self.assertEqual(status["effective_state"], "needs_redownload")
         self.assertIn("authorization state is unavailable", status["message"].lower())
         self.assertFalse(status["native_authorized"])
+        self.assertFalse(service.is_feature_unlocked())
+
+    def test_unknown_native_failure_requires_redownload(self):
+        module = load_service_module(
+            feature_status={
+                "effective_state": "ready",
+                "message": "Face Capture is ready.",
+                "action": "",
+                "can_download": False,
+                "can_retry": False,
+            },
+            native_status={
+                "authorized": False,
+                "reason": "native authorization rejected unexpectedly",
+                "expires_at": 0,
+            },
+        )
+
+        service = module.NativeLicensedFeatureService("face_cap", logging.getLogger("test"))
+        status = service.get_feature_status()
+
+        self.assertEqual(status["effective_state"], "needs_redownload")
+        self.assertTrue(status["can_download"])
         self.assertFalse(service.is_feature_unlocked())
 
 
