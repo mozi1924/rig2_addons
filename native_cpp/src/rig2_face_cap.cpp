@@ -67,6 +67,7 @@ constexpr size_t kTransformationMatrixFloatCount = 16;
 PyObject* method_parse_packet_text(PyObject*, PyObject* args);
 PyObject* method_parse_schema_message(PyObject*, PyObject* args);
 PyObject* method_parse_binary_packet(PyObject*, PyObject* args);
+PyObject* sanitize_head_quaternion_impl(PyObject* payload);
 
 using rig2_shared::PyRef;
 using rig2_shared::dict_get_item;
