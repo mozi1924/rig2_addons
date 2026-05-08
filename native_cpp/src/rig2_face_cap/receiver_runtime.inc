@@ -14,14 +14,279 @@ void ingest_native_packet(FaceCapReceiverState* state, PyObject* packet, const s
   state->packet_revision += 1;
   state->last_packet_time = now_seconds();
   state->last_error.clear();
-  state->transport_mode = "websocket";
+  if (!state->receiver_protocol.empty()) {
+    state->transport_mode = state->receiver_protocol;
+  }
   state->transport_encoding = transport_encoding;
-  state->status_message = transport_encoding == "binary"
-      ? "Receiving binary blendshape packets"
-      : "Receiving JSON blendshape packets";
+  if (state->transport_mode == kReceiverProtocolLiveLinkFace) {
+    state->status_message = "Receiving LiveLinkFace UDP packets";
+  } else {
+    state->status_message = transport_encoding == "binary"
+        ? "Receiving binary blendshape packets"
+        : "Receiving JSON blendshape packets";
+  }
 
   PyObject* sent_at_obj = dict_get_item(packet, "sent_at");
   state->last_sent_at = py_object_to_utf8(sent_at_obj);
+}
+
+constexpr std::array<const char*, 61> kLiveLinkFaceBlendshapeNames = {
+    "eyeBlinkLeft",
+    "eyeLookDownLeft",
+    "eyeLookInLeft",
+    "eyeLookOutLeft",
+    "eyeLookUpLeft",
+    "eyeSquintLeft",
+    "eyeWideLeft",
+    "eyeBlinkRight",
+    "eyeLookDownRight",
+    "eyeLookInRight",
+    "eyeLookOutRight",
+    "eyeLookUpRight",
+    "eyeSquintRight",
+    "eyeWideRight",
+    "jawForward",
+    "jawLeft",
+    "jawRight",
+    "jawOpen",
+    "mouthClose",
+    "mouthFunnel",
+    "mouthPucker",
+    "mouthLeft",
+    "mouthRight",
+    "mouthSmileLeft",
+    "mouthSmileRight",
+    "mouthFrownLeft",
+    "mouthFrownRight",
+    "mouthDimpleLeft",
+    "mouthDimpleRight",
+    "mouthStretchLeft",
+    "mouthStretchRight",
+    "mouthRollLower",
+    "mouthRollUpper",
+    "mouthShrugLower",
+    "mouthShrugUpper",
+    "mouthPressLeft",
+    "mouthPressRight",
+    "mouthLowerDownLeft",
+    "mouthLowerDownRight",
+    "mouthUpperUpLeft",
+    "mouthUpperUpRight",
+    "browDownLeft",
+    "browDownRight",
+    "browInnerUp",
+    "browOuterUpLeft",
+    "browOuterUpRight",
+    "cheekPuff",
+    "cheekSquintLeft",
+    "cheekSquintRight",
+    "noseSneerLeft",
+    "noseSneerRight",
+    "TongueOut",
+    "headYaw",
+    "headPitch",
+    "headRoll",
+    "leftEyeYaw",
+    "leftEyePitch",
+    "leftEyeRoll",
+    "rightEyeYaw",
+    "rightEyePitch",
+    "rightEyeRoll",
+};
+
+bool read_u32_be_bytes(const unsigned char* bytes, size_t len, size_t offset, uint32_t* out) {
+  if (!bytes || !out || offset + 4 > len) {
+    return false;
+  }
+  *out = (static_cast<uint32_t>(bytes[offset]) << 24) |
+         (static_cast<uint32_t>(bytes[offset + 1]) << 16) |
+         (static_cast<uint32_t>(bytes[offset + 2]) << 8) |
+         static_cast<uint32_t>(bytes[offset + 3]);
+  return true;
+}
+
+bool read_i32_be_bytes(const unsigned char* bytes, size_t len, size_t offset, int32_t* out) {
+  if (!out) {
+    return false;
+  }
+  uint32_t raw = 0;
+  if (!read_u32_be_bytes(bytes, len, offset, &raw)) {
+    return false;
+  }
+  *out = static_cast<int32_t>(raw);
+  return true;
+}
+
+bool read_f32_be_bytes(const unsigned char* bytes, size_t len, size_t offset, float* out) {
+  if (!out) {
+    return false;
+  }
+  uint32_t raw = 0;
+  if (!read_u32_be_bytes(bytes, len, offset, &raw)) {
+    return false;
+  }
+  static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");
+  float value = 0.0f;
+  std::memcpy(&value, &raw, sizeof(float));
+  *out = value;
+  return true;
+}
+
+PyObject* parse_livelinkface_datagram(const unsigned char* bytes, size_t len) {
+  if (!bytes || len < 62) {
+    return nullptr;
+  }
+
+  const size_t uuid_end = 41;
+  const size_t name_len_offset = uuid_end;
+  const size_t name_start = 45;
+  if (len < name_start) {
+    return nullptr;
+  }
+
+  int32_t name_length = 0;
+  if (!read_i32_be_bytes(bytes, len, name_len_offset, &name_length)) {
+    return nullptr;
+  }
+  if (name_length < 0 || name_length > 4096) {
+    return nullptr;
+  }
+
+  const size_t name_end = name_start + static_cast<size_t>(name_length);
+  if (name_end > len) {
+    return nullptr;
+  }
+
+  if (len < name_end + 17) {
+    return nullptr;
+  }
+
+  int32_t frame_number = 0;
+  float sub_frame = 0.0f;
+  int32_t fps = 0;
+  int32_t denominator = 0;
+  const size_t frame_meta_offset = name_end;
+  if (!read_i32_be_bytes(bytes, len, frame_meta_offset, &frame_number) ||
+      !read_f32_be_bytes(bytes, len, frame_meta_offset + 4, &sub_frame) ||
+      !read_i32_be_bytes(bytes, len, frame_meta_offset + 8, &fps) ||
+      !read_i32_be_bytes(bytes, len, frame_meta_offset + 12, &denominator)) {
+    return nullptr;
+  }
+  (void)sub_frame;
+  (void)fps;
+  (void)denominator;
+
+  const uint8_t data_length = bytes[frame_meta_offset + 16];
+  if (data_length != kLiveLinkFaceBlendshapeNames.size()) {
+    return nullptr;
+  }
+
+  const size_t blendshape_offset = frame_meta_offset + 17;
+  const size_t required_size = blendshape_offset + (static_cast<size_t>(data_length) * 4);
+  if (required_size > len) {
+    return nullptr;
+  }
+
+  std::array<float, 61> values = {};
+  for (size_t i = 0; i < values.size(); ++i) {
+    float value = 0.0f;
+    if (!read_f32_be_bytes(bytes, len, blendshape_offset + (i * 4), &value)) {
+      return nullptr;
+    }
+    values[i] = std::isfinite(static_cast<double>(value)) ? value : 0.0f;
+  }
+
+  PyRef blendshapes(PyDict_New());
+  if (!blendshapes) {
+    return nullptr;
+  }
+  for (size_t i = 0; i < values.size(); ++i) {
+    const bool should_clamp = i <= 51;
+    const double normalized_value = should_clamp
+        ? (std::max)(0.0, (std::min)(1.0, static_cast<double>(values[i])))
+        : static_cast<double>(values[i]);
+    PyRef key(PyUnicode_FromString(kLiveLinkFaceBlendshapeNames[i]));
+    PyRef py_value(PyFloat_FromDouble(normalized_value));
+    if (!key || !py_value || PyDict_SetItem(blendshapes.get(), key.get(), py_value.get()) < 0) {
+      return nullptr;
+    }
+    if (i == 51) {
+      PyRef alias_key(PyUnicode_FromString("tongueOut"));
+      if (!alias_key || PyDict_SetItem(blendshapes.get(), alias_key.get(), py_value.get()) < 0) {
+        return nullptr;
+      }
+    }
+  }
+
+  PyRef head_quaternion(Py_None);
+  Py_INCREF(head_quaternion.get());
+  {
+    const double llf_yaw = static_cast<double>(values[52]);
+    const double llf_pitch = static_cast<double>(values[53]);
+    const double llf_roll = static_cast<double>(values[54]);
+
+    // Keep the downstream behavior aligned with the existing WebSocket path:
+    // - runtime consumes a quaternion as rotation around X/Y/Z axes.
+    // - LiveLinkFace provides HeadYaw/HeadPitch/HeadRoll channels.
+    // Map LLF channels into X/Y/Z rotation order before quaternion synthesis.
+    const double mapped_x_roll = llf_pitch;
+    const double mapped_y_pitch = llf_yaw;
+    const double mapped_z_yaw = llf_roll;
+
+    if (std::isfinite(mapped_x_roll) && std::isfinite(mapped_y_pitch) && std::isfinite(mapped_z_yaw)) {
+      const double cy = std::cos(mapped_z_yaw * 0.5);
+      const double sy = std::sin(mapped_z_yaw * 0.5);
+      const double cp = std::cos(mapped_y_pitch * 0.5);
+      const double sp = std::sin(mapped_y_pitch * 0.5);
+      const double cr = std::cos(mapped_x_roll * 0.5);
+      const double sr = std::sin(mapped_x_roll * 0.5);
+
+      PyRef quaternion_payload(PyDict_New());
+      if (!quaternion_payload) {
+        return nullptr;
+      }
+      if (dict_set_item_string_owned(quaternion_payload.get(), "w", PyFloat_FromDouble((cr * cp * cy) + (sr * sp * sy))) < 0 ||
+          dict_set_item_string_owned(quaternion_payload.get(), "x", PyFloat_FromDouble((sr * cp * cy) - (cr * sp * sy))) < 0 ||
+          dict_set_item_string_owned(quaternion_payload.get(), "y", PyFloat_FromDouble((cr * sp * cy) + (sr * cp * sy))) < 0 ||
+          dict_set_item_string_owned(quaternion_payload.get(), "z", PyFloat_FromDouble((cr * cp * sy) - (sr * sp * cy))) < 0) {
+        return nullptr;
+      }
+      PyRef sanitized_quaternion(sanitize_head_quaternion_impl(quaternion_payload.get()));
+      if (!sanitized_quaternion) {
+        return nullptr;
+      }
+      head_quaternion = std::move(sanitized_quaternion);
+    }
+  }
+
+  PyRef face_payload(PyDict_New());
+  if (!face_payload) {
+    return nullptr;
+  }
+  if (PyDict_SetItemString(face_payload.get(), "blendshapes", blendshapes.get()) < 0 ||
+      PyDict_SetItemString(face_payload.get(), "head_quaternion", head_quaternion.get()) < 0) {
+    return nullptr;
+  }
+
+  PyRef faces(PyList_New(0));
+  if (!faces || PyList_Append(faces.get(), face_payload.get()) < 0) {
+    return nullptr;
+  }
+
+  PyRef out(PyDict_New());
+  if (!out) {
+    return nullptr;
+  }
+  PyRef sent_at(PyUnicode_FromFormat("%d", frame_number));
+  if (!sent_at) {
+    return nullptr;
+  }
+  if (PyDict_SetItemString(out.get(), "faces", faces.get()) < 0 ||
+      dict_set_item_string_owned(out.get(), "face_count", PyLong_FromLong(1)) < 0 ||
+      PyDict_SetItemString(out.get(), "sent_at", sent_at.get()) < 0) {
+    return nullptr;
+  }
+  return out.release();
 }
 
 void handle_client(FaceCapReceiverState* state, SocketHandle client_socket, const std::string& address_text) {
@@ -114,6 +379,7 @@ void handle_client(FaceCapReceiverState* state, SocketHandle client_socket, cons
     state->client_address = address_text;
     state->status_message = "Client connected: " + address_text;
     state->last_error.clear();
+    state->transport_mode = kReceiverProtocolWebSocket;
     if (!selected_protocol.empty()) {
       state->transport_encoding = (selected_protocol == kBinarySubprotocol) ? "binary" : "json";
     }
@@ -194,10 +460,16 @@ void handle_client(FaceCapReceiverState* state, SocketHandle client_socket, cons
   }
 }
 
-void receiver_thread_main(FaceCapReceiverState* state, std::string host, int port) {
+void receiver_thread_main(
+    FaceCapReceiverState* state,
+    std::string host,
+    int port,
+    std::string receiver_protocol) {
   if (!state) {
     return;
   }
+
+  const bool use_websocket = (receiver_protocol == kReceiverProtocolWebSocket);
 
 #if defined(_WIN32)
   WSADATA wsa_data;
@@ -205,7 +477,7 @@ void receiver_thread_main(FaceCapReceiverState* state, std::string host, int por
   (void)wsa_ok;
 #endif
 
-  SocketHandle server_socket = static_cast<SocketHandle>(socket(AF_INET, SOCK_STREAM, 0));
+  SocketHandle server_socket = static_cast<SocketHandle>(socket(AF_INET, use_websocket ? SOCK_STREAM : SOCK_DGRAM, 0));
   if (server_socket == kInvalidSocket) {
     set_receiver_error(state, "Face Capture receiver failed: socket() failed.");
     return;
@@ -224,11 +496,12 @@ void receiver_thread_main(FaceCapReceiverState* state, std::string host, int por
   }
 
   if (bind(server_socket, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
-      listen(server_socket, kReceiverDefaultBacklog) != 0) {
+      (use_websocket && listen(server_socket, kReceiverDefaultBacklog) != 0)) {
     close_socket(&server_socket);
     std::lock_guard<std::mutex> lock(state->mutex);
     state->bind_failed = true;
-    state->status_message = "Face Capture receiver failed on ws://" + host + ":" + std::to_string(port);
+    const std::string scheme = use_websocket ? "ws" : "udp";
+    state->status_message = "Face Capture receiver failed on " + scheme + "://" + host + ":" + std::to_string(port);
     state->last_error = state->status_message;
     return;
   }
@@ -238,40 +511,97 @@ void receiver_thread_main(FaceCapReceiverState* state, std::string host, int por
     state->server_socket = server_socket;
     state->bind_failed = false;
     state->is_listening = true;
-    state->status_message = "Listening on ws://" + host + ":" + std::to_string(port);
+    state->transport_mode = use_websocket ? kReceiverProtocolWebSocket : kReceiverProtocolLiveLinkFace;
+    const std::string scheme = use_websocket ? "ws" : "udp";
+    state->status_message = "Listening on " + scheme + "://" + host + ":" + std::to_string(port);
     state->last_error.clear();
   }
 
-  while (!state->stop_requested.load()) {
-    if (!wait_socket_readable(server_socket, kReceiverSocketTimeoutMs)) {
-      continue;
+  if (use_websocket) {
+    while (!state->stop_requested.load()) {
+      if (!wait_socket_readable(server_socket, kReceiverSocketTimeoutMs)) {
+        continue;
+      }
+
+      sockaddr_in client_addr{};
+      socklen_t client_len = static_cast<socklen_t>(sizeof(client_addr));
+      SocketHandle client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+      if (client_socket == kInvalidSocket) {
+        continue;
+      }
+
+      configure_connected_socket(client_socket);
+
+      char ip_text[INET_ADDRSTRLEN] = {0};
+      inet_ntop(AF_INET, &client_addr.sin_addr, ip_text, sizeof(ip_text));
+      const std::string address_text = std::string(ip_text) + ":" + std::to_string(ntohs(client_addr.sin_port));
+
+      {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->client_socket = client_socket;
+      }
+
+      handle_client(state, client_socket, address_text);
+
+      shutdown_socket(client_socket);
+      close_socket(&client_socket);
+      {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->client_socket = kInvalidSocket;
+      }
     }
+  } else {
+    std::vector<unsigned char> datagram;
+    datagram.resize(4096);
 
-    sockaddr_in client_addr{};
-    socklen_t client_len = static_cast<socklen_t>(sizeof(client_addr));
-    SocketHandle client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-    if (client_socket == kInvalidSocket) {
-      continue;
-    }
+    while (!state->stop_requested.load()) {
+      if (!wait_socket_readable(server_socket, kReceiverSocketTimeoutMs)) {
+        continue;
+      }
 
-    configure_connected_socket(client_socket);
+      sockaddr_in client_addr{};
+      socklen_t client_len = static_cast<socklen_t>(sizeof(client_addr));
+#if defined(_WIN32)
+      const int rc = recvfrom(
+          server_socket,
+          reinterpret_cast<char*>(datagram.data()),
+          static_cast<int>(datagram.size()),
+          0,
+          reinterpret_cast<sockaddr*>(&client_addr),
+          &client_len);
+#else
+      const ssize_t rc = recvfrom(
+          server_socket,
+          datagram.data(),
+          datagram.size(),
+          0,
+          reinterpret_cast<sockaddr*>(&client_addr),
+          &client_len);
+#endif
+      if (rc <= 0) {
+        continue;
+      }
 
-    char ip_text[INET_ADDRSTRLEN] = {0};
-    inet_ntop(AF_INET, &client_addr.sin_addr, ip_text, sizeof(ip_text));
-    const std::string address_text = std::string(ip_text) + ":" + std::to_string(ntohs(client_addr.sin_port));
+      const size_t received = static_cast<size_t>(rc);
+      char ip_text[INET_ADDRSTRLEN] = {0};
+      inet_ntop(AF_INET, &client_addr.sin_addr, ip_text, sizeof(ip_text));
+      const std::string address_text = std::string(ip_text) + ":" + std::to_string(ntohs(client_addr.sin_port));
 
-    {
-      std::lock_guard<std::mutex> lock(state->mutex);
-      state->client_socket = client_socket;
-    }
+      {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->client_address = address_text;
+        state->transport_mode = kReceiverProtocolLiveLinkFace;
+      }
 
-    handle_client(state, client_socket, address_text);
-
-    shutdown_socket(client_socket);
-    close_socket(&client_socket);
-    {
-      std::lock_guard<std::mutex> lock(state->mutex);
-      state->client_socket = kInvalidSocket;
+      PyGILState_STATE msg_gil = PyGILState_Ensure();
+      PyObject* packet = parse_livelinkface_datagram(datagram.data(), received);
+      if (packet) {
+        ingest_native_packet(state, packet, "binary");
+      } else {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->last_error = "Ignored an invalid LiveLinkFace UDP packet.";
+      }
+      PyGILState_Release(msg_gil);
     }
   }
 

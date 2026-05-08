@@ -1,0 +1,968 @@
+[
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"thumb_limit.R\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"thumb_limit.L\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"fancy_UD.L\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"fancy_LR.L\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"fancy_UD.R\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"fancy_LR.R\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"Tracker Pad\"].constraints[\"Transformation\"].to_min_z",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.0,
+          -1.0
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"logic\"][\"mouth.side.half.up\"]",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.0,
+          0.5
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"Eyebrow.ro.panel.R\"].constraints[\"Transformation\"].to_max_z",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.04999999701976776,
+          -0.5
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"Eyebrow.ro.panel.L\"].constraints[\"Transformation\"].to_max_z",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.04999999701976776,
+          -0.5
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "Object",
+    "owner_name": "Rig2 Armature",
+    "data_path": "pose.bones[\"Tongue.BS.001\"].constraints[\"TongueOut.001\"].influence",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.0,
+          3.0
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "ArmatureData",
+    "owner_name": "Rig2 Armature",
+    "data_path": "collections_all[\"Eye Tracker\"].is_visible",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "GENERATOR",
+        "active": true,
+        "mute": false,
+        "mode": "POLYNOMIAL",
+        "poly_order": 1,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "coefficients": [
+          0.0,
+          1.0
+        ]
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Alex Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Left Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Alex Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Index Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Middle Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Pinky Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Ring Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 1\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  },
+  {
+    "owner_type": "ShapeKeyData",
+    "owner_name": "Right Thumb Lattice Bend Fix",
+    "data_path": "key_blocks[\"Key 2\"].value",
+    "array_index": 0,
+    "mods": [
+      {
+        "type": "FNGENERATOR",
+        "active": true,
+        "mute": false,
+        "use_additive": false,
+        "influence": 1.0,
+        "blend_in": 0.0,
+        "blend_out": 0.0,
+        "amplitude": 1.0
+      }
+    ]
+  }
+]

@@ -51,6 +51,8 @@ RIG2_DEFINE_LICENSE_METHODS("face_cap", "rig2_face_cap")
 constexpr const char* kWebsocketMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr const char* kJsonSubprotocol = "r2fmc.json.v1";
 constexpr const char* kBinarySubprotocol = "r2fmc.bin.v1";
+constexpr const char* kReceiverProtocolLiveLinkFace = "livelinkface";
+constexpr const char* kReceiverProtocolWebSocket = "websocket";
 constexpr int kReceiverDefaultBacklog = 8;
 constexpr int kReceiverSocketTimeoutMs = 500;
 

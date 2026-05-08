@@ -22,6 +22,9 @@ def _format_packet_age(age_seconds):
 
 
 def _format_transport_label(status):
+    mode = str(status.get("transport_mode", "") or "").lower()
+    if mode == "livelinkface":
+        return _("LiveLinkFace UDP")
     encoding = status.get("transport_encoding")
     if encoding == "binary":
         return _("WebSocket Binary")
@@ -175,6 +178,7 @@ class FaceCapUIDrawer:
         is_locked = FaceCapUIDrawer._draw_backend_lock_hint(layout)
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings:
+            layout.prop(settings, "receiver_protocol")
             layout.prop(settings, "listen_host")
             layout.prop(settings, "listen_port")
 

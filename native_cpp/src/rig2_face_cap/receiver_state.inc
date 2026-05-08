@@ -28,7 +28,8 @@ struct FaceCapReceiverState {
   std::string last_sent_at;
   std::string status_message = "Stopped";
   std::string last_error;
-  std::string transport_mode = "websocket";
+  std::string transport_mode = kReceiverProtocolLiveLinkFace;
+  std::string receiver_protocol = kReceiverProtocolLiveLinkFace;
   std::string transport_encoding;
   uint64_t packet_revision = 0;
   uint64_t polled_revision = 0;

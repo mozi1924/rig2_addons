@@ -180,9 +180,68 @@ class FaceCapRuntimeTest(unittest.TestCase):
         runtime.start(host="127.0.0.1", port=9000, settings=object())
 
         self.assertEqual(len(start_calls), 1)
+        self.assertEqual(start_calls[0][0][2]["receiver_protocol"], "livelinkface")
         self.assertEqual(stats_calls, [])
         self.assertTrue(runtime._native_is_listening)
-        self.assertEqual(runtime._status_message, "Listening on ws://127.0.0.1:9000")
+        self.assertEqual(runtime._status_message, "Listening on udp://127.0.0.1:9000")
+
+    def test_apply_latest_data_ignores_single_blendshape_write_failures(self):
+        module, service_state = load_runtime_module()
+        unlocked_bindings = {
+            "start_receiver": lambda *args, **kwargs: None,
+            "stop_receiver": lambda: None,
+            "poll_latest_packet": lambda: None,
+            "get_receiver_stats": lambda: None,
+            "face_payloads_equal": lambda left, right: left == right,
+            "quaternions_close": lambda left, right, tolerance=1e-4: left == right,
+        }
+        service_state["service"] = types.SimpleNamespace(
+            get_runtime_bindings=lambda: unlocked_bindings,
+            is_feature_unlocked=lambda: True,
+            get_lock_reason=lambda: "locked",
+        )
+        runtime = module.FaceCapRuntimeService()
+        runtime._runtime_bindings = unlocked_bindings
+
+        class FakeFaceBone:
+            def __init__(self):
+                self._values = {"jawOpen": 0.0, "badProp": 0.0}
+                self.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                self.rotation_mode = "QUATERNION"
+
+            def keys(self):
+                return list(self._values.keys())
+
+            def get(self, key, default=None):
+                return self._values.get(key, default)
+
+            def __setitem__(self, key, value):
+                if key == "badProp":
+                    raise RuntimeError("simulated write failure")
+                self._values[key] = value
+
+        face_bone = FakeFaceBone()
+        obj = types.SimpleNamespace(
+            name_full="RigForTest",
+            pose=types.SimpleNamespace(bones={"Face_BlendShapes": face_bone}),
+        )
+
+        module._iter_face_cap_targets = lambda: iter([(0, obj, face_bone)])
+        module.refresh_rig_driver_batch = lambda *args, **kwargs: None
+
+        runtime._latest_packet_data = {
+            "faces": [{"blendshapes": {"jawOpen": 0.75, "badProp": 0.5}, "head_quaternion": (1.0, 0.0, 0.0, 0.0)}],
+            "face_count": 1,
+            "sent_at": "123",
+        }
+        runtime._packet_count = 1
+        runtime._packet_revision = 1
+        runtime._applied_revision = 0
+
+        runtime.apply_latest_data()
+
+        self.assertAlmostEqual(face_bone.get("jawOpen"), 0.75, places=6)
+        self.assertEqual(runtime._applied_revision, 1)
 
 
 if __name__ == "__main__":

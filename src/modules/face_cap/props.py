@@ -41,16 +41,27 @@ def _update_face_cap_binding_item(self, _context):
 
 
 class Rig2FaceCapSettings(bpy.types.PropertyGroup):
+    receiver_protocol: bpy.props.EnumProperty(
+        name="Protocol",
+        description="Receiver protocol used by the face capture backend",
+        items=(
+            ("livelinkface", "LiveLinkFace (UDP)", "Receive iPhone Live Link Face UDP packets"),
+            ("websocket", "Custom WebSocket", "Receive Rig2 custom WebSocket packets"),
+        ),
+        default="livelinkface",
+        update=_update_face_cap_runtime,
+    )
+
     listen_host: bpy.props.StringProperty(
         name="Host",
-        description="Local interface used by the face capture WebSocket receiver",
+        description="Local interface used by the face capture receiver",
         default="0.0.0.0",
     )
 
     listen_port: bpy.props.IntProperty(
         name="Port",
-        description="Local port used by the face capture WebSocket receiver",
-        default=9000,
+        description="Local port used by the face capture receiver",
+        default=11111,
         min=1,
         max=65535,
     )

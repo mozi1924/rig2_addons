@@ -107,7 +107,7 @@ class _LockedFaceCapBackend:
             "last_sent_at": "",
             "status_message": "Stopped",
             "last_error": "",
-            "transport_mode": "websocket",
+            "transport_mode": "livelinkface",
             "transport_encoding": None,
         }
 

@@ -39,7 +39,9 @@ void stop_receiver_impl(FaceCapReceiverState* state) {
     state->last_sent_at.clear();
     state->status_message = "Stopped";
     state->last_error.clear();
-    state->transport_mode = "websocket";
+    state->transport_mode = state->receiver_protocol.empty()
+        ? std::string(kReceiverProtocolLiveLinkFace)
+        : state->receiver_protocol;
     state->transport_encoding.clear();
     state->packet_revision = 0;
     state->polled_revision = 0;
@@ -65,7 +67,17 @@ PyObject* method_start_receiver(PyObject*, PyObject* args, PyObject* kwargs) {
           &options_obj)) {
     return nullptr;
   }
-  (void)options_obj;
+
+  std::string receiver_protocol = kReceiverProtocolLiveLinkFace;
+  if (options_obj && options_obj != Py_None && PyDict_Check(options_obj)) {
+    PyObject* protocol_obj = dict_get_item(options_obj, "receiver_protocol");
+    const std::string protocol_text = py_object_to_utf8(protocol_obj);
+    if (protocol_text == kReceiverProtocolWebSocket) {
+      receiver_protocol = kReceiverProtocolWebSocket;
+    } else if (protocol_text == kReceiverProtocolLiveLinkFace) {
+      receiver_protocol = kReceiverProtocolLiveLinkFace;
+    }
+  }
 
   const std::string host = py_object_to_utf8(host_obj);
   if (host.empty()) {
@@ -96,7 +108,8 @@ PyObject* method_start_receiver(PyObject*, PyObject* args, PyObject* kwargs) {
     g_receiver_state.last_sent_at.clear();
     g_receiver_state.status_message = "Starting";
     g_receiver_state.last_error.clear();
-    g_receiver_state.transport_mode = "websocket";
+    g_receiver_state.transport_mode = receiver_protocol;
+    g_receiver_state.receiver_protocol = receiver_protocol;
     g_receiver_state.transport_encoding.clear();
     g_receiver_state.packet_revision = 0;
     g_receiver_state.polled_revision = 0;
@@ -104,7 +117,7 @@ PyObject* method_start_receiver(PyObject*, PyObject* args, PyObject* kwargs) {
     g_receiver_state.client_socket = kInvalidSocket;
   }
 
-  g_receiver_state.worker = std::thread(receiver_thread_main, &g_receiver_state, host, port);
+  g_receiver_state.worker = std::thread(receiver_thread_main, &g_receiver_state, host, port, receiver_protocol);
   Py_RETURN_TRUE;
 }
 

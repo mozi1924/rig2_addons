@@ -264,7 +264,7 @@ class RIG2_OT_FaceCapImportJson(bpy.types.Operator, ImportHelper):
 class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     bl_idname = "rig2.face_cap_start_server"
     bl_label = "Start Face Capture Receiver"
-    bl_description = "Start the local face capture WebSocket receiver"
+    bl_description = "Start the local face capture receiver"
 
     def execute(self, context):
         if report_blocking_license_warnings(self):
@@ -279,7 +279,8 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
             return {"CANCELLED"}
 
         service = get_runtime_service()
-        service.start(settings=settings)
+        receiver_protocol = str(getattr(settings, "receiver_protocol", "livelinkface") or "livelinkface")
+        service.start(settings=settings, receiver_protocol=receiver_protocol)
         binding_count = len(get_face_cap_bindings(context.scene))
         status = service.get_status_snapshot()
         if status.get("last_error") or not status.get("is_listening"):
@@ -292,12 +293,17 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
             return {"CANCELLED"}
         local_ipv4_address = status.get("local_ipv4_address", "")
         receiver_host = local_ipv4_address or settings.listen_host
+        receiver_mode = str(status.get("transport_mode", receiver_protocol) or receiver_protocol).lower()
+        endpoint = (
+            f"udp://{receiver_host}:{settings.listen_port}"
+            if receiver_mode == "livelinkface"
+            else f"ws://{receiver_host}:{settings.listen_port}"
+        )
         self.report(
             {"INFO"},
             _f(
-                "Face Capture receiver started on ws://{host}:{port} with {count} binding(s)",
-                host=receiver_host,
-                port=settings.listen_port,
+                "Face Capture receiver started on {endpoint} with {count} binding(s)",
+                endpoint=endpoint,
                 count=binding_count,
             ),
         )
@@ -307,7 +313,7 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
 class RIG2_OT_FaceCapStopServer(bpy.types.Operator):
     bl_idname = "rig2.face_cap_stop_server"
     bl_label = "Stop Face Capture Receiver"
-    bl_description = "Stop the local face capture WebSocket receiver"
+    bl_description = "Stop the local face capture receiver"
 
     def execute(self, context):
         service = get_runtime_service()
