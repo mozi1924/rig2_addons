@@ -16,6 +16,32 @@ _NATIVE_GRANT_REFRESH_REASON_MARKERS = (
     "authorization state is unavailable",
 )
 
+_NATIVE_REDOWNLOAD_REASON_MARKERS = _NATIVE_GRANT_REFRESH_REASON_MARKERS + (
+    "integrity check failed",
+    "hash mismatch",
+    "does not match the binary build",
+    "source root not found",
+    "missing file",
+    "native backend is locked",
+    "failed to load",
+    "cannot read binary",
+    "not a valid windows dll",
+    "missing binary manifest",
+    "invalid binary manifest",
+    "artifact digest mismatch",
+    "artifact size mismatch",
+    "could not create import spec",
+)
+
+_NATIVE_SESSION_SYNC_REASON_MARKERS = (
+    "sync your license",
+    "authorization is syncing",
+    "native grant expired",
+    "grant unavailable",
+    "activate or re-sync your license",
+    "not ready for authorization yet",
+)
+
 def get_feature_status(feature_name):
     from ..licensing.feature_access import get_feature_status as _get_feature_status
 
@@ -53,6 +79,20 @@ def native_reason_allows_grant_refresh(reason):
     if not detail:
         return False
     return any(marker in detail for marker in _NATIVE_GRANT_REFRESH_REASON_MARKERS)
+
+
+def native_reason_requires_redownload(reason):
+    detail = str(reason or "").strip().lower()
+    if not detail:
+        return False
+    return any(marker in detail for marker in _NATIVE_REDOWNLOAD_REASON_MARKERS)
+
+
+def native_reason_is_session_sync_issue(reason):
+    detail = str(reason or "").strip().lower()
+    if not detail:
+        return False
+    return any(marker in detail for marker in _NATIVE_SESSION_SYNC_REASON_MARKERS)
 
 
 def get_native_failure_reason(get_license_status):

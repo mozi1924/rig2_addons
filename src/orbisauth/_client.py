@@ -284,19 +284,24 @@ class OrbisAuthClient:
             OrbisAuthError: if no active session
             OrbisAuthAPIError: LICENSE_BANNED, LICENSE_EXPIRED, DEVICE_NOT_ACTIVE, etc.
         """
-        self._ensure_authenticated()
-        assert self.session is not None
+        access_token = self._get_authenticated_access_token()
 
         url = _api_url(self.server_url, "heartbeat")
         data = _api_request(
             "POST",
             url,
-            headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=self.timeout_seconds,
         )
 
-        heartbeat = _build_heartbeat_policy(data.get("heartbeat"), fallback=self.session.heartbeat)
-        self.session.heartbeat = heartbeat
+        with self._lock:
+            if self.session is None:
+                # Session was deactivated while heartbeat request was in flight.
+                fallback_heartbeat = None
+            else:
+                fallback_heartbeat = self.session.heartbeat
+
+        heartbeat = _build_heartbeat_policy(data.get("heartbeat"), fallback=fallback_heartbeat)
 
         access_token = data.get("access_token", "")
         refresh_token = data.get("refresh_token", "")
@@ -304,17 +309,20 @@ class OrbisAuthClient:
         expires_in = int(data.get("expires_in", 0) or 0)
         refresh_expires_in = int(data.get("refresh_expires_in", 0) or 0)
         offline_expires_in = int(data.get("offline_expires_in", 0) or 0)
-        if access_token:
-            self.session.tokens = _build_token_set(data, fallback=self.session.tokens)
-            self.session.product = str(data.get("product", self.session.product) or self.session.product)
-            self.session.tier = str(data.get("tier", self.session.tier) or self.session.tier)
-            self.session.features = _coerce_features(data.get("features"), fallback=self.session.features)
-            self.session.activated_at = time.time()
-            self._persist()
-            try:
-                self.fetch_trust_bundle()
-            except Exception:
-                pass
+        with self._lock:
+            if self.session is not None:
+                self.session.heartbeat = heartbeat
+                if access_token:
+                    self.session.tokens = _build_token_set(data, fallback=self.session.tokens)
+                    self.session.product = str(data.get("product", self.session.product) or self.session.product)
+                    self.session.tier = str(data.get("tier", self.session.tier) or self.session.tier)
+                    self.session.features = _coerce_features(data.get("features"), fallback=self.session.features)
+                    self.session.activated_at = time.time()
+                    self._persist()
+                    try:
+                        self.fetch_trust_bundle()
+                    except Exception:
+                        pass
 
         return HeartbeatResponse(
             ok=data.get("ok", False),
@@ -336,12 +344,15 @@ class OrbisAuthClient:
 
     def deactivate(self) -> None:
         """Clear the current session and delete the persisted session file (if any)."""
-        if self.session_path:
-            remove_session_file(self.session_path)
-        self.session = None
-        if self.trust_bundle_path:
+        with self._lock:
+            self.session = None
+            session_path = self.session_path
+            trust_bundle_path = self.trust_bundle_path
+        if session_path:
+            remove_session_file(session_path)
+        if trust_bundle_path:
             try:
-                os.unlink(self.trust_bundle_path)
+                os.unlink(trust_bundle_path)
             except OSError:
                 pass
 
@@ -362,9 +373,10 @@ class OrbisAuthClient:
         """
         t = token
         if t is None:
-            if self.session is None:
-                raise OrbisAuthError("No session and no token provided.")
-            t = self.session.tokens.access_token
+            with self._lock:
+                if self.session is None:
+                    raise OrbisAuthError("No session and no token provided.")
+                t = self.session.tokens.access_token
 
         return verify_access_token(
             t,
@@ -383,11 +395,13 @@ class OrbisAuthClient:
         Returns the features dict from the token (empty dict if no features).
         Raises OrbisAuthTokenError if the token is invalid or expired.
         """
-        if self.session is None:
-            raise OrbisAuthError("No session available.")
+        with self._lock:
+            if self.session is None:
+                raise OrbisAuthError("No session available.")
+            offline_token = self.session.tokens.offline_token
         try:
             claims = verify_offline_token(
-                self.session.tokens.offline_token,
+                offline_token,
                 server_url=self.server_url,
                 timeout=self.timeout_seconds,
                 allow_network=allow_network,
@@ -413,14 +427,13 @@ class OrbisAuthClient:
             OrbisAuthError: if no active session
             OrbisAuthAPIError: on authorization failure
         """
-        self._ensure_authenticated()
-        assert self.session is not None
+        access_token = self._get_authenticated_access_token()
 
         url = _api_url(self.server_url, "devices")
         data = _api_request(
             "GET",
             url,
-            headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=self.timeout_seconds,
         )
 
@@ -447,8 +460,7 @@ class OrbisAuthClient:
         arch: str = "",
         artifact: str = "",
     ) -> NativeGrantInfo:
-        self._ensure_authenticated()
-        assert self.session is not None
+        access_token = self._get_authenticated_access_token()
 
         url = _api_url(self.server_url, "native-grant")
         body = {
@@ -465,7 +477,7 @@ class OrbisAuthClient:
             "POST",
             url,
             json_body=body,
-            headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=self.timeout_seconds,
         )
         return NativeGrantInfo(
@@ -511,8 +523,7 @@ class OrbisAuthClient:
             OrbisAuthError: if no active session
             OrbisAuthAPIError: on invalid request or authorization failure
         """
-        self._ensure_authenticated()
-        assert self.session is not None
+        access_token = self._get_authenticated_access_token()
 
         params: list[str] = []
         params.append(f"module={_urlencode(module)}")
@@ -528,7 +539,7 @@ class OrbisAuthClient:
         data = _api_request(
             "GET",
             url,
-            headers={"Authorization": f"Bearer {self.session.tokens.access_token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=self.timeout_seconds,
         )
 
@@ -622,14 +633,16 @@ class OrbisAuthClient:
             # If server_url is empty (migrated from v1), use current server_url
             if not loaded.server_url:
                 loaded.server_url = self.server_url
-            self.session = loaded
+            with self._lock:
+                self.session = loaded
         return loaded
 
     def is_session_valid(self) -> bool:
         """Check if a session exists and the refresh token has not expired."""
-        if self.session is None:
-            return False
-        return not self.session.refresh_token_expired(skew_seconds=self.refresh_skew_seconds)
+        with self._lock:
+            if self.session is None:
+                return False
+            return not self.session.refresh_token_expired(skew_seconds=self.refresh_skew_seconds)
 
     # ------------------------------------------------------------------
     # Internal Helpers
@@ -650,6 +663,24 @@ class OrbisAuthClient:
                         "Session expired: refresh token has expired. Re-activation required."
                     )
                 self.refresh()
+
+    def _get_authenticated_access_token(self) -> str:
+        """Return a valid access token while holding the session lock."""
+        with self._lock:
+            if self.session is None:
+                raise OrbisAuthError("Not activated. Call activate() or load_session() first.")
+            if self.auto_refresh and self.session.access_token_expired(
+                skew_seconds=self.refresh_skew_seconds
+            ):
+                if self.session.refresh_token_expired(
+                    skew_seconds=self.refresh_skew_seconds
+                ):
+                    raise OrbisAuthTokenError(
+                        "Session expired: refresh token has expired. Re-activation required."
+                    )
+                self.refresh()
+            assert self.session is not None
+            return str(self.session.tokens.access_token)
 
 
     def _persist(self) -> None:

@@ -311,6 +311,32 @@ class FeatureAccessTest(unittest.TestCase):
             self.assertEqual(failed_status["effective_state"], "download_failed")
             self.assertIn("Retry from Addon Preferences", failed_status["message"])
 
+    def test_lowercase_error_warning_maps_to_session_error(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = FakeManager()
+            manager._client.session = types.SimpleNamespace(features={"face_cap": True})
+            manager.status["activated"] = False
+            manager.status["features"] = {"face_cap": True}
+            manager.status["warnings"] = [{"level": "error", "message": "session broken"}]
+            runtime_service = FakeRuntimeService()
+
+            def downloader_behavior(module_name, force, wrapper_states):
+                return False
+
+            feature_access, wrapper_states = load_feature_access_module(
+                manager=manager,
+                temp_dir=temp_dir,
+                downloader_behavior=downloader_behavior,
+                runtime_service=runtime_service,
+            )
+
+            with open(wrapper_states["face_cap"].path, "wb") as handle:
+                handle.write(b"bin")
+            wrapper_states["face_cap"].load_ok = True
+
+            status = feature_access.get_feature_status("face_cap")
+            self.assertEqual(status["effective_state"], "session_error")
+
     def test_r2bb_unlicensed_hidden_but_binary_states_still_work(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = FakeManager()
