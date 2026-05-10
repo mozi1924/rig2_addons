@@ -1,7 +1,10 @@
+import json
 import re
 from collections import defaultdict
+from pathlib import Path
 
 import bpy
+from bpy_extras.io_utils import ImportHelper
 
 from ...core.utils import is_rig2_armature
 from .export_json import (
@@ -19,6 +22,7 @@ from .mapping import (
     load_preset_definition,
     mapping_entries_to_export_bones,
     mapping_entries_to_pairs,
+    normalize_mapping_entries,
     save_custom_preset,
 )
 from .props import editor_entries_to_runtime, ensure_editor_initialized, set_editor_entries
@@ -40,6 +44,46 @@ def _ensure_r2bb_access(operator):
 
 def _export_preset_items(self, context):
     return get_preset_enum_items(include_current=True)
+
+
+def _ensure_plain_json_suffix(filepath):
+    cleaned = str(filepath or "").strip()
+    if not cleaned:
+        return cleaned
+    if cleaned.lower().endswith(".json"):
+        return cleaned
+    return f"{cleaned}.json"
+
+
+def _safe_mapping_filename(name):
+    token = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(name or "").strip()).strip("._-")
+    if not token:
+        token = "r2bb_mapping"
+    return f"{token}.json"
+
+
+def _extract_import_mapping_payload(payload, fallback_name):
+    if isinstance(payload, list):
+        entries = payload
+        name = fallback_name
+        return name, entries
+
+    if not isinstance(payload, dict):
+        raise ValueError("JSON root must be an object or an array")
+
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        for key in ("mapping", "mappings"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                entries = candidate
+                break
+
+    if not isinstance(entries, list):
+        raise ValueError("JSON must include an 'entries' array")
+
+    name = str(payload.get("name") or fallback_name).strip() or fallback_name
+    return name, entries
 
 
 def _get_bone_depth(pose_bone):
@@ -424,6 +468,131 @@ class R2BB_OT_DeleteMappingPreset(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class R2BB_OT_ImportMappingJSON(bpy.types.Operator, ImportHelper):
+    bl_idname = "r2bb.import_mapping_json"
+    bl_label = "Import Mapping JSON"
+    bl_description = "Import mapping rows from a JSON file into the R2BB editor"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filename_ext = ".json"
+    filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not _ensure_r2bb_access(self):
+            return {"CANCELLED"}
+
+        state = ensure_editor_initialized(context.scene)
+        if state is None:
+            self.report({"ERROR"}, "R2BB editor state is not available")
+            return {"CANCELLED"}
+
+        filepath = Path(self.filepath)
+        try:
+            payload = json.loads(filepath.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.report({"ERROR"}, f"Could not read JSON: {exc}")
+            return {"CANCELLED"}
+
+        try:
+            imported_name, raw_entries = _extract_import_mapping_payload(payload, filepath.stem)
+            entries = normalize_mapping_entries(raw_entries)
+        except ValueError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Could not parse mapping entries: {exc}")
+            return {"CANCELLED"}
+
+        if not entries:
+            self.report({"ERROR"}, "Imported JSON did not contain valid mapping rows")
+            return {"CANCELLED"}
+
+        set_editor_entries(state.entries, entries)
+        state.selected_preset = CURRENT_EDITOR_PRESET_ID
+        state.preset_name = imported_name
+        self.report({"INFO"}, f"Imported {len(entries)} mapping rows from JSON")
+        return {"FINISHED"}
+
+
+class R2BB_OT_ExportMappingJSON(bpy.types.Operator):
+    bl_idname = "r2bb.export_mapping_json"
+    bl_label = "Export Mapping JSON"
+    bl_description = "Export a mapping preset to an external JSON file"
+    bl_options = {"REGISTER"}
+
+    filename_ext = ".json"
+    filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
+    filepath: bpy.props.StringProperty(name="File Path", subtype="FILE_PATH")
+    mapping_preset: bpy.props.EnumProperty(
+        name="Mapping Preset",
+        description="Choose which mapping table should be exported",
+        items=_export_preset_items,
+    )
+
+    def invoke(self, context, event):
+        if not _ensure_r2bb_access(self):
+            return {"CANCELLED"}
+
+        state = ensure_editor_initialized(context.scene)
+        if state is None:
+            self.report({"ERROR"}, "R2BB editor state is not available")
+            return {"CANCELLED"}
+
+        self.mapping_preset = CURRENT_EDITOR_PRESET_ID
+        base_name = state.preset_name or "r2bb_mapping"
+        self.filepath = _safe_mapping_filename(base_name)
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def check(self, context):
+        resolved_path = _ensure_plain_json_suffix(self.filepath)
+        if resolved_path != self.filepath:
+            self.filepath = resolved_path
+            return True
+        return False
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "mapping_preset")
+
+    def execute(self, context):
+        if not _ensure_r2bb_access(self):
+            return {"CANCELLED"}
+
+        mapping_entries = _resolve_mapping_entries(context, self.mapping_preset)
+        state = ensure_editor_initialized(context.scene)
+
+        if self.mapping_preset == CURRENT_EDITOR_PRESET_ID:
+            preset_name = (state.preset_name if state else "") or "Current Editor"
+        else:
+            preset = load_preset_definition(self.mapping_preset)
+            preset_name = (preset or {}).get("name", "Mapping Preset")
+
+        payload = {
+            "schema_version": 1,
+            "name": preset_name,
+            "source_preset_id": self.mapping_preset,
+            "entries": mapping_entries,
+        }
+
+        if self.mapping_preset != CURRENT_EDITOR_PRESET_ID:
+            payload["id"] = self.mapping_preset
+
+        output_path = Path(_ensure_plain_json_suffix(self.filepath))
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            self.report({"ERROR"}, f"Could not write JSON: {exc}")
+            return {"CANCELLED"}
+
+        self.report({"INFO"}, f"Exported {len(mapping_entries)} mapping rows to JSON")
+        return {"FINISHED"}
+
+
 class R2BB_OT_ExportGeckoLibJSON(bpy.types.Operator):
     bl_idname = "r2bb.export_json"
     bl_label = "Export JSON"
@@ -499,6 +668,8 @@ classes = (
     R2BB_OT_LoadMappingPreset,
     R2BB_OT_SaveMappingPreset,
     R2BB_OT_DeleteMappingPreset,
+    R2BB_OT_ImportMappingJSON,
+    R2BB_OT_ExportMappingJSON,
     R2BB_OT_ExportGeckoLibJSON,
 )
 

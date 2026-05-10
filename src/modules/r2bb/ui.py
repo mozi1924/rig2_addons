@@ -106,6 +106,8 @@ class R2BB_PT_ControlCenter(bpy.types.Panel):
 
             load_row = mapping_box.row(align=True)
             load_row.operator("r2bb.load_mapping_preset", text="Load Into Editor", icon="FILE_REFRESH")
+            load_row.operator("r2bb.import_mapping_json", text="", icon="IMPORT")
+            load_row.operator("r2bb.export_mapping_json", text="", icon="EXPORT")
 
             mapping_box.prop(state, "preset_name")
 
