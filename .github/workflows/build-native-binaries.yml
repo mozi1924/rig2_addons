@@ -8,6 +8,7 @@ on:
       - "native_cpp/**"
       - "src/services/**"
       - "src/licensing/**"
+      - "src/orbisauth/**"
       - "src/modules/r2bb/mapping.py"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
@@ -15,14 +16,23 @@ on:
       - "scripts/generate_native_manifests.py"
       - "scripts/native_artifacts.py"
       - "scripts/validate_feature_chain.py"
+      - "scripts/validate_orbisauth_sdk.py"
       - "scripts/upload_to_r2.py"
       - "scripts/verify_native_dist.py"
+      - "scripts/versioning.py"
+      - "version.json"
+      - "tests/test_feature_chain.py"
+      - "tests/test_orbisauth_sdk.py"
+      - "tests/test_license_api.py"
+      - "tests/test_license_manager.py"
+      - "tests/test_feature_access.py"
       - ".github/workflows/build-native-binaries.yml"
   pull_request:
     paths:
       - "native_cpp/**"
       - "src/services/**"
       - "src/licensing/**"
+      - "src/orbisauth/**"
       - "src/modules/r2bb/mapping.py"
       - "scripts/extract_native_from_wheels.py"
       - "scripts/generate_integrity_hashes.py"
@@ -30,11 +40,50 @@ on:
       - "scripts/generate_native_manifests.py"
       - "scripts/native_artifacts.py"
       - "scripts/validate_feature_chain.py"
+      - "scripts/validate_orbisauth_sdk.py"
       - "scripts/upload_to_r2.py"
       - "scripts/verify_native_dist.py"
+      - "scripts/versioning.py"
+      - "version.json"
+      - "tests/test_feature_chain.py"
+      - "tests/test_orbisauth_sdk.py"
+      - "tests/test_license_api.py"
+      - "tests/test_license_manager.py"
+      - "tests/test_feature_access.py"
       - ".github/workflows/build-native-binaries.yml"
 
 jobs:
+  validate-sdk-licensing:
+    name: Validate SDK + Licensing Contract
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Python sources
+        run: python -m compileall src scripts native_cpp tests
+
+      - name: Validate managed native feature chain
+        run: python scripts/validate_feature_chain.py
+
+      - name: Validate vendored Orbisauth SDK contract
+        run: python scripts/validate_orbisauth_sdk.py
+
+      - name: Run licensing contract tests
+        run: |
+          python -m unittest \
+            tests.test_feature_chain \
+            tests.test_orbisauth_sdk \
+            tests.test_feature_access \
+            tests.test_license_api \
+            tests.test_license_manager
+
   build-wheels:
     name: Build Wheels (${{ matrix.job_name }})
     runs-on: ${{ matrix.os }}
@@ -141,7 +190,9 @@ jobs:
   package-native:
     name: Package Runtime Binaries
     runs-on: ubuntu-22.04
-    needs: build-wheels
+    needs:
+      - validate-sdk-licensing
+      - build-wheels
 
     steps:
       - name: Checkout
@@ -228,7 +279,9 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
+          ADDON_VERSION="$(python scripts/versioning.py show --format semver)"
           python scripts/upload_to_r2.py \
             --binary-dir native_dist \
             --manifest-dir native_manifests \
-            --storage-prefix rig2
+            --storage-prefix rig2 \
+            --addon-version "$ADDON_VERSION"

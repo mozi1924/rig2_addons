@@ -83,6 +83,15 @@ class TrustBundleInfo:
     expires_in: int
 
 
+@dataclass
+class LatestAddonVersionInfo:
+    product_id: str
+    storage_prefix: str
+    addon_version: str
+    updated_at: int
+    source: str
+
+
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 300
 _DEFAULT_HEARTBEAT_GRACE_SECONDS = 3600
 
@@ -501,6 +510,19 @@ class OrbisAuthClient:
             bundle_token=str(data["bundle_token"]),
             token_type=str(data.get("token_type", "Bearer") or "Bearer"),
             expires_in=int(data.get("expires_in", 0) or 0),
+        )
+
+    def get_latest_addon_version(self, product_id: str) -> LatestAddonVersionInfo:
+        if not product_id.strip():
+            raise OrbisAuthError("product_id is required")
+        url = _api_url(self.server_url, f"addon-version/latest?product={_urlencode(product_id)}")
+        data = _api_request("GET", url, timeout=self.timeout_seconds)
+        return LatestAddonVersionInfo(
+            product_id=str(data.get("product_id", product_id) or product_id),
+            storage_prefix=str(data.get("storage_prefix", "") or ""),
+            addon_version=str(data.get("addon_version", "") or ""),
+            updated_at=int(data.get("updated_at", 0) or 0),
+            source=str(data.get("source", "") or ""),
         )
 
     def request_download(

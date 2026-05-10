@@ -124,8 +124,19 @@ Official CI artifacts are built with `RIG2_DEV_BUILD=0`.
 Upload extracted binaries to Cloudflare R2:
 
 ```bash
-python3 scripts/upload_to_r2.py --binary-dir native_dist --storage-prefix rig2
+python3 scripts/upload_to_r2.py \
+  --binary-dir native_dist \
+  --manifest-dir native_manifests \
+  --storage-prefix rig2 \
+  --addon-version "$(python3 scripts/versioning.py show --format semver)"
 ```
+
+Native uploads are versioned and include a latest pointer:
+
+- `rig2/native-builds/<semver>/<module>/<platform>/<arch>/<artifact>`
+- `rig2/native-builds/<semver>/<feature>.json`
+- `rig2/native-builds/<semver>/_index.json`
+- `rig2/native-builds/latest.json`
 
 ## Cleanup
 

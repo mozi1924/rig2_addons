@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 NATIVE_CPP_SRC = ROOT / "native_cpp" / "src"
 SETUP_PY = ROOT / "native_cpp" / "setup.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"
-REQUIRED_NATIVE_CALLABLES = frozenset({"backend_name", "apply_native_grant"})
+REQUIRED_NATIVE_CALLABLES = frozenset(
+    {"backend_name", "apply_native_grant", "clear_license_state", "get_license_status"}
+)
 
 
 def _load_registry_module():
@@ -119,7 +121,7 @@ def main() -> int:
     print("  - registry entry with Orbisauth/download metadata")
     print("  - native_cpp/src/<module>.cpp")
     print("  - native build/package/upload manifests")
-    print("  - native license hooks: backend_name, apply_native_grant")
+    print("  - native license hooks: backend_name, apply_native_grant, clear_license_state, get_license_status")
     return 0
 
 

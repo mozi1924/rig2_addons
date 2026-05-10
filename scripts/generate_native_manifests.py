@@ -116,7 +116,10 @@ def generate_manifests(output_root: Path, *, binary_dir: Path) -> list[Path]:
                 "platform": runtime_spec.platform,
                 "arch": runtime_spec.arch,
                 "artifact": runtime_spec.artifact_name,
-                "artifact_key": f"rig2/{spec.native_module_name}/{runtime_spec.platform}/{runtime_spec.arch}/{runtime_spec.artifact_name}",
+                "artifact_key": (
+                    f"rig2/native-builds/{version}/"
+                    f"{spec.native_module_name}/{runtime_spec.platform}/{runtime_spec.arch}/{runtime_spec.artifact_name}"
+                ),
                 "artifact_sha256": _sha256_file(binary_path),
                 "artifact_size": binary_path.stat().st_size,
             }
