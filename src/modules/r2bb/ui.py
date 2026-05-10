@@ -46,14 +46,7 @@ class R2BB_PT_ControlCenter(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        if not is_rig2_armature(get_context_object(context)):
-            return False
-        try:
-            from ...licensing.feature_access import FeatureVisibility, get_feature_visibility
-
-            return get_feature_visibility("r2bb") != FeatureVisibility.HIDDEN
-        except Exception:
-            return False
+        return is_rig2_armature(get_context_object(context))
 
     def draw(self, context):
         layout = self.layout

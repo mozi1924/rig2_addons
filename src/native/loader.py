@@ -30,7 +30,22 @@ def _validate_pe_header(path):
     On Windows, .pyd files are DLLs with a PE header starting with 'MZ'.
     Validating before calling LoadLibrary catches truncated or corrupted
     downloads early, before they can trigger a loader crash.
-    """
+"""
+
+
+def _resolve_addon_root_package() -> str:
+    module_name = __name__
+    marker = ".src."
+    if marker in module_name:
+        return module_name.split(marker, 1)[0]
+    if module_name.endswith(".src"):
+        return module_name[: -len(".src")]
+    return "rig2_addons"
+
+
+def _internal_module_name(module_name: str) -> str:
+    # Keep final segment unchanged for PyInit_<module> symbol matching.
+    return f"{_resolve_addon_root_package()}.src.native.{module_name}"
     if sys.platform != "win32":
         return None
     try:
@@ -357,7 +372,8 @@ def load_native_extension_result(
     """
     # If we already have a live module, re-validate its interface
     # without re-executing the extension init function.
-    cached = _LOADED_MODULES.get(module_name)
+    internal_name = _internal_module_name(module_name)
+    cached = _LOADED_MODULES.get(internal_name)
     if cached is not None:
         module_path = getattr(cached, "__file__", "") or ""
         validation_error = _validate_native_module_interface(
@@ -427,7 +443,7 @@ def load_native_extension_result(
                 )
                 continue
 
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            spec = importlib.util.spec_from_file_location(internal_name, module_path)
             if spec is None or spec.loader is None:
                 last_error = f"Native backend is locked: could not create import spec for '{module_path}'."
                 continue
@@ -479,7 +495,7 @@ def load_native_extension_result(
                 last_error = validation_error
                 continue
 
-            _LOADED_MODULES[module_name] = module
+            _LOADED_MODULES[internal_name] = module
             return NativeLoadResult(
                 module_name=module_name,
                 module=module,

@@ -21,9 +21,30 @@ def _safe_status_icon(icon_name: str, fallback: str = "INFO") -> str:
     return fallback if fallback in _SAFE_STATUS_ICONS else "INFO"
 
 
+def _resolve_addon_module_name() -> str:
+    """
+    Resolve addon module key for both legacy and extension installs.
+
+    Legacy package example:
+      rig2_addons.src
+    Extension package example:
+      bl_ext.repo_name.rig2_addons.src
+    """
+    package_name = __package__ or ""
+    if package_name.endswith(".src"):
+        return package_name[: -len(".src")]
+    if package_name:
+        return package_name
+    return "rig2_addons"
+
+
+ADDON_MODULE_NAME = _resolve_addon_module_name()
+ADDON_FALLBACK_NAME = "rig2_addons"
+
+
 class Rig2AddonPreferences(bpy.types.AddonPreferences):
-    # Get the root package name robustly
-    bl_idname = __package__.partition('.')[0] if __package__ else "rig2_addons"
+    # Must match addon module key in bpy.context.preferences.addons.
+    bl_idname = ADDON_MODULE_NAME
 
     show_n_panel: bpy.props.BoolProperty(
         name="Show N-Panel",
@@ -479,8 +500,11 @@ def _refresh_ui():
 
 
 def get_preferences():
-    addon_name = __package__.partition('.')[0] if __package__ else "rig2_addons"
-    addon = bpy.context.preferences.addons.get(addon_name)
+    addons = bpy.context.preferences.addons
+    addon = addons.get(ADDON_MODULE_NAME)
+    if addon:
+        return addon.preferences
+    addon = addons.get(ADDON_FALLBACK_NAME)
     return addon.preferences if addon else None
 
 
