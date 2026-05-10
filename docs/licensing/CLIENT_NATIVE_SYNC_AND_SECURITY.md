@@ -43,13 +43,15 @@ Signature chain is unchanged:
 
 Policy controls:
 
-- `RIG2_RUNTIME_PROFILE=prod|dev` (default `prod`)
 - Compile-time macro `RIG2_DEV_BUILD=0|1` (default `0`)
+- `RIG2_ENFORCE_NATIVE_LICENSE_CHAIN=1` (optional override)
 
 Enforcement:
 
-- `prod`: strict artifact hash/size checks are always required
-- `dev`: artifact mismatch is allowed only if compiled with `RIG2_DEV_BUILD=1`
+- `RIG2_DEV_BUILD=0`: strict grant + manifest validation is always required
+- `RIG2_DEV_BUILD=1`: local development bypass for native grant/integrity checks
+- `RIG2_DEV_BUILD=1` + `RIG2_ENFORCE_NATIVE_LICENSE_CHAIN=1`: strict checks are
+  re-enabled for end-to-end license-chain testing
 
 Why this is safer:
 

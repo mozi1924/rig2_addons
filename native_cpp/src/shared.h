@@ -18,6 +18,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -59,6 +60,9 @@ struct LicenseState {
   std::string error;
   LicenseMutex mutex;
 };
+
+inline bool native_license_dev_bypass_enabled();
+inline void apply_dev_bypass_license_state(LicenseState* state, const char* feature_id_hint);
 
 inline void set_license_error(LicenseState* state, const std::string& message) {
   if (state) {
@@ -123,6 +127,10 @@ inline bool license_error_indicates_redownload(const std::string& error) {
 }
 
 inline PyObject* build_license_status(LicenseState& state) {
+  if (native_license_dev_bypass_enabled() && !state.ok) {
+    apply_dev_bypass_license_state(&state, nullptr);
+  }
+
   std::lock_guard<LicenseMutex> lock(state.mutex);
   PyObject* result = PyDict_New();
   if (!result) {
@@ -404,6 +412,44 @@ inline bool runtime_profile_is_dev() {
   }
   const std::string normalized = lowercase_ascii(trim_ascii(std::string(env)));
   return normalized == "dev" || normalized == "development";
+}
+
+inline bool env_flag_truthy(const char* value) {
+  if (!value || !value[0]) {
+    return false;
+  }
+  const std::string normalized = lowercase_ascii(trim_ascii(std::string(value)));
+  return normalized == "1" || normalized == "true" || normalized == "yes" ||
+         normalized == "on";
+}
+
+inline bool native_license_chain_enforced() {
+  return env_flag_truthy(std::getenv("RIG2_ENFORCE_NATIVE_LICENSE_CHAIN")) ||
+         env_flag_truthy(std::getenv("RIG2_ENFORCE_LICENSE_CHAIN"));
+}
+
+inline bool native_license_dev_bypass_enabled() {
+#if RIG2_DEV_BUILD
+  if (native_license_chain_enforced()) {
+    return false;
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+inline void apply_dev_bypass_license_state(LicenseState* state,
+                                           const char* feature_id_hint) {
+  if (!state) {
+    return;
+  }
+  const char* feature_id = (feature_id_hint && feature_id_hint[0]) ? feature_id_hint : "dev";
+  apply_authorized_license_state(
+      state,
+      "rig2-dev-bypass",
+      feature_id,
+      (std::numeric_limits<int64_t>::max)());
 }
 
 inline bool allow_dev_artifact_mismatch() {
@@ -1010,6 +1056,11 @@ inline bool apply_native_grant(LicenseState* state, const char* grant_token, con
                                const char* expected_feature_id, const char* expected_module_name,
                                const char* audience = "orbisauth-native-grant",
                                const char* issuer = "orbisauth-worker") {
+  if (native_license_dev_bypass_enabled()) {
+    apply_dev_bypass_license_state(state, expected_feature_id);
+    return true;
+  }
+
   if (!state || !grant_token || !addon_root || !module_path) {
     clear_license_state(state, "Native grant inputs are incomplete.");
     return false;
@@ -1052,6 +1103,11 @@ inline bool apply_native_grant(LicenseState* state, const char* grant_token, con
 }
 
 inline bool ensure_license_valid(LicenseState* state) {
+  if (native_license_dev_bypass_enabled()) {
+    apply_dev_bypass_license_state(state, nullptr);
+    return true;
+  }
+
   if (!state || !state->ok) {
     return false;
   }

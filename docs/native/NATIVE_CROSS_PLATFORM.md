@@ -51,8 +51,9 @@ Native grant verification always validates JWT signatures and Python source
 integrity manifests. Artifact hash/size handling is profile-based:
 
 - `RIG2_RUNTIME_PROFILE=prod` (default): strict artifact hash + size check.
-- `RIG2_RUNTIME_PROFILE=dev`: artifact mismatch is only allowed when binaries
-  are compiled with `RIG2_DEV_BUILD=1`.
+- `RIG2_DEV_BUILD=1`: development native binaries default to grant/integrity bypass.
+- `RIG2_ENFORCE_NATIVE_LICENSE_CHAIN=1`: force strict native grant/integrity
+  checks even for development binaries.
 
 Official CI builds force `RIG2_DEV_BUILD=0`, so production artifacts cannot be
 downgraded into dev behavior via environment variable alone.

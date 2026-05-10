@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "__default__",
+  "name": "Default (Built-in)",
+  "description": "Legacy TXT migration preset (matches previous bundled behavior)",
+  "entries": [
+    {
+      "base_bone": "Head root",
+      "mi_bone": "MI_Head",
+      "export_name": "head",
+      "rotation_axis_signs": {"X": 1.0, "Y": -1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "arm.upper.R",
+      "mi_bone": "MI_arm.upper.R",
+      "export_name": "rightarm",
+      "rotation_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "arm.lower.R",
+      "mi_bone": "MI_arm.lower.R",
+      "export_name": "Elbow_R",
+      "rotation_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "arm.upper.L",
+      "mi_bone": "MI_arm.upper.L",
+      "export_name": "leftarm",
+      "rotation_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "arm.lower.L",
+      "mi_bone": "MI_arm.lower.L",
+      "export_name": "Elbow_L",
+      "rotation_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": -1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "Body Upper",
+      "mi_bone": "MI_Body Upper",
+      "export_name": "Chest",
+      "rotation_axis_signs": {"X": 1.0, "Y": -1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "Hip",
+      "mi_bone": "MI_Body Lower",
+      "export_name": "waist",
+      "rotation_axis_signs": {"X": 1.0, "Y": -1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": 1.0, "Z": -1.0}
+    },
+    {
+      "base_bone": "leg.upper.R",
+      "mi_bone": "MI_leg.upper.R",
+      "export_name": "rightleg",
+      "rotation_axis_signs": {"X": 1.0, "Y": 1.0, "Z": 1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": -1.0, "Z": 1.0}
+    },
+    {
+      "base_bone": "leg.lower.R",
+      "mi_bone": "MI_leg.lower.R",
+      "export_name": "Knee_R",
+      "rotation_axis_signs": {"X": 1.0, "Y": 1.0, "Z": 1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": -1.0, "Z": 1.0}
+    },
+    {
+      "base_bone": "leg.upper.L",
+      "mi_bone": "MI_leg.upper.L",
+      "export_name": "leftleg",
+      "rotation_axis_signs": {"X": 1.0, "Y": 1.0, "Z": 1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": -1.0, "Z": 1.0}
+    },
+    {
+      "base_bone": "leg.lower.L",
+      "mi_bone": "MI_leg.lower.L",
+      "export_name": "Knee_L",
+      "rotation_axis_signs": {"X": 1.0, "Y": 1.0, "Z": 1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": -1.0, "Z": 1.0}
+    },
+    {
+      "base_bone": "Root",
+      "mi_bone": "MI_Root",
+      "export_name": "root",
+      "rotation_axis_signs": {"X": 1.0, "Y": -1.0, "Z": -1.0},
+      "transform_axis_signs": {"X": 1.0, "Y": 1.0, "Z": -1.0}
+    }
+  ]
+}

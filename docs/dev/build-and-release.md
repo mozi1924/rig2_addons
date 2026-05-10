@@ -113,8 +113,9 @@ python3 scripts/generate_integrity_hashes.py
 Runtime grant enforcement profile is controlled by:
 
 - `RIG2_RUNTIME_PROFILE=prod` (default): strict artifact hash/size enforcement.
-- `RIG2_RUNTIME_PROFILE=dev`: only effective for binaries compiled with
-  `RIG2_DEV_BUILD=1`.
+- `RIG2_DEV_BUILD=1`: local development build defaults to native grant/integrity bypass.
+- `RIG2_ENFORCE_NATIVE_LICENSE_CHAIN=1`: re-enable strict native grant/integrity
+  checks for end-to-end license-chain testing.
 
 Official CI artifacts are built with `RIG2_DEV_BUILD=0`.
 

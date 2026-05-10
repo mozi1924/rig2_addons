@@ -1,5 +1,4 @@
 import json
-import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -10,16 +9,13 @@ from ...services.errors import FeatureLockedError
 
 
 ADDON_DIR = Path(__file__).resolve().parent
-MAPPING_FILE = ADDON_DIR / "mapping.txt"
-ROTATION_AXES_FILE = ADDON_DIR / "ro_axes.txt"
-TRANSFORM_AXES_FILE = ADDON_DIR / "tr_axes.txt"
-MARCH_FILE = ADDON_DIR / "march.txt"
+BUILTIN_PRESET_DIR = ADDON_DIR / "presets"
 
 DEFAULT_PRESET_ID = "__default__"
+MARCH_PRESET_ID = "__march__"
 CURRENT_EDITOR_PRESET_ID = "__current__"
 PRESET_SCHEMA_VERSION = 1
 AXES = ("X", "Y", "Z")
-AXIS_TOKEN_RE = re.compile(r"([XYZ])(?:-C)?$")
 _PRESET_ENUM_CACHE = {
     True: [],
     False: [],
@@ -28,80 +24,6 @@ _PRESET_ENUM_CACHE = {
 
 def _default_axis_signs():
     return {axis: 1.0 for axis in AXES}
-
-
-def _iter_mapping_lines(path):
-    if not path.exists():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if line and not line.startswith("#"):
-            yield line
-
-
-def _load_txt_pairs(path):
-    pairs = []
-
-    for line in _iter_mapping_lines(path) or ():
-        if "->" not in line:
-            continue
-
-        source_name, target_name = (part.strip() for part in line.split("->", 1))
-        if source_name and target_name:
-            pairs.append((source_name, target_name))
-
-    return tuple(pairs)
-
-
-def _load_axis_signs(path):
-    axis_signs = {}
-
-    for line in _iter_mapping_lines(path) or ():
-        bone_name, separator, axis_spec = line.partition("(")
-        if not separator or not axis_spec.endswith(")"):
-            continue
-
-        bone_name = bone_name.strip()
-        if not bone_name:
-            continue
-
-        signs = _default_axis_signs()
-        for token in axis_spec[:-1].split(","):
-            token = token.strip().upper()
-            if not token:
-                continue
-
-            match = AXIS_TOKEN_RE.fullmatch(token)
-            if not match:
-                continue
-
-            axis = match.group(1)
-            signs[axis] = -1.0 if token.endswith("-C") else 1.0
-
-        axis_signs[bone_name] = signs
-
-    return axis_signs
-
-
-@lru_cache(maxsize=1)
-def load_mapping_pairs():
-    return _load_txt_pairs(MAPPING_FILE)
-
-
-@lru_cache(maxsize=1)
-def load_march_pairs():
-    return _load_txt_pairs(MARCH_FILE)
-
-
-@lru_cache(maxsize=1)
-def load_rotation_axis_signs():
-    return _load_axis_signs(ROTATION_AXES_FILE)
-
-
-@lru_cache(maxsize=1)
-def load_transform_axis_signs():
-    return _load_axis_signs(TRANSFORM_AXES_FILE)
 
 
 def _normalize_axis_signs(signs):
@@ -148,46 +70,72 @@ def normalize_mapping_entries(entries):
     return _get_r2bb_service_if_unlocked().normalize_mapping_entries(entries)
 
 
-def _build_builtin_entries():
-    mapping_pairs = load_mapping_pairs()
-    march_pairs = dict(load_march_pairs())
-    rotation_signs = load_rotation_axis_signs()
-    transform_signs = load_transform_axis_signs()
+def _fallback_builtin_preset():
+    return {
+        "id": DEFAULT_PRESET_ID,
+        "name": "Default (Built-in)",
+        "description": "Fallback built-in preset",
+        "builtin": True,
+        "entries": tuple(),
+    }
 
-    base_by_mi = {target_name: source_name for source_name, target_name in mapping_pairs}
-    ordered_mi_names = []
-    seen = set()
 
-    def append_name(name):
-        if name and name not in seen:
-            seen.add(name)
-            ordered_mi_names.append(name)
+def _load_builtin_preset_file(path):
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
-    for _, mi_name in mapping_pairs:
-        append_name(mi_name)
-    for mi_name, _ in load_march_pairs():
-        append_name(mi_name)
-    for mi_name in rotation_signs:
-        append_name(mi_name)
-    for mi_name in transform_signs:
-        append_name(mi_name)
+    preset_id = str(payload.get("id") or path.stem).strip()
+    if not preset_id:
+        return None
 
-    entries = []
-    for mi_name in ordered_mi_names:
-        entries.append({
-            "base_bone": base_by_mi.get(mi_name, ""),
-            "mi_bone": mi_name,
-            "export_name": march_pairs.get(mi_name, ""),
-            "rotation_axis_signs": _normalize_axis_signs(rotation_signs.get(mi_name, {})),
-            "transform_axis_signs": _normalize_axis_signs(transform_signs.get(mi_name, {})),
-        })
+    preset_name = str(payload.get("name") or path.stem).strip() or path.stem
+    description = str(payload.get("description") or "").strip()
+    entries = tuple(_normalize_mapping_entries_python(payload.get("entries", [])))
 
-    return tuple(_normalize_mapping_entries_python(entries))
+    return {
+        "id": preset_id,
+        "name": preset_name,
+        "description": description,
+        "builtin": True,
+        "entries": entries,
+    }
 
 
 @lru_cache(maxsize=1)
-def load_builtin_preset_entries():
-    return _build_builtin_entries()
+def load_builtin_presets():
+    presets = []
+
+    for path in sorted(BUILTIN_PRESET_DIR.glob("*.json"), key=lambda item: item.name.lower()):
+        preset = _load_builtin_preset_file(path)
+        if preset is not None:
+            presets.append(preset)
+
+    if not presets:
+        presets.append(_fallback_builtin_preset())
+
+    if not any(preset["id"] == DEFAULT_PRESET_ID for preset in presets):
+        first = dict(presets[0])
+        first["id"] = DEFAULT_PRESET_ID
+        first["name"] = "Default (Built-in)"
+        presets.insert(0, first)
+
+    return tuple(presets)
+
+
+def _builtin_preset_by_id(preset_id):
+    target_id = preset_id or DEFAULT_PRESET_ID
+    for preset in load_builtin_presets():
+        if preset["id"] == target_id:
+            return preset
+    if target_id == DEFAULT_PRESET_ID:
+        return load_builtin_presets()[0]
+    return None
+
+
+def _builtin_preset_ids():
+    return {preset["id"] for preset in load_builtin_presets()}
 
 
 def _preset_storage_dir():
@@ -203,13 +151,14 @@ def _preset_storage_dir():
 
 
 def _preset_file_for_id(preset_id):
-    if not preset_id or preset_id in {DEFAULT_PRESET_ID, CURRENT_EDITOR_PRESET_ID}:
+    if not preset_id or preset_id in _builtin_preset_ids() or preset_id == CURRENT_EDITOR_PRESET_ID:
         return None
     return _preset_storage_dir() / f"{preset_id}.json"
 
 
 def list_custom_presets():
     presets = []
+    builtin_ids = _builtin_preset_ids()
 
     for path in sorted(_preset_storage_dir().glob("*.json"), key=lambda item: item.name.lower()):
         try:
@@ -217,7 +166,10 @@ def list_custom_presets():
         except Exception:
             continue
 
-        preset_id = str(payload.get("id") or path.stem)
+        preset_id = str(payload.get("id") or path.stem).strip()
+        if not preset_id or preset_id in builtin_ids or preset_id == CURRENT_EDITOR_PRESET_ID:
+            continue
+
         preset_name = str(payload.get("name") or path.stem).strip() or path.stem
         presets.append({
             "id": preset_id,
@@ -238,11 +190,9 @@ def get_preset_enum_items(include_current=False):
             "Use the mappings currently shown in the R2BB mapping editor",
         ))
 
-    items.append((
-        DEFAULT_PRESET_ID,
-        "Default (Built-in)",
-        "Use the bundled mapping/march/axis preset",
-    ))
+    for preset in load_builtin_presets():
+        description = preset.get("description") or f"Use bundled preset: {preset['name']}"
+        items.append((preset["id"], preset["name"], description))
 
     for preset in list_custom_presets():
         items.append((
@@ -256,12 +206,13 @@ def get_preset_enum_items(include_current=False):
 
 
 def load_preset_definition(preset_id):
-    if not preset_id or preset_id == DEFAULT_PRESET_ID:
+    builtin = _builtin_preset_by_id(preset_id)
+    if builtin is not None:
         return {
-            "id": DEFAULT_PRESET_ID,
-            "name": "Default (Built-in)",
+            "id": builtin["id"],
+            "name": builtin["name"],
             "builtin": True,
-            "entries": list(load_builtin_preset_entries()),
+            "entries": list(builtin["entries"]),
         }
 
     path = _preset_file_for_id(preset_id)
