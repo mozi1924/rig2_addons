@@ -18,10 +18,6 @@ from .mapping import (
 from .shared import get_action, get_keyed_frames
 GECKOLIB_FORMAT_VERSION = "1.8.0"
 BLOCKBENCH_UNITS_PER_METER = 8.0
-EXPORT_FORMAT_ITEMS = (
-    ("BASIC", "MI Names", "Export with the original MI bone names"),
-    ("MAPPED", "Preset Names", "Export with the mapped export names from the chosen preset"),
-)
 
 def _resolve_mapping_entries(mapping_entries=None):
     resolved = normalize_mapping_entries(mapping_entries)
@@ -117,7 +113,7 @@ def _sample_pose_bone_local_delta_components(pose_bone, previous_euler=None):
     return location, euler, scale
 
 
-def _build_geckolib_animation(context, armature, action, export_format, animation_name, mapping_entries=None):
+def _build_geckolib_animation(context, armature, action, animation_name, mapping_entries=None):
     mapping_entries = _resolve_mapping_entries(mapping_entries)
     export_pairs, missing_bones = _get_export_pose_bones(armature, mapping_entries)
     if not export_pairs:
@@ -131,7 +127,14 @@ def _build_geckolib_animation(context, armature, action, export_format, animatio
     rotation_axis_signs = mapping_entries_to_rotation_axis_signs(mapping_entries)
     transform_axis_signs = mapping_entries_to_transform_axis_signs(mapping_entries)
     export_name_map = mapping_entries_to_export_name_map(mapping_entries)
-    missing_name_mappings = []
+    missing_name_mappings = sorted(
+        source_name for source_name, _pose_bone in export_pairs if source_name not in export_name_map
+    )
+    if missing_name_mappings:
+        return None, _f(
+            "Preset export names are missing for {count} mapped MI bones",
+            count=len(missing_name_mappings),
+        )
     previous_eulers = {}
     bones_payload = {}
 
@@ -175,11 +178,7 @@ def _build_geckolib_animation(context, armature, action, export_format, animatio
                     _apply_signed_scale(scale.z, transform_signs["Z"]),
                 ])
 
-                export_name = source_name
-                if export_format == "MAPPED":
-                    export_name = export_name_map.get(source_name, source_name)
-                    if source_name not in export_name_map:
-                        missing_name_mappings.append(source_name)
+                export_name = export_name_map[source_name]
 
                 bone_payload = bones_payload.setdefault(export_name, {"rotation": {}, "position": {}, "scale": {}})
                 bone_payload["rotation"][time_key] = rotation_values
@@ -203,12 +202,11 @@ def _build_geckolib_animation(context, armature, action, export_format, animatio
         "bone_count": len(bones_payload),
         "frame_count": len(frames),
         "missing_bones": missing_bones,
-        "missing_name_mappings": sorted(set(missing_name_mappings)),
     }
     return payload, metadata
 
 
-def export_geckolib_json(context, filepath, export_format="BASIC", animation_name="", mapping_entries=None):
+def export_geckolib_json(context, filepath, animation_name="", mapping_entries=None):
     armature = context.active_object
     if not is_rig2_armature(armature):
         return False, _f("Please select a Rig2 armature")
@@ -222,7 +220,6 @@ def export_geckolib_json(context, filepath, export_format="BASIC", animation_nam
         context=context,
         armature=armature,
         action=action,
-        export_format=export_format,
         animation_name=resolved_animation_name,
         mapping_entries=mapping_entries,
     )
@@ -239,11 +236,6 @@ def export_geckolib_json(context, filepath, export_format="BASIC", animation_nam
         bone_count=result["bone_count"],
         frame_count=result["frame_count"],
     )
-    if export_format == "MAPPED" and result["missing_name_mappings"]:
-        message += _f(
-            " ({count} preset names missing, kept MI names)",
-            count=len(result["missing_name_mappings"]),
-        )
     if result["missing_bones"]:
         message += _f(
             " ({count} mapped bones missing on rig)",

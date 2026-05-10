@@ -37,6 +37,9 @@ def _load_mapping_module(*, service_factory):
     r2bb_pkg.__path__ = []
     services_pkg = types.ModuleType(f"{package_name}.services")
     services_pkg.__path__ = []
+    i18n_mod = types.ModuleType(f"{package_name}.i18n")
+    i18n_mod.iface = lambda text, **_kwargs: str(text)
+    i18n_mod.format_text = lambda text, **kwargs: str(text).format(**kwargs) if kwargs else str(text)
 
     errors_mod = types.ModuleType(errors_module_name)
 
@@ -52,6 +55,7 @@ def _load_mapping_module(*, service_factory):
     sys.modules[f"{package_name}.modules"] = modules_pkg
     sys.modules[f"{package_name}.modules.r2bb"] = r2bb_pkg
     sys.modules[f"{package_name}.services"] = services_pkg
+    sys.modules[f"{package_name}.i18n"] = i18n_mod
     sys.modules[errors_module_name] = errors_mod
     sys.modules[service_module_name] = service_mod
 

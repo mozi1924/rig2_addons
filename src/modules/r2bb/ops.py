@@ -10,7 +10,6 @@ from ...core.utils import is_rig2_armature
 from ...i18n import format_text as _f
 from ...i18n import iface as _
 from .export_json import (
-    EXPORT_FORMAT_ITEMS,
     default_export_filepath,
     ensure_animation_json_suffix,
     export_geckolib_json,
@@ -44,6 +43,10 @@ def _ensure_r2bb_access(operator):
 
 def _export_preset_items(self, context):
     return get_preset_enum_items(include_current=True)
+
+
+def _geckolib_export_preset_items(self, context):
+    return get_preset_enum_items(include_current=False)
 
 
 def _ensure_plain_json_suffix(filepath):
@@ -396,8 +399,18 @@ class R2BB_OT_SaveMappingPreset(bpy.types.Operator):
 
         try:
             target_preset_id = None
-            if not self.save_as_new and state.selected_preset not in {DEFAULT_PRESET_ID, "", CURRENT_EDITOR_PRESET_ID}:
-                target_preset_id = state.selected_preset
+            if not self.save_as_new:
+                selected_id = state.selected_preset
+                if selected_id in {DEFAULT_PRESET_ID, "", CURRENT_EDITOR_PRESET_ID}:
+                    self.report({"ERROR"}, _("Save can only overwrite an existing custom preset. Use Save As New."))
+                    return {"CANCELLED"}
+
+                selected_preset = load_preset_definition(selected_id)
+                if not selected_preset or selected_preset.get("builtin"):
+                    self.report({"ERROR"}, _("Selected preset is not a writable custom preset. Use Save As New."))
+                    return {"CANCELLED"}
+
+                target_preset_id = selected_id
 
             preset = save_custom_preset(name=state.preset_name, entries=runtime_entries, preset_id=target_preset_id)
         except ValueError as exc:
@@ -591,16 +604,10 @@ class R2BB_OT_ExportGeckoLibJSON(bpy.types.Operator):
     filter_glob: bpy.props.StringProperty(default="*.animation.json", options={"HIDDEN"})
     filepath: bpy.props.StringProperty(name="File Path", subtype="FILE_PATH")
     animation_name: bpy.props.StringProperty(name="Animation Name", description="Animation key written into the GeckoLib JSON", default="")
-    export_format: bpy.props.EnumProperty(
-        name="Bone Names",
-        description="Choose which names should be written to the export",
-        items=EXPORT_FORMAT_ITEMS,
-        default="BASIC",
-    )
     mapping_preset: bpy.props.EnumProperty(
         name="Mapping Preset",
-        description="Choose which mapping table should drive this export",
-        items=_export_preset_items,
+        description="Choose which saved preset should drive this export",
+        items=_geckolib_export_preset_items,
     )
 
     @classmethod
@@ -613,7 +620,11 @@ class R2BB_OT_ExportGeckoLibJSON(bpy.types.Operator):
         action = get_action(context.active_object)
         self.animation_name = get_export_animation_name(action, self.animation_name)
         self.filepath = default_export_filepath(action)
-        self.mapping_preset = CURRENT_EDITOR_PRESET_ID
+        state = ensure_editor_initialized(context.scene)
+        if state and state.selected_preset not in {"", CURRENT_EDITOR_PRESET_ID}:
+            self.mapping_preset = state.selected_preset
+        else:
+            self.mapping_preset = DEFAULT_PRESET_ID
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -627,17 +638,25 @@ class R2BB_OT_ExportGeckoLibJSON(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "mapping_preset")
-        layout.prop(self, "export_format")
         layout.prop(self, "animation_name")
 
     def execute(self, context):
         if not _ensure_r2bb_access(self):
             return {"CANCELLED"}
+
+        if not self.mapping_preset or self.mapping_preset == CURRENT_EDITOR_PRESET_ID:
+            self.report({"ERROR"}, _("Please choose a saved mapping preset for export"))
+            return {"CANCELLED"}
+
+        selected_preset = load_preset_definition(self.mapping_preset)
+        if not selected_preset:
+            self.report({"ERROR"}, _("Selected mapping preset could not be loaded"))
+            return {"CANCELLED"}
+
         mapping_entries = _resolve_mapping_entries(context, self.mapping_preset)
         success, message = export_geckolib_json(
             context=context,
             filepath=self.filepath,
-            export_format=self.export_format,
             animation_name=self.animation_name,
             mapping_entries=mapping_entries,
         )
