@@ -6,46 +6,12 @@ import os
 import sys
 import threading
 import time
-from enum import Enum
 
 from .paths import get_feature_status_path
 from .registry import get_feature_spec, iter_feature_specs
 from ..native.licensed_wrapper import get_native_wrapper
 
 _log = logging.getLogger(__name__)
-
-
-class FeatureVisibility(Enum):
-    """Single source of truth for feature panel/module visibility.
-
-    HIDDEN:   feature is not in the license or session is invalid —
-              module should NOT be registered, panel should NOT appear.
-    DISABLED: license includes the feature but binary is missing,
-              download failed, or needs redownload —
-              module SHOULD be registered, panel SHOULD appear grayed out.
-    ENABLED:  license + binary + native auth all OK —
-              module SHOULD be registered, panel fully functional.
-    """
-
-    HIDDEN = "hidden"
-    DISABLED = "disabled"
-    ENABLED = "enabled"
-
-
-_HIDDEN_STATES = frozenset({"unactivated", "session_error", "unlicensed"})
-_DISABLED_STATES = frozenset({"binary_missing", "download_failed", "needs_redownload", "needs_restart"})
-_ENABLED_STATES = frozenset({"ready", "session_warning"})
-
-
-def get_feature_visibility(feature_id: str) -> FeatureVisibility:
-    """Return the canonical visibility for a feature based on its effective state."""
-    status = get_feature_status(feature_id)
-    effective = status.get("effective_state", "")
-    if effective in _ENABLED_STATES:
-        return FeatureVisibility.ENABLED
-    if effective in _DISABLED_STATES:
-        return FeatureVisibility.DISABLED
-    return FeatureVisibility.HIDDEN
 
 
 def _all_feature_ids():
@@ -487,12 +453,6 @@ def refresh_feature_runtime(feature_id=None):
             get_runtime_service().refresh_backend()
         except Exception as runtime_exc:
             _log.debug("Failed to refresh face_cap runtime: %s", runtime_exc)
-        try:
-            from ..feature_registration import reconcile_feature_modules
-
-            reconcile_feature_modules()
-        except Exception as reconcile_exc:
-            _log.debug("Failed to reconcile feature modules: %s", reconcile_exc)
 
     return refreshed
 

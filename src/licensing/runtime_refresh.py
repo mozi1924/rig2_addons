@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from ..core.utils import tag_context_redraw
+
 _log = logging.getLogger(__name__)
 
 
@@ -17,8 +19,6 @@ def refresh_runtime_bindings(*, logger: logging.Logger | None = None):
         log.debug("Failed to refresh face_cap runtime: %s", exc)
 
     try:
-        from ..feature_registration import reconcile_feature_modules
-
-        reconcile_feature_modules()
+        tag_context_redraw()
     except Exception as exc:
-        log.debug("Failed to reconcile feature modules: %s", exc)
+        log.debug("Failed to tag UI redraw after runtime refresh: %s", exc)
