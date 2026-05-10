@@ -6,6 +6,7 @@ on:
     branches: ["main", "master"]
     paths:
       - "__init__.py"
+      - "blender_manifest.toml"
       - "assets/**"
       - "src/**"
       - "version.json"
@@ -23,6 +24,7 @@ on:
   pull_request:
     paths:
       - "__init__.py"
+      - "blender_manifest.toml"
       - "assets/**"
       - "src/**"
       - "version.json"
@@ -78,6 +80,20 @@ jobs:
       - name: Build addon zip
         run: python scripts/package_addon.py --compresslevel 9
 
+      - name: Install Blender CLI (for extension repository index)
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -L "https://download.blender.org/release/Blender4.5/blender-4.5.0-linux-x64.tar.xz" -o blender.tar.xz
+          tar -xf blender.tar.xz
+          echo "$PWD/blender-4.5.0-linux-x64" >> "$GITHUB_PATH"
+
+      - name: Generate extension repository index.json
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p dist/repository
+          cp "dist/rig2_extension-${{ steps.version.outputs.semver }}.zip" dist/repository/
+          blender --command extension server-generate --repo-dir=dist/repository
+
       - name: Upload addon artifact
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +114,8 @@ jobs:
           R2_PUBLIC_BUCKET_NAME: public-assets
         run: |
           python scripts/upload_addon_to_r2.py \
-            --artifact "dist/rig2_addons-${{ steps.version.outputs.semver }}.zip" \
+            --artifact "dist/rig2_extension-${{ steps.version.outputs.semver }}.zip" \
             --storage-prefix rig2 \
-            --latest-key rig2/latest.zip
+            --latest-key rig2/latest.zip \
+            --index-file dist/repository/index.json \
+            --index-key rig2/index.json

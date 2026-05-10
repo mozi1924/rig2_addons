@@ -73,6 +73,7 @@ Build the distributable addon zip:
 ```bash
 python3 scripts/package_addon.py
 python3 scripts/package_addon.py --compresslevel 9
+python3 scripts/package_addon.py --format legacy
 ```
 
 On GitHub Actions non-PR runs, the packaged addon zip is also uploaded to

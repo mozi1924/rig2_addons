@@ -21,6 +21,7 @@ PACKAGE_ROOT_NAME = "rig2_addons"
 DEFAULT_DIST_DIR = ROOT / "dist"
 PACKAGE_INCLUDE = (
     "__init__.py",
+    "blender_manifest.toml",
     "assets",
     "src",
     "version.json",
@@ -52,7 +53,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--package-name",
         default=PACKAGE_ROOT_NAME,
-        help="Root directory name inside the zip archive.",
+        help="Package id/root directory name. Used for legacy zip layout and default output name.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("extension", "legacy"),
+        default="extension",
+        help="Build Blender 4.2+ extension zip (default) or legacy addon zip layout.",
     )
     parser.add_argument(
         "--compresslevel",
@@ -84,6 +91,22 @@ def copy_package_tree(staging_root: Path, package_name: str) -> Path:
     return package_root
 
 
+def copy_extension_tree(staging_root: Path) -> Path:
+    for item_name in PACKAGE_INCLUDE:
+        source = ROOT / item_name
+        destination = staging_root / item_name
+        if source.is_dir():
+            shutil.copytree(
+                source,
+                destination,
+                ignore=shutil.ignore_patterns(*PACKAGE_IGNORE_PATTERNS),
+            )
+        else:
+            shutil.copy2(source, destination)
+    shutil.rmtree(staging_root / "src" / "native" / "binaries", ignore_errors=True)
+    return staging_root
+
+
 def overlay_native_binaries(package_root: Path, native_dir: Path) -> None:
     destination = package_root / "src" / "native" / "binaries"
     destination.mkdir(parents=True, exist_ok=True)
@@ -109,25 +132,40 @@ def inject_bl_info_version(init_file: Path, version_literal: tuple[int, int, int
     init_file.write_text(content, encoding="utf-8")
 
 
+def inject_manifest_version(manifest_file: Path, version_string: str) -> None:
+    content = manifest_file.read_text(encoding="utf-8")
+    content, count = re.subn(
+        r'^version\s*=\s*".*?"\s*$',
+        f'version = "{version_string}"',
+        content,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count != 1:
+        raise ValueError(f"Could not inject manifest version into {manifest_file}")
+    manifest_file.write_text(content, encoding="utf-8")
+
+
 def build_zip(
-    package_root: Path,
+    source_root: Path,
     dist_dir: Path,
-    package_name: str,
+    artifact_name: str,
     version_string: str,
     compresslevel: int,
+    include_source_dir: bool = False,
 ) -> Path:
     dist_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = dist_dir / f"{package_name}-{version_string}.zip"
+    archive_path = dist_dir / f"{artifact_name}-{version_string}.zip"
     with zipfile.ZipFile(
         archive_path,
         "w",
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=compresslevel,
     ) as zf:
-        for source in sorted(package_root.rglob("*")):
+        for source in sorted(source_root.rglob("*")):
             if not source.is_file():
                 continue
-            archive_name = source.relative_to(package_root.parent)
+            archive_name = source.relative_to(source_root.parent) if include_source_dir else source.relative_to(source_root)
             zf.write(source, archive_name)
     return archive_path
 
@@ -144,16 +182,22 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="rig2-addon-package-") as temp_dir:
         staging_root = Path(temp_dir)
-        package_root = copy_package_tree(staging_root, args.package_name)
+        if args.format == "legacy":
+            package_root = copy_package_tree(staging_root, args.package_name)
+        else:
+            package_root = copy_extension_tree(staging_root)
         if native_dir is not None:
             overlay_native_binaries(package_root, native_dir)
         inject_bl_info_version(package_root / "__init__.py", blender_version)
+        inject_manifest_version(package_root / "blender_manifest.toml", version_string)
+        artifact_name = args.package_name if args.format == "legacy" else "rig2_extension"
         archive_path = build_zip(
             package_root,
             args.dist_dir.resolve(),
-            args.package_name,
+            artifact_name,
             version_string,
             args.compresslevel,
+            include_source_dir=args.format == "legacy",
         )
 
     print(archive_path)

@@ -59,7 +59,11 @@ Build the Blender addon zip into `dist/`:
 ```bash
 python3 scripts/package_addon.py
 python3 scripts/package_addon.py --compresslevel 9
+python3 scripts/package_addon.py --format legacy
 ```
+
+Default output is Blender 4.2+ extension layout (zip root includes
+`blender_manifest.toml`). Use `--format legacy` only for old add-on installs.
 
 The packaging script rewrites the packaged `__init__.py` so `bl_info["version"]`
 is injected from the central semantic version source at build time.
@@ -69,8 +73,9 @@ CI also uploads the packaged addon zip to the Cloudflare R2 bucket
 
 Uploaded addon objects include:
 
-- `rig2/rig2_addons-<semver>.zip`
+- `rig2/rig2_extension-<semver>.zip`
 - `rig2/latest.zip`
+- `rig2/index.json`
 
 ## Version Management
 

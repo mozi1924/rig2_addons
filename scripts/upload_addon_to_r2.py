@@ -45,6 +45,17 @@ def main() -> int:
         help="Optional additional object key for a stable latest alias, for example 'rig2/latest.zip'.",
     )
     parser.add_argument(
+        "--index-file",
+        type=Path,
+        default=None,
+        help="Optional extension repository index.json file to upload.",
+    )
+    parser.add_argument(
+        "--index-key",
+        default="",
+        help="Object key for uploaded index file, for example 'rig2/index.json'.",
+    )
+    parser.add_argument(
         "--endpoint-url",
         default=os.environ.get("R2_ENDPOINT_URL", ""),
         help="Cloudflare R2 S3 endpoint URL.",
@@ -91,6 +102,14 @@ def main() -> int:
         latest_key = args.latest_key.lstrip("/")
         print(f"[r2-addon-upload] {artifact.name} -> s3://{args.bucket}/{latest_key}")
         _upload_file(s3, artifact, args.bucket, latest_key)
+    if args.index_file:
+        if not args.index_file.is_file():
+            raise FileNotFoundError(f"Index file not found: {args.index_file}")
+        if not args.index_key:
+            parser.error("--index-key is required when --index-file is set")
+        index_key = args.index_key.lstrip("/")
+        print(f"[r2-addon-upload] {args.index_file.name} -> s3://{args.bucket}/{index_key}")
+        _upload_file(s3, args.index_file, args.bucket, index_key)
     print("[r2-addon-upload] upload complete")
     return 0
 

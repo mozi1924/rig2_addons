@@ -1,0 +1,19 @@
+schema_version = "1.0.0"
+id = "rig2_addons"
+version = "1.1.5"
+name = "Rig2"
+tagline = "Modular Rig2 binding and Face/MoCap workflow tools"
+maintainer = "mozi1924"
+type = "add-on"
+blender_version_min = "4.5.0"
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+website = "https://mozi1924.com/mozi-rig/"
+copyright = [
+  "2026 mozi1924",
+]
+
+[permissions]
+network = "Required for licensing and remote runtime downloads"
+files = "Import/export animation presets and managed runtime files"
