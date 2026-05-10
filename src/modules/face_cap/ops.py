@@ -1,7 +1,7 @@
 import bpy
 from bpy_extras.io_utils import ImportHelper
 
-from ...core.constants import IDENTITY_QUATERNION, INTERNAL_KEYS
+from ...core.constants import IDENTITY_QUATERNION
 from ...core.registration import register_classes, unregister_classes
 from ...core.utils import (
     get_context_object,
@@ -19,6 +19,7 @@ from .props import (
     sync_face_cap_bindings_to_scene_prop,
 )
 from .runtime import get_runtime_service
+from .shared import get_target_props
 
 _face_cap_backend_service = get_face_cap_backend_service()
 _load_offline_face_cap_payload = _face_cap_backend_service.load_offline_face_cap_payload
@@ -42,10 +43,6 @@ def _iter_face_actions(obj):
             if action and action not in seen:
                 seen.add(action)
                 yield action
-
-
-def _get_target_props(face_bone):
-    return [key for key in face_bone.keys() if key not in INTERNAL_KEYS]
 
 
 def _get_scene_fps(scene):
@@ -84,7 +81,7 @@ def _collect_binding_targets(scene):
                 "face_index": binding["face_index"],
                 "obj": obj,
                 "face_bone": face_bone,
-                "prop_names": _get_target_props(face_bone),
+                "prop_names": get_target_props(face_bone),
             }
         )
     return targets
@@ -362,7 +359,7 @@ class RIG2_OT_FaceCapClearKeys(bpy.types.Operator):
             self.report({"ERROR"}, _f("Face_BlendShapes bone not found"))
             return {"CANCELLED"}
 
-        prop_names = [key for key in face_bone.keys() if key not in INTERNAL_KEYS]
+        prop_names = get_target_props(face_bone)
         for prop_name in prop_names:
             face_bone[prop_name] = 0.0
 

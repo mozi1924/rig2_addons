@@ -7,6 +7,8 @@ import bpy
 from bpy_extras.io_utils import ImportHelper
 
 from ...core.utils import is_rig2_armature
+from ...i18n import format_text as _f
+from ...i18n import iface as _
 from .export_json import (
     EXPORT_FORMAT_ITEMS,
     default_export_filepath,
@@ -26,9 +28,7 @@ from .mapping import (
     save_custom_preset,
 )
 from .props import editor_entries_to_runtime, ensure_editor_initialized, set_editor_entries
-
-
-BONE_DATA_PATH_RE = re.compile(r'pose\.bones\["([^"]+)"\]\.')
+from .shared import BONE_DATA_PATH_RE, get_action, get_keyed_frames
 
 
 def _ensure_r2bb_access(operator):
@@ -69,7 +69,7 @@ def _extract_import_mapping_payload(payload, fallback_name):
         return name, entries
 
     if not isinstance(payload, dict):
-        raise ValueError("JSON root must be an object or an array")
+        raise ValueError(_("JSON root must be an object or an array"))
 
     entries = payload.get("entries")
     if not isinstance(entries, list):
@@ -80,7 +80,7 @@ def _extract_import_mapping_payload(payload, fallback_name):
                 break
 
     if not isinstance(entries, list):
-        raise ValueError("JSON must include an 'entries' array")
+        raise ValueError(_("JSON must include an 'entries' array"))
 
     name = str(payload.get("name") or fallback_name).strip() or fallback_name
     return name, entries
@@ -93,12 +93,6 @@ def _get_bone_depth(pose_bone):
         depth += 1
         bone = bone.parent
     return depth
-
-
-def _get_action(armature):
-    if not armature.animation_data:
-        return None
-    return armature.animation_data.action
 
 
 def _resolve_mapping_entries(context, preset_id=CURRENT_EDITOR_PRESET_ID):
@@ -134,27 +128,6 @@ def _get_valid_bone_pairs(armature, mapping_entries):
     return valid_pairs, missing_pairs
 
 
-def _get_keyed_frames(action, source_bone_names):
-    source_frames = set()
-    action_frames = set()
-
-    for fcurve in action.fcurves:
-        match = BONE_DATA_PATH_RE.match(fcurve.data_path)
-        for keyframe in fcurve.keyframe_points:
-            frame_number = int(round(keyframe.co.x))
-            action_frames.add(frame_number)
-            if match and match.group(1) in source_bone_names:
-                source_frames.add(frame_number)
-
-    frames = source_frames or action_frames
-    if not frames:
-        return []
-
-    first_frame = min(frames)
-    last_frame = max(frames)
-    return list(range(first_frame, last_frame + 1))
-
-
 def _get_target_fcurves(action, target_bone_names):
     target_fcurves = []
 
@@ -183,20 +156,20 @@ def _keyframe_pose_bone_visual_transform(pose_bone, frame):
 def bake_base_to_mi(context, mapping_entries=None):
     armature = context.active_object
     if not is_rig2_armature(armature):
-        return False, "Please select a Rig2 armature"
+        return False, _f("Please select a Rig2 armature")
 
-    action = _get_action(armature)
+    action = get_action(armature)
     if not action:
-        return False, "No active action found on the Rig2 armature"
+        return False, _f("No active action found on the Rig2 armature")
 
     mapping_entries = mapping_entries or _resolve_mapping_entries(context)
     valid_pairs, missing_pairs = _get_valid_bone_pairs(armature, mapping_entries)
     if not valid_pairs:
-        return False, "No mapped Base/MI bone pairs were found on this rig"
+        return False, _f("No mapped Base/MI bone pairs were found on this rig")
 
-    frames = _get_keyed_frames(action, {source_name for source_name, _, _, _ in valid_pairs})
+    frames = get_keyed_frames(action, {source_name for source_name, _, _, _ in valid_pairs})
     if not frames:
-        return False, "No keyframes found on the mapped Base bones"
+        return False, _f("No keyframes found on the mapped Base bones")
 
     target_bone_names = {target_name for _, target_name, _, _ in valid_pairs}
 
@@ -249,16 +222,23 @@ def bake_base_to_mi(context, mapping_entries=None):
                 previous_quaternions[target_name] = current_quaternion.copy()
                 _keyframe_pose_bone_visual_transform(target_bone, frame)
     except Exception as exc:
-        return False, f"Bake failed: {exc}"
+        return False, _f("Bake failed: {error}", error=exc)
     finally:
         scene.frame_set(original_frame)
         context.view_layer.update()
 
-    message = f"Baked {len(frames)} frames onto {len(valid_pairs)} MI bones"
+    message = _f(
+        "Baked {frame_count} frames onto {pair_count} MI bones",
+        frame_count=len(frames),
+        pair_count=len(valid_pairs),
+    )
     if removed_fcurve_count:
-        message += f" (replaced {removed_fcurve_count} existing MI fcurves)"
+        message += _f(
+            " (replaced {count} existing MI fcurves)",
+            count=removed_fcurve_count,
+        )
     if missing_pairs:
-        message += f" ({len(missing_pairs)} mapping pairs skipped)"
+        message += _f(" ({count} mapping pairs skipped)", count=len(missing_pairs))
 
     return True, message
 
@@ -266,25 +246,28 @@ def bake_base_to_mi(context, mapping_entries=None):
 def clear_mi_bake(context, mapping_entries=None):
     armature = context.active_object
     if not is_rig2_armature(armature):
-        return False, "Please select a Rig2 armature"
+        return False, _f("Please select a Rig2 armature")
 
-    action = _get_action(armature)
+    action = get_action(armature)
     if not action:
-        return False, "No active action found on the Rig2 armature"
+        return False, _f("No active action found on the Rig2 armature")
 
     mapping_entries = mapping_entries or _resolve_mapping_entries(context)
     target_bone_names = set(mapping_entries_to_export_bones(mapping_entries))
     if not target_bone_names:
-        return False, "No mapped MI bones were found on this rig"
+        return False, _f("No mapped MI bones were found on this rig")
 
     target_fcurves = _get_target_fcurves(action, target_bone_names)
     if not target_fcurves:
-        return False, "No baked keyframes were found on the mapped MI bones"
+        return False, _f("No baked keyframes were found on the mapped MI bones")
 
     for fcurve in list(target_fcurves):
         action.fcurves.remove(fcurve)
 
-    return True, f"Removed {len(target_fcurves)} fcurves from mapped MI bones"
+    return True, _f(
+        "Removed {count} fcurves from mapped MI bones",
+        count=len(target_fcurves),
+    )
 
 
 class R2BB_OT_BakeBaseToMI(bpy.types.Operator):
@@ -343,7 +326,7 @@ class R2BB_OT_AddMappingEntry(bpy.types.Operator):
             return {"CANCELLED"}
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
         state.entries.add()
         return {"FINISHED"}
@@ -361,13 +344,13 @@ class R2BB_OT_RemoveMappingEntry(bpy.types.Operator):
             return {"CANCELLED"}
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
         if 0 <= self.index < len(state.entries):
             state.entries.remove(self.index)
             return {"FINISHED"}
 
-        self.report({"ERROR"}, "Mapping row no longer exists")
+        self.report({"ERROR"}, _f("Mapping row no longer exists"))
         return {"CANCELLED"}
 
 
@@ -381,17 +364,17 @@ class R2BB_OT_LoadMappingPreset(bpy.types.Operator):
             return {"CANCELLED"}
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
         preset = load_preset_definition(state.selected_preset or DEFAULT_PRESET_ID)
         if not preset:
-            self.report({"ERROR"}, "Selected preset could not be loaded")
+            self.report({"ERROR"}, _f("Selected preset could not be loaded"))
             return {"CANCELLED"}
 
         set_editor_entries(state.entries, preset["entries"])
         state.selected_preset = preset["id"]
         state.preset_name = preset["name"]
-        self.report({"INFO"}, f"Loaded preset: {preset['name']}")
+        self.report({"INFO"}, _f("Loaded preset: {name}", name=preset["name"]))
         return {"FINISHED"}
 
 
@@ -407,7 +390,7 @@ class R2BB_OT_SaveMappingPreset(bpy.types.Operator):
             return {"CANCELLED"}
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
         runtime_entries = editor_entries_to_runtime(state.entries)
 
@@ -421,12 +404,12 @@ class R2BB_OT_SaveMappingPreset(bpy.types.Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         except Exception as exc:
-            self.report({"ERROR"}, f"Could not save preset: {exc}")
+            self.report({"ERROR"}, _f("Could not save preset: {error}", error=exc))
             return {"CANCELLED"}
 
         state.selected_preset = preset["id"]
         state.preset_name = preset["name"]
-        self.report({"INFO"}, f"Saved preset: {preset['name']}")
+        self.report({"INFO"}, _f("Saved preset: {name}", name=preset["name"]))
         return {"FINISHED"}
 
 
@@ -448,23 +431,23 @@ class R2BB_OT_DeleteMappingPreset(bpy.types.Operator):
             return {"CANCELLED"}
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
         preset = load_preset_definition(state.selected_preset)
         if not preset or preset.get("builtin"):
-            self.report({"ERROR"}, "Only saved custom presets can be deleted")
+            self.report({"ERROR"}, _f("Only saved custom presets can be deleted"))
             return {"CANCELLED"}
 
         if not delete_custom_preset(preset["id"]):
-            self.report({"ERROR"}, "Preset file could not be deleted")
+            self.report({"ERROR"}, _f("Preset file could not be deleted"))
             return {"CANCELLED"}
 
         default_preset = load_preset_definition(DEFAULT_PRESET_ID)
         if default_preset:
             set_editor_entries(state.entries, default_preset["entries"])
         state.selected_preset = DEFAULT_PRESET_ID
-        state.preset_name = default_preset["name"] if default_preset else "Default (Built-in)"
-        self.report({"INFO"}, f"Deleted preset: {preset['name']}")
+        state.preset_name = default_preset["name"] if default_preset else _("Default (Built-in)")
+        self.report({"INFO"}, _f("Deleted preset: {name}", name=preset["name"]))
         return {"FINISHED"}
 
 
@@ -483,14 +466,14 @@ class R2BB_OT_ImportMappingJSON(bpy.types.Operator, ImportHelper):
 
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
 
         filepath = Path(self.filepath)
         try:
             payload = json.loads(filepath.read_text(encoding="utf-8"))
         except Exception as exc:
-            self.report({"ERROR"}, f"Could not read JSON: {exc}")
+            self.report({"ERROR"}, _f("Could not read JSON: {error}", error=exc))
             return {"CANCELLED"}
 
         try:
@@ -500,17 +483,20 @@ class R2BB_OT_ImportMappingJSON(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         except Exception as exc:
-            self.report({"ERROR"}, f"Could not parse mapping entries: {exc}")
+            self.report({"ERROR"}, _f("Could not parse mapping entries: {error}", error=exc))
             return {"CANCELLED"}
 
         if not entries:
-            self.report({"ERROR"}, "Imported JSON did not contain valid mapping rows")
+            self.report({"ERROR"}, _f("Imported JSON did not contain valid mapping rows"))
             return {"CANCELLED"}
 
         set_editor_entries(state.entries, entries)
         state.selected_preset = CURRENT_EDITOR_PRESET_ID
         state.preset_name = imported_name
-        self.report({"INFO"}, f"Imported {len(entries)} mapping rows from JSON")
+        self.report(
+            {"INFO"},
+            _f("Imported {count} mapping rows from JSON", count=len(entries)),
+        )
         return {"FINISHED"}
 
 
@@ -535,7 +521,7 @@ class R2BB_OT_ExportMappingJSON(bpy.types.Operator):
 
         state = ensure_editor_initialized(context.scene)
         if state is None:
-            self.report({"ERROR"}, "R2BB editor state is not available")
+            self.report({"ERROR"}, _f("R2BB editor state is not available"))
             return {"CANCELLED"}
 
         self.mapping_preset = CURRENT_EDITOR_PRESET_ID
@@ -563,10 +549,10 @@ class R2BB_OT_ExportMappingJSON(bpy.types.Operator):
         state = ensure_editor_initialized(context.scene)
 
         if self.mapping_preset == CURRENT_EDITOR_PRESET_ID:
-            preset_name = (state.preset_name if state else "") or "Current Editor"
+            preset_name = (state.preset_name if state else "") or _("Current Editor")
         else:
             preset = load_preset_definition(self.mapping_preset)
-            preset_name = (preset or {}).get("name", "Mapping Preset")
+            preset_name = (preset or {}).get("name", _("Mapping Preset"))
 
         payload = {
             "schema_version": 1,
@@ -586,10 +572,13 @@ class R2BB_OT_ExportMappingJSON(bpy.types.Operator):
                 encoding="utf-8",
             )
         except Exception as exc:
-            self.report({"ERROR"}, f"Could not write JSON: {exc}")
+            self.report({"ERROR"}, _f("Could not write JSON: {error}", error=exc))
             return {"CANCELLED"}
 
-        self.report({"INFO"}, f"Exported {len(mapping_entries)} mapping rows to JSON")
+        self.report(
+            {"INFO"},
+            _f("Exported {count} mapping rows to JSON", count=len(mapping_entries)),
+        )
         return {"FINISHED"}
 
 
@@ -621,7 +610,7 @@ class R2BB_OT_ExportGeckoLibJSON(bpy.types.Operator):
     def invoke(self, context, event):
         if not _ensure_r2bb_access(self):
             return {"CANCELLED"}
-        action = _get_action(context.active_object)
+        action = get_action(context.active_object)
         self.animation_name = get_export_animation_name(action, self.animation_name)
         self.filepath = default_export_filepath(action)
         self.mapping_preset = CURRENT_EDITOR_PRESET_ID

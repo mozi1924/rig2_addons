@@ -1,5 +1,6 @@
 import bpy
 
+from ...i18n import iface as _
 from .mapping import DEFAULT_PRESET_ID, get_preset_enum_items, load_preset_definition
 
 
@@ -106,13 +107,13 @@ def ensure_editor_initialized(scene):
             state.selected_preset = DEFAULT_PRESET_ID
         if not state.preset_name:
             preset = load_preset_definition(DEFAULT_PRESET_ID)
-            state.preset_name = preset["name"] if preset else "Default (Built-in)"
+            state.preset_name = preset["name"] if preset else _("Default (Built-in)")
         return state
 
     runtime_entries = get_default_runtime_entries()
     set_editor_entries(state.entries, runtime_entries)
     state.selected_preset = DEFAULT_PRESET_ID
-    state.preset_name = "Default (Built-in)"
+    state.preset_name = _("Default (Built-in)")
     return state
 
 

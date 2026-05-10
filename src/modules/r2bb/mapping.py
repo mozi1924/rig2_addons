@@ -5,6 +5,8 @@ from pathlib import Path
 
 import bpy
 
+from ...i18n import format_text as _f
+from ...i18n import iface as _
 from ...services.errors import FeatureLockedError
 
 
@@ -73,8 +75,8 @@ def normalize_mapping_entries(entries):
 def _fallback_builtin_preset():
     return {
         "id": DEFAULT_PRESET_ID,
-        "name": "Default (Built-in)",
-        "description": "Fallback built-in preset",
+        "name": _("Default (Built-in)"),
+        "description": _("Fallback built-in preset"),
         "builtin": True,
         "entries": tuple(),
     }
@@ -118,7 +120,7 @@ def load_builtin_presets():
     if not any(preset["id"] == DEFAULT_PRESET_ID for preset in presets):
         first = dict(presets[0])
         first["id"] = DEFAULT_PRESET_ID
-        first["name"] = "Default (Built-in)"
+        first["name"] = _("Default (Built-in)")
         presets.insert(0, first)
 
     return tuple(presets)
@@ -186,19 +188,22 @@ def get_preset_enum_items(include_current=False):
     if include_current:
         items.append((
             CURRENT_EDITOR_PRESET_ID,
-            "Current Editor",
-            "Use the mappings currently shown in the R2BB mapping editor",
+            _("Current Editor"),
+            _("Use the mappings currently shown in the R2BB mapping editor"),
         ))
 
     for preset in load_builtin_presets():
-        description = preset.get("description") or f"Use bundled preset: {preset['name']}"
+        description = preset.get("description") or _f(
+            "Use bundled preset: {name}",
+            name=preset["name"],
+        )
         items.append((preset["id"], preset["name"], description))
 
     for preset in list_custom_presets():
         items.append((
             preset["id"],
             preset["name"],
-            f"Saved custom preset: {preset['name']}",
+            _f("Saved custom preset: {name}", name=preset["name"]),
         ))
 
     _PRESET_ENUM_CACHE[include_current] = items
@@ -235,7 +240,7 @@ def load_preset_definition(preset_id):
 def save_custom_preset(name, entries, preset_id=None):
     normalized_entries = normalize_mapping_entries(entries)
     if not normalized_entries:
-        raise ValueError("Cannot save an empty mapping preset")
+        raise ValueError(_("Cannot save an empty mapping preset"))
 
     existing = load_preset_definition(preset_id) if preset_id else None
     if existing and existing.get("builtin"):
@@ -244,7 +249,7 @@ def save_custom_preset(name, entries, preset_id=None):
     resolved_id = existing["id"] if existing else uuid.uuid4().hex
     resolved_name = str(name or "").strip()
     if not resolved_name:
-        resolved_name = existing["name"] if existing else "Custom Mapping"
+        resolved_name = existing["name"] if existing else _("Custom Mapping")
 
     payload = {
         "schema_version": PRESET_SCHEMA_VERSION,

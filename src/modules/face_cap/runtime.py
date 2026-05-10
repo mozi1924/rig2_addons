@@ -4,32 +4,17 @@ import time
 import bpy
 from bpy.app.handlers import persistent
 
-from ...core.constants import INTERNAL_KEYS
 from ...core.utils import is_rig2_armature, refresh_rig_driver_batch
+from ...i18n import format_text as _f
 from ...services.face_cap_service import get_face_cap_backend_service
 from .props import get_face_cap_bindings, get_face_cap_settings
+from .shared import get_target_props, is_face_cap_enabled
 
 FACE_CAP_TIMER_INTERVAL = 1.0 / 60.0
 FACE_CAP_WEBSOCKET_DEFAULT_PORT = 9000
 FACE_CAP_LIVELINKFACE_DEFAULT_PORT = 11111
 FACE_CAP_STARTUP_TIMEOUT_SECONDS = 1.0
 FACE_CAP_STARTUP_POLL_INTERVAL_SECONDS = 0.05
-
-def _is_face_cap_enabled(obj):
-    if not is_rig2_armature(obj):
-        return False
-
-    pose = getattr(obj, "pose", None)
-    if not pose:
-        return False
-
-    logic_bone = pose.bones.get("logic")
-    face_bone = pose.bones.get("Face_BlendShapes")
-    if not logic_bone or not face_bone:
-        return False
-
-    return float(logic_bone.get("face_cap", 0.0)) >= 0.999
-
 
 def _get_scene_settings():
     scene = getattr(bpy.context, "scene", None)
@@ -65,7 +50,7 @@ def _iter_face_cap_targets():
 
     for binding in _get_scene_bindings():
         obj = objects.get(binding["rig_name"])
-        if not obj or not _is_face_cap_enabled(obj):
+        if not obj or not is_face_cap_enabled(obj):
             continue
 
         key = (binding["face_index"], obj.name_full)
@@ -89,10 +74,6 @@ def _get_binding_status_snapshot():
             }
         )
     return bindings
-
-
-def _get_target_props(face_bone):
-    return [key for key in face_bone.keys() if key not in INTERNAL_KEYS]
 
 
 def _get_face_blendshape_bone(obj):
@@ -127,7 +108,7 @@ class FaceCapRuntimeService:
         self._last_packet_time = 0.0
         self._last_sent_at = ""
         self._client_address = ""
-        self._status_message = "Stopped"
+        self._status_message = _f("Stopped")
         self._last_error = ""
         self._packet_revision = 0
         self._applied_revision = 0
@@ -139,6 +120,17 @@ class FaceCapRuntimeService:
         self._local_ipv4_address = ""
         self._runtime_bindings = {}
         self.refresh_backend()
+
+    def _reset_listener_state(self):
+        self._client_address = ""
+        self._local_ipv4_address = ""
+        self._status_message = _f("Stopped")
+        self._transport_mode = self._resolve_receiver_protocol()
+        self._transport_encoding = None
+        self._native_host = ""
+        self._native_port = 0
+        self._native_is_listening = False
+        self._native_bind_failed = False
 
     def register(self):
         self.refresh_backend()
@@ -232,7 +224,15 @@ class FaceCapRuntimeService:
                 )
         except Exception as exc:
             endpoint_scheme = "udp" if receiver_protocol == "livelinkface" else "ws"
-            self.set_error(f"Face Capture native receiver failed on {endpoint_scheme}://{host}:{port}: {exc}")
+            self.set_error(
+                _f(
+                    "Face Capture native receiver failed on {endpoint}://{host}:{port}: {error}",
+                    endpoint=endpoint_scheme,
+                    host=host,
+                    port=int(port),
+                    error=exc,
+                )
+            )
             return
 
         with self._lock:
@@ -240,9 +240,17 @@ class FaceCapRuntimeService:
             self._native_bind_failed = False
             self._client_address = ""
             if receiver_protocol == "livelinkface":
-                self._status_message = f"Listening on udp://{host}:{int(port)}"
+                self._status_message = _f(
+                    "Listening on udp://{host}:{port}",
+                    host=host,
+                    port=int(port),
+                )
             else:
-                self._status_message = f"Listening on ws://{host}:{int(port)}"
+                self._status_message = _f(
+                    "Listening on ws://{host}:{port}",
+                    host=host,
+                    port=int(port),
+                )
             self._last_error = ""
             self._transport_mode = receiver_protocol
             self._transport_encoding = None
@@ -264,16 +272,7 @@ class FaceCapRuntimeService:
         self._stop_receiver()
 
         with self._lock:
-            self._client_address = ""
-            self._local_ipv4_address = ""
-            if self._status_message != "Stopped":
-                self._status_message = "Stopped"
-            self._transport_mode = self._resolve_receiver_protocol()
-            self._transport_encoding = None
-            self._native_host = ""
-            self._native_port = 0
-            self._native_is_listening = False
-            self._native_bind_failed = False
+            self._reset_listener_state()
 
     def _resolve_receiver_protocol(self, settings=None, receiver_protocol=None):
         selected = receiver_protocol
@@ -345,11 +344,11 @@ class FaceCapRuntimeService:
             self._last_error = ""
             self._transport_encoding = transport_encoding or self._transport_encoding
             if self._transport_mode == "livelinkface":
-                self._status_message = "Receiving LiveLinkFace UDP packets"
+                self._status_message = _f("Receiving LiveLinkFace UDP packets")
             elif transport_encoding == "binary":
-                self._status_message = "Receiving binary blendshape packets"
+                self._status_message = _f("Receiving binary blendshape packets")
             else:
-                self._status_message = "Receiving JSON blendshape packets"
+                self._status_message = _f("Receiving JSON blendshape packets")
 
     def request_reapply(self):
         with self._lock:
@@ -421,7 +420,7 @@ class FaceCapRuntimeService:
                 else (face_payload.get("head_quaternion") if face_payload else None)
             )
             changed = False
-            for prop_name in _get_target_props(face_bone):
+            for prop_name in get_target_props(face_bone):
                 target_value = 0.0 if neutralize else blendshapes.get(prop_name, 0.0)
                 current_value = _safe_float(face_bone.get(prop_name, 0.0))
                 if abs(current_value - target_value) > 1e-6:
@@ -471,7 +470,7 @@ class FaceCapRuntimeService:
                 self._poll_native_packet()
             self.apply_latest_data()
         except Exception as exc:
-            self.set_error(f"Face Capture timer error: {exc}")
+            self.set_error(_f("Face Capture timer error: {error}", error=exc))
 
         return FACE_CAP_TIMER_INTERVAL
 
@@ -517,7 +516,7 @@ class FaceCapRuntimeService:
                 packet = polled.get("packet")
                 transport_encoding = polled.get("transport_encoding")
         except Exception as exc:
-            self.set_error(f"Native Face Capture receiver error: {exc}")
+            self.set_error(_f("Native Face Capture receiver error: {error}", error=exc))
             return
 
         if packet is not None:
@@ -540,15 +539,7 @@ class FaceCapRuntimeService:
             self._native_is_listening or self._native_host or self._native_port
         ):
             with self._lock:
-                self._client_address = ""
-                self._local_ipv4_address = ""
-                self._status_message = "Stopped"
-                self._transport_mode = self._resolve_receiver_protocol()
-                self._transport_encoding = None
-                self._native_host = ""
-                self._native_port = 0
-                self._native_is_listening = False
-                self._native_bind_failed = False
+                self._reset_listener_state()
 
 
 _runtime_service = FaceCapRuntimeService()

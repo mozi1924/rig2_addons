@@ -9,6 +9,7 @@ from ...licensing.ui_gate import draw_license_warnings
 from ...services.face_cap_service import get_face_cap_backend_service
 from ...ui.base import RIG2_PT_PanelBase
 from .props import ensure_face_cap_binding_items
+from .shared import is_face_cap_enabled
 from ..rig_controls.props import FRIENDLY_NAMES
 from .runtime import get_runtime_service
 
@@ -63,16 +64,7 @@ class FaceCapUIDrawer:
 
     @staticmethod
     def _is_face_cap_enabled(item):
-        rig = getattr(item, "rig", None)
-        pose = getattr(rig, "pose", None) if rig else None
-        logic_bone = pose.bones.get("logic") if pose else None
-        if not logic_bone or "face_cap" not in logic_bone:
-            return False
-
-        try:
-            return float(logic_bone.get("face_cap", 0.0)) >= 0.999
-        except Exception:
-            return False
+        return is_face_cap_enabled(getattr(item, "rig", None))
 
     @staticmethod
     def _draw_binding_row(layout, item, binding_index, binding_status):
