@@ -20,7 +20,13 @@ class NativeLicensedFeatureService:
         return get_native_wrapper(self.feature_id)
 
     def get_backend(self):
-        return self.wrapper.backend()
+        backend = self.wrapper.backend()
+        if backend is not None:
+            return backend
+        return self.build_locked_backend(self.get_lock_reason())
+
+    def build_locked_backend(self, lock_reason):
+        raise NotImplementedError
 
     def is_native_backend(self):
         return self.wrapper.is_native_backend()
