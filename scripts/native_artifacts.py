@@ -30,8 +30,6 @@ class ManagedNativeFeature:
     label: str
     native_module_name: str
     native_source_filename: str
-    download_module_name: str
-    service_getter: str
 
 
 def _load_registry_module():
@@ -51,8 +49,6 @@ def _load_managed_native_features() -> tuple[ManagedNativeFeature, ...]:
             label=spec.label,
             native_module_name=spec.native_module_name,
             native_source_filename=spec.native_source_filename,
-            download_module_name=spec.download_module_name,
-            service_getter=spec.service_getter,
         )
         for spec in registry.iter_native_feature_specs()
     )

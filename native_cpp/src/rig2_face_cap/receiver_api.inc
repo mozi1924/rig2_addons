@@ -52,7 +52,6 @@ void stop_receiver_impl(FaceCapReceiverState* state) {
 }
 
 PyObject* method_start_receiver(PyObject*, PyObject* args, PyObject* kwargs) {
-  CHECK_LICENSE();
   static const char* kwlist[] = {"host", "port", "options", nullptr};
   PyObject* host_obj = nullptr;
   int port = 0;

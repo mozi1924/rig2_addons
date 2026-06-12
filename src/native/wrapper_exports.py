@@ -30,15 +30,6 @@ def install_feature_wrapper_exports(namespace, feature_id: str):
     def backend_path():
         return _wrapper().backend_path()
 
-    def apply_native_grant(grant_token, trust_bundle_token, addon_root):
-        _wrapper().apply_native_grant(grant_token, trust_bundle_token, addon_root)
-
-    def clear_license_state():
-        _wrapper().clear_license_state()
-
-    def get_license_status():
-        return _wrapper().get_license_status()
-
     namespace.update(
         {
             "_wrapper": _wrapper,
@@ -49,8 +40,5 @@ def install_feature_wrapper_exports(namespace, feature_id: str):
             "is_feature_unlocked": is_feature_unlocked,
             "get_lock_reason": get_lock_reason,
             "backend_path": backend_path,
-            "apply_native_grant": apply_native_grant,
-            "clear_license_state": clear_license_state,
-            "get_license_status": get_license_status,
         }
     )

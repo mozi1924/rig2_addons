@@ -15,8 +15,6 @@ namespace {
 
 constexpr int kApiVersion = 1;
 
-static rig2_shared::LicenseState g_license_state;
-
 using rig2_shared::PyRef;
 
 struct Entry {
@@ -141,14 +139,11 @@ PyObject* build_entry_dict(const Entry& entry) {
   return result;
 }
 
-RIG2_DEFINE_LICENSE_METHODS("r2bb", "rig2_r2bb")
-
 static PyObject* method_backend_name(PyObject*, PyObject*) {
   return PyUnicode_FromString("native");
 }
 
 static PyObject* method_normalize_mapping_entries(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:normalize_mapping_entries", &entries_obj)) {
     return nullptr;
@@ -169,7 +164,6 @@ static PyObject* method_normalize_mapping_entries(PyObject*, PyObject* args) {
 }
 
 static PyObject* method_mapping_entries_to_pairs(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:mapping_entries_to_pairs", &entries_obj)) {
     return nullptr;
@@ -195,7 +189,6 @@ static PyObject* method_mapping_entries_to_pairs(PyObject*, PyObject* args) {
 }
 
 static PyObject* method_mapping_entries_to_export_bones(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:mapping_entries_to_export_bones", &entries_obj)) {
     return nullptr;
@@ -222,7 +215,6 @@ static PyObject* method_mapping_entries_to_export_bones(PyObject*, PyObject* arg
 }
 
 static PyObject* method_mapping_entries_to_export_name_map(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:mapping_entries_to_export_name_map", &entries_obj)) {
     return nullptr;
@@ -255,7 +247,6 @@ static PyObject* build_axis_map(PyObject* entries_obj, bool rotation) {
 }
 
 static PyObject* method_mapping_entries_to_rotation_axis_signs(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:mapping_entries_to_rotation_axis_signs", &entries_obj)) {
     return nullptr;
@@ -264,7 +255,6 @@ static PyObject* method_mapping_entries_to_rotation_axis_signs(PyObject*, PyObje
 }
 
 static PyObject* method_mapping_entries_to_transform_axis_signs(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* entries_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:mapping_entries_to_transform_axis_signs", &entries_obj)) {
     return nullptr;
@@ -280,9 +270,6 @@ PyMethodDef kMethods[] = {
     {"mapping_entries_to_export_name_map", method_mapping_entries_to_export_name_map, METH_VARARGS, "Build MI->export name map."},
     {"mapping_entries_to_rotation_axis_signs", method_mapping_entries_to_rotation_axis_signs, METH_VARARGS, "Build MI rotation sign map."},
     {"mapping_entries_to_transform_axis_signs", method_mapping_entries_to_transform_axis_signs, METH_VARARGS, "Build MI transform sign map."},
-    {"apply_native_grant", method_apply_native_grant, METH_VARARGS, "Apply a signed native grant token."},
-    {"clear_license_state", method_clear_license_state, METH_VARARGS, "Clear the native license state."},
-    {"get_license_status", method_get_license_status, METH_NOARGS, "Return native license status."},
     {nullptr, nullptr, 0, nullptr},
 };
 

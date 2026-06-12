@@ -10,7 +10,6 @@ from ...core.utils import (
     refresh_rig_drivers,
 )
 from ...i18n import format_text as _f
-from ...licensing.ui_gate import report_blocking_license_warnings
 from ...services.face_cap_service import get_face_cap_backend_service
 from .props import (
     ensure_face_cap_binding_items,
@@ -186,12 +185,6 @@ class RIG2_OT_FaceCapImportJson(bpy.types.Operator, ImportHelper):
     )
 
     def execute(self, context):
-        if report_blocking_license_warnings(self):
-            return {"CANCELLED"}
-        if not _face_cap_backend_service.is_feature_unlocked():
-            self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
-            return {"CANCELLED"}
-
         scene = context.scene
         targets = _collect_binding_targets(scene)
         if not targets:
@@ -264,12 +257,6 @@ class RIG2_OT_FaceCapStartServer(bpy.types.Operator):
     bl_description = "Start the local face capture receiver"
 
     def execute(self, context):
-        if report_blocking_license_warnings(self):
-            return {"CANCELLED"}
-        if not _face_cap_backend_service.is_feature_unlocked():
-            self.report({"ERROR"}, _face_cap_backend_service.get_lock_reason())
-            return {"CANCELLED"}
-
         settings = getattr(context.scene, "rig2_face_cap_settings", None)
         if settings is None:
             self.report({"ERROR"}, _f("Face Capture settings are not registered"))

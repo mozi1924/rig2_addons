@@ -200,10 +200,6 @@ def main() -> int:
     print(f"[rig2-native] ABI3 tag: {abi3_platform_tag()}")
     print(f"[rig2-native] Legacy ABI3 tag: {legacy_abi3_platform_tag()}")
 
-    # Generate integrity hashes header before compilation.
-    _run_script("scripts/generate_orbisauth_trust.py")
-    _run_script("scripts/generate_integrity_hashes.py")
-
     ensure_build_backend_available()
     build_extensions()
 
@@ -212,8 +208,6 @@ def main() -> int:
         copied_paths = copy_to_runtime_bins(built, module_name)
         for copied in copied_paths:
             print(f"[rig2-native] {module_name}: {copied}")
-
-    _run_script("scripts/generate_native_manifests.py")
 
     return 0
 

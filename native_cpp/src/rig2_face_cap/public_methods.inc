@@ -464,7 +464,6 @@ PyObject* method_parse_binary_packet(PyObject*, PyObject* args) {
 }
 
 PyObject* method_load_offline_face_cap_payload(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* filepath_obj = nullptr;
   if (!PyArg_ParseTuple(args, "O:load_offline_face_cap_payload", &filepath_obj)) {
     return nullptr;

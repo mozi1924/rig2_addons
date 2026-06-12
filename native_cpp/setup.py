@@ -18,8 +18,8 @@ except Exception:  # Blender bundled Python may ship a partial setuptools.
 
 extra_compile_args = []
 define_macros = []
-dev_build_flag = os.environ.get("RIG2_DEV_BUILD", "0").strip().lower() in {"1", "true", "yes"}
-define_macros.append(("RIG2_DEV_BUILD", "1" if dev_build_flag else "0"))
+dev_build_flag = False
+define_macros.append(("RIG2_DEV_BUILD", "0"))
 if os.name == "nt":
     # Use real MSVC optimization flags on Windows.
     extra_compile_args.extend(["/std:c++17", "/O2", "/DNDEBUG"])

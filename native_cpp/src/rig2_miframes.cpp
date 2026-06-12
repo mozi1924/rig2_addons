@@ -10,11 +10,6 @@ namespace {
 
 constexpr int kApiVersion = 2;
 
-// License state — set via set_license_state(), checked by plan_miframes_keyframe_ops.
-static rig2_shared::LicenseState g_license_state;
-
-RIG2_DEFINE_LICENSE_METHODS("miframes", "rig2_miframes")
-
 PyObject* g_models = nullptr;
 
 using rig2_shared::PyRef;
@@ -416,7 +411,6 @@ PyObject* method_get_model_config(PyObject*, PyObject* args) {
 }
 
 PyObject* method_plan_miframes_keyframe_ops(PyObject*, PyObject* args) {
-  RIG2_CHECK_LICENSE(g_license_state);
   PyObject* data = nullptr;
   PyObject* config = nullptr;
   double start_frame = 0.0;
@@ -616,12 +610,6 @@ PyMethodDef kMethods[] = {
         METH_VARARGS,
         "Plan miframes keyframe operations.",
     },
-    {"apply_native_grant", method_apply_native_grant, METH_VARARGS,
-     "Apply a signed native grant token and verify manifests."},
-    {"clear_license_state", method_clear_license_state, METH_VARARGS,
-     "Clear the current native authorization state."},
-    {"get_license_status", method_get_license_status, METH_NOARGS,
-     "Return native authorization status."},
     {nullptr, nullptr, 0, nullptr},
 };
 

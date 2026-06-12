@@ -5,7 +5,6 @@ from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import format_text as _f
 from ...i18n import iface as _
-from ...licensing.ui_gate import draw_license_warnings
 from ...services.face_cap_service import get_face_cap_backend_service
 from ...ui.base import RIG2_PT_PanelBase
 from .props import ensure_face_cap_binding_items
@@ -36,23 +35,8 @@ def _format_transport_label(status):
 
 class FaceCapUIDrawer:
     @staticmethod
-    def _draw_license_warnings(layout):
-        return draw_license_warnings(layout)
-
-    @staticmethod
     def _draw_backend_lock_hint(layout):
-        FaceCapUIDrawer._draw_license_warnings(layout)
-        backend_service = get_face_cap_backend_service()
-        status = backend_service.get_feature_status()
-        if backend_service.is_feature_unlocked():
-            return False
-
-        layout.label(text=_("Face Capture is unavailable"), icon="LOCKED")
-        if status.get("effective_state") == "needs_restart":
-            layout.label(text=_("Binary updated. Restart Blender to enable this feature."), icon="INFO")
-        else:
-            layout.label(text=status.get("message", backend_service.get_lock_reason()), icon="INFO")
-        return True
+        pass
 
     @staticmethod
     def _draw_info_line(layout, label, value, *, icon="NONE"):

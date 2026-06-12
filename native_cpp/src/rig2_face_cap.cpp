@@ -44,10 +44,6 @@ namespace {
 
 constexpr int kApiVersion = 3;
 
-// License state — set via set_license_state(), checked by sensitive methods.
-static rig2_shared::LicenseState g_license_state;
-
-RIG2_DEFINE_LICENSE_METHODS("face_cap", "rig2_face_cap")
 constexpr const char* kWebsocketMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr const char* kJsonSubprotocol = "r2fmc.json.v1";
 constexpr const char* kBinarySubprotocol = "r2fmc.bin.v1";
@@ -78,8 +74,6 @@ using rig2_shared::object_to_double;
 using rig2_shared::object_to_double_or;
 using rig2_shared::py_object_to_utf8;
 
-#define CHECK_LICENSE() RIG2_CHECK_LICENSE(g_license_state)
-
 PyObject* clamp01_object(PyObject* obj) {
   const double raw = object_to_double_or(obj, 0.0);
   const double clamped = (std::max)(0.0, (std::min)(1.0, raw));
@@ -93,8 +87,6 @@ PyObject* clamp01_object(PyObject* obj) {
 #include "rig2_face_cap/payload_helpers.inc"
 
 #include "rig2_face_cap/receiver_api.inc"
-
-#undef CHECK_LICENSE
 
 #include "rig2_face_cap/public_methods.inc"
 
@@ -140,12 +132,6 @@ PyMethodDef kMethods[] = {
     {"stop_receiver", method_stop_receiver, METH_NOARGS, "Stop native websocket receiver."},
     {"poll_latest_packet", method_poll_latest_packet, METH_NOARGS, "Poll latest packet from receiver."},
     {"get_receiver_stats", method_get_receiver_stats, METH_NOARGS, "Get receiver runtime stats."},
-    {"apply_native_grant", method_apply_native_grant, METH_VARARGS,
-     "Apply a signed native grant token and verify manifests."},
-    {"clear_license_state", method_clear_license_state, METH_VARARGS,
-     "Clear the current native authorization state."},
-    {"get_license_status", method_get_license_status, METH_NOARGS,
-     "Return native authorization status."},
     {nullptr, nullptr, 0, nullptr},
 };
 

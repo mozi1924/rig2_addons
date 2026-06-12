@@ -4,8 +4,7 @@ from ...core.constants import INTERNAL_KEYS
 from ...core.registration import register_classes, unregister_classes
 from ...core.utils import get_context_object, is_rig2_armature
 from ...i18n import iface as _
-from ...licensing.api import FEATURE_MIFRAMES, get_feature_access
-from ...licensing.ui_gate import draw_license_warnings
+
 from ...preferences import get_preferences
 from ...services.miframes_service import get_miframes_backend_service
 from ...ui.base import RIG2_PT_PanelBase, RIG2_PT_SidePanelBase
@@ -357,13 +356,7 @@ class RIG2_PT_UtilityPanel(RIG2_PT_PanelBase, bpy.types.Panel):
 
         layout = self.layout
 
-        draw_license_warnings(layout)
-
         has_mi2bl = hasattr(bpy.ops, "mi") and hasattr(bpy.ops.mi, "import_object_action")
-        miframes_access = get_feature_access(FEATURE_MIFRAMES)
-        if not miframes_access.get("licensed"):
-            return
-
         miframes_service = get_miframes_backend_service()
         is_miframes_unlocked = miframes_service.is_feature_unlocked()
         miframes_status = miframes_service.get_feature_status()
