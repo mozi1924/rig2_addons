@@ -43,6 +43,19 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
     def draw(self, context):
         layout = self.layout
 
+        # -- Links --
+        links_box = layout.box()
+        links_box.label(text="Links", icon="URL")
+        links = [
+            ("Issue Feedback", "https://github.com/mozi1924/rig2_addons/issues", "HELP"),
+            ("Face Cap Web App", "https://facecap.mozi.su/", "CAMERA_DATA"),
+        ]
+        for label, url, icon in links:
+            row = links_box.row(align=True)
+            row.label(text="", icon=icon)
+            op = row.operator("wm.url_open", text=label)
+            op.url = url
+
         # -- Dev Mode banner --
         box = layout.box()
         box.label(text="Rig2 — Open Source (all features active)", icon="CHECKMARK")
@@ -60,6 +73,7 @@ class Rig2AddonPreferences(bpy.types.AddonPreferences):
         column = settings_box.column()
         column.prop(self, "show_n_panel")
         column.prop(self, "show_logic_props")
+
 
 
 def _refresh_ui():

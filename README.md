@@ -34,9 +34,13 @@ Real-time facial motion capture integration supporting two major protocols:
 - **LiveLinkFace (UDP)** — Directly receives 52-channel blendshape data streams from an iPhone running the Live Link Face app; supports zero-configuration Wi-Fi connectivity.
 - **Custom WebSocket** — Supports JSON/Binary encoding, suitable for custom motion capture hardware or third-party software pipelines.
 
-Supports multiple rig bindings, with independent Face Index configuration for each. Head rotation data and blendshape data are processed separately, allowing for independent adjustment of intensity coefficients. ### 🎬 GeckoLib Animation Export — R2BB (Rig2 to Blockbench)
+Supports multiple rig bindings, with independent Face Index configuration for each. Head rotation data and blendshape data are processed separately, allowing for independent adjustment of intensity coefficients.
 
-Export Rig/2 skeletal animations with a single click into the **GeckoLib-compatible `.animation.json` format**, ready for direct use in Minecraft resource packs or for previewing in Blockbench. - Built-in bone mapping presets (Default, March, etc.) that automatically map Rig2 FK bones to the Mine-imator naming convention
+### 🎬 GeckoLib Animation Export — R2BB (Rig2 to Blockbench)
+
+Export Rig/2 skeletal animations with a single click into the **GeckoLib-compatible `.animation.json` format**, ready for direct use in Minecraft resource packs or for previewing in Blockbench.
+
+- Built-in bone mapping presets (Default, March, etc.) that automatically map Rig2 FK bones to the Mine-imator naming convention
 - Support for custom mapping presets (save/load functionality)
 - Independent control over axis sign inversion for rotation, translation, and scaling for each bone
 - Automatic keyframe deduplication and normalization during animation export; outputs standard GeckoLib `format_version: 1.8.0` format
@@ -63,7 +67,7 @@ Use the [mi2bl](https://github.com/mozi1924/mi2bl) add-on to import `.miframes` 
 | Body Shaping | ✅ |
 | 1:1 Control Panel | ✅ |
 | **Face Capture (Face Cap)** | ✅ |
-| **Advanced Facial Expression System (52 ​​Blendshapes)** | ✅ |
+| **Advanced Facial Expression System (52 Blendshapes)** | ✅ |
 | **MIFrames Animation Import (.miframes)** | ✅ |
 | **R2BB GeckoLib Export (.animation.json)** | ✅ |
 | **Commercial Use License** | ✅ |
@@ -82,7 +86,9 @@ Use the [mi2bl](https://github.com/mozi1924/mi2bl) add-on to import `.miframes` 
 
 ### Adding the Rig/2 Armature
 
-After installing the add-on, press **Shift + A → Rig/2** in the 3D Viewport to add the Rig/2 armature to the scene. ### Using Facial Capture
+After installing the add-on, press **Shift + A → Rig/2** in the 3D Viewport to add the Rig/2 armature to the scene.
+
+### Using Facial Capture
 
 1. Locate the **Face Cap** panel in the Properties panel.
 2. Select a protocol: LiveLinkFace (default UDP port 11111) or WebSocket.
@@ -115,6 +121,8 @@ After installing the add-on, press **Shift + A → Rig/2** in the 3D Viewport to
 
 - [Rig/2 Official Website](https://mozi1924.com/mozi-rig/)
 - [mi2bl — Mine-imator to Blender Bridge Add-on](https://github.com/mozi1924/mi2bl)
+- [Issue Feedback & Feature Requests](https://github.com/mozi1924/rig2_addons/issues)
+- [Face Cap Web App](https://facecap.mozi.su/)
 - [Mozi Store](https://store.mozi1924.com/)
 - [YouTube Channel](https://www.youtube.com/@moziarasaka)
 - [Bilibili](https://space.bilibili.com/434156493)
