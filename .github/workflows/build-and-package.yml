@@ -1,0 +1,172 @@
+name: Build and Package Addon (no_licenses)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["no_licenses"]
+    paths:
+      - "__init__.py"
+      - "blender_manifest.toml"
+      - "assets/**"
+      - "src/**"
+      - "version.json"
+      - "native_cpp/**"
+      - "scripts/**"
+      - ".github/workflows/build-and-package.yml"
+  pull_request:
+    branches: ["no_licenses"]
+    paths:
+      - "__init__.py"
+      - "blender_manifest.toml"
+      - "assets/**"
+      - "src/**"
+      - "version.json"
+      - "native_cpp/**"
+      - "scripts/**"
+      - ".github/workflows/build-and-package.yml"
+
+jobs:
+  # ── Build native wheels for all platforms ──────────────────────────
+  build-wheels:
+    name: Build Wheels (${{ matrix.job_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            job_name: "linux-x86_64"
+            artifact_name: "linux-x86_64"
+            cibw_archs: "x86_64"
+            cibw_arch_env_key: "CIBW_ARCHS_LINUX"
+          - os: ubuntu-22.04-arm
+            job_name: "linux-aarch64"
+            artifact_name: "linux-aarch64"
+            cibw_archs: "aarch64"
+            cibw_arch_env_key: "CIBW_ARCHS_LINUX"
+          - os: macos-13
+            job_name: "macos-x86_64"
+            artifact_name: "macos-x86_64"
+            cibw_archs: "x86_64"
+            cibw_arch_env_key: "CIBW_ARCHS_MACOS"
+          - os: macos-14
+            job_name: "macos-arm64"
+            artifact_name: "macos-arm64"
+            cibw_archs: "arm64"
+            cibw_arch_env_key: "CIBW_ARCHS_MACOS"
+          - os: windows-2022
+            job_name: "windows-x86_64"
+            artifact_name: "windows-x86_64"
+            cibw_archs: "AMD64"
+            cibw_arch_env_key: "CIBW_ARCHS_WINDOWS"
+          - os: windows-2022
+            job_name: "windows-arm64"
+            artifact_name: "windows-arm64"
+            cibw_archs: "ARM64"
+            cibw_arch_env_key: "CIBW_ARCHS_WINDOWS"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip cibuildwheel
+
+      - name: Configure cibuildwheel architecture env
+        shell: bash
+        run: |
+          echo "${{ matrix.cibw_arch_env_key }}=${{ matrix.cibw_archs }}" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        env:
+          CIBW_BUILD: "cp311-*"
+          CIBW_SKIP: "pp* *-musllinux_* *-manylinux_i686 *-win32"
+          CIBW_ENVIRONMENT: "RIG2_ENABLE_ABI3=1 RIG2_DEV_BUILD=0"
+          CIBW_TEST_COMMAND: "python -c \"import rig2_miframes, rig2_face_cap, rig2_r2bb; print(rig2_miframes.backend_name(), rig2_face_cap.backend_name(), rig2_r2bb.backend_name())\""
+        run: python -m cibuildwheel native_cpp --output-dir wheelhouse
+
+      - name: Upload wheelhouse
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelhouse-${{ matrix.artifact_name }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  # ── Package addon with all native binaries bundled ──────────────────
+  package-addon:
+    name: Package Addon (All Platforms)
+    runs-on: ubuntu-22.04
+    needs: build-wheels
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: wheelhouse
+          merge-multiple: true
+
+      - name: Show downloaded wheels
+        run: find wheelhouse -type f | sort
+
+      - name: Extract runtime native binaries
+        run: |
+          python scripts/extract_native_from_wheels.py \
+            --wheelhouse wheelhouse \
+            --output native_dist
+
+      - name: Show extracted layout
+        run: find native_dist -type f | sort
+
+      - name: Resolve addon version
+        id: version
+        run: |
+          echo "semver=$(python scripts/versioning.py show --format semver)" >> "$GITHUB_OUTPUT"
+
+      - name: Build addon zip (with native binaries bundled)
+        run: |
+          python scripts/package_addon.py \
+            --compresslevel 9 \
+            --native-dir native_dist
+
+      - name: Upload addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rig2-addon-${{ steps.version.outputs.semver }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Install Blender CLI (for extension repository index)
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -L "https://download.blender.org/release/Blender4.5/blender-4.5.0-linux-x64.tar.xz" -o blender.tar.xz
+          tar -xf blender.tar.xz
+          echo "$PWD/blender-4.5.0-linux-x64" >> "$GITHUB_PATH"
+
+      - name: Generate extension repository index.json
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p dist/repository
+          cp "dist/rig2_extension-${{ steps.version.outputs.semver }}.zip" dist/repository/
+          blender --command extension server-generate --repo-dir=dist/repository
+
+      - name: Upload repository index
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rig2-repository-index-${{ steps.version.outputs.semver }}
+          path: dist/repository/
+          if-no-files-found: error

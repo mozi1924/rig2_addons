@@ -30,22 +30,7 @@ def _validate_pe_header(path):
     On Windows, .pyd files are DLLs with a PE header starting with 'MZ'.
     Validating before calling LoadLibrary catches truncated or corrupted
     downloads early, before they can trigger a loader crash.
-"""
-
-
-def _resolve_addon_root_package() -> str:
-    module_name = __name__
-    marker = ".src."
-    if marker in module_name:
-        return module_name.split(marker, 1)[0]
-    if module_name.endswith(".src"):
-        return module_name[: -len(".src")]
-    return "rig2_addons"
-
-
-def _internal_module_name(module_name: str) -> str:
-    # Keep final segment unchanged for PyInit_<module> symbol matching.
-    return f"{_resolve_addon_root_package()}.src.native.{module_name}"
+    """
     if sys.platform != "win32":
         return None
     try:
@@ -62,8 +47,29 @@ def _internal_module_name(module_name: str) -> str:
     return None
 
 
+def _resolve_addon_root_package() -> str:
+    module_name = __name__
+    marker = ".src."
+    if marker in module_name:
+        return module_name.split(marker, 1)[0]
+    if module_name.endswith(".src"):
+        return module_name[: -len(".src")]
+    return "rig2_addons"
+
+
+def _internal_module_name(module_name: str) -> str:
+    # Keep final segment unchanged for PyInit_<module> symbol matching.
+    return f"{_resolve_addon_root_package()}.src.native.{module_name}"
+
+
 def get_native_root():
-    """Return the directory where downloaded native modules should live."""
+    """Return the directory where bundled native modules live.
+
+    Native binaries are bundled in ``src/native/binaries/<platform-tag>/``.
+    On startup the loader auto-detects the current OS and architecture
+    (e.g. ``darwin-arm64-abi3``, ``win32-x86_64-abi3``) and loads the
+    matching ``.so`` / ``.dylib`` / ``.pyd``.
+    """
     return os.environ.get("RIG2_NATIVE_ROOT") or os.path.join(os.path.dirname(__file__), "binaries")
 
 
