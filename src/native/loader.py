@@ -74,7 +74,35 @@ def get_native_root():
 
 
 
+def _validate_sys_platform():
+    """Cross-validate sys.platform against bpy.app when available.
+
+    In rare edge cases (e.g. Blender embedded Python builds on
+    atypical hosts) ``sys.platform`` may not reflect the actual
+    platform the binary was built for.  This helper logs a warning
+    when a mismatch is detected so the user has a diagnostic hint.
+    """
+    try:
+        import bpy
+    except Exception:
+        return
+    build_platform = getattr(bpy.app, "build_platform", None)
+    if build_platform is None:
+        return
+    bp = build_platform.decode("ascii", errors="ignore").strip().lower()
+    # Map bpy.app platform name → sys.platform name.
+    expected = {"darwin": "darwin", "linux": "linux", "windows": "win32"}.get(bp)
+    if expected and expected != sys.platform:
+        _log.warning(
+            "sys.platform=%r but bpy.app.build_platform=%r; "
+            "native binary discovery may be affected.",
+            sys.platform,
+            bp,
+        )
+
+
 def get_platform_tag():
+    _validate_sys_platform()
     return f"{sys.platform}-{get_arch_tag()}-{sys.version_info.major}{sys.version_info.minor}"
 
 
@@ -83,12 +111,49 @@ def get_legacy_platform_tag():
     return f"{sys.platform}-{sys.version_info.major}{sys.version_info.minor}"
 
 
+def _detect_arch_from_bpy():
+    """Try to detect architecture from Blender's bpy.app when available.
+
+    In Blender 5.x the addon may be imported early before the Python
+    runtime has fully probed the hardware.  bpy.app offers build-time
+    constants that are always available and can serve as a reliable
+    fallback when platform.machine() returns an empty or unrecognised
+    value.
+    """
+    try:
+        import bpy
+    except Exception:
+        return ""
+
+    # bpy.app.build_platform returns bytes, e.g. b'Darwin', b'Windows'.
+    build_platform = getattr(bpy.app, "build_platform", None)
+    if build_platform is not None:
+        build_platform = build_platform.decode("ascii", errors="ignore").strip().lower()
+        # Map bpy.app platform names to arch hints.
+        # On macOS the only supported arch since Blender 5.0 is arm64.
+        if build_platform == "darwin":
+            return "arm64"
+        # On Windows/Linux we still need platform.machine(); no-op.
+    return ""
+
+
 def get_arch_tag():
+    """Return a normalised architecture tag for native binary discovery.
+
+    Prefers ``platform.machine()``, then falls back to Blender's
+    ``bpy.app`` build-time constants when running inside Blender 4.5+.
+    """
     machine = (platform.machine() or "").strip().lower()
     if machine in {"x86_64", "amd64", "x64"}:
         return "x86_64"
     if machine in {"arm64", "aarch64"}:
         return "arm64"
+    # If platform.machine() returned empty or an unrecognised value,
+    # try Blender's own build-time platform info as a fallback.
+    if not machine or machine == "unknown":
+        bpy_arch = _detect_arch_from_bpy()
+        if bpy_arch:
+            return bpy_arch
     return machine or "unknown"
 
 
@@ -113,9 +178,32 @@ def get_platform_tags():
     return tuple(dict.fromkeys(tags))
 
 
+# Canonical ABI3 suffixes that MUST be present for managed native binaries.
+# The native modules are compiled with Py_LIMITED_API (abi3), so their file
+# names always carry an ".abi3" tag regardless of the Python minor version.
+_ABI3_GUARANTEED_SUFFIXES = (".abi3.so",)
+
+
 def get_extension_suffixes():
-    """Return extension suffixes, preferring ABI3-compatible names first."""
-    suffixes = getattr(importlib.machinery, "EXTENSION_SUFFIXES", None) or [".so", ".pyd", ".dylib"]
+    """Return extension suffixes, preferring ABI3-compatible names first.
+
+    The list is built from ``importlib.machinery.EXTENSION_SUFFIXES``
+    (which reflects the host Python's supported extensions), then
+    augmented with the canonical ABI3 suffixes that our managed native
+    binaries always use.  This guarantees that even if the host Python
+    omits ``.abi3.so`` from its advertised suffixes (which can happen
+    in some Blender-bundled Python builds), the loader will still
+    discover and load the bundled binaries.
+    """
+    suffixes = list(
+        getattr(importlib.machinery, "EXTENSION_SUFFIXES", None)
+        or [".so", ".pyd", ".dylib"]
+    )
+    # Ensure our guaranteed ABI3 suffixes are present.
+    for abi3_suffix in _ABI3_GUARANTEED_SUFFIXES:
+        if abi3_suffix not in suffixes:
+            suffixes.append(abi3_suffix)
+
     ordered = sorted(
         suffixes,
         key=lambda suffix: (0 if ".abi3." in suffix else 1, len(suffix)),
