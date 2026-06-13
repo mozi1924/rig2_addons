@@ -26,6 +26,10 @@ on:
       - "scripts/**"
       - ".github/workflows/build-and-package.yml"
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   # ── Build native wheels for all platforms ──────────────────────────
   build-wheels:
