@@ -40,7 +40,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 from native_artifacts import (
     MODULE_NAMES,
     MODULE_NAME_SET,
-    RUNTIME_ARTIFACT_SPECS,
+    RUNTIME_TAG_MAP,
     detect_module_name,
     map_wheel_platform_tag_to_runtime_tags,
     parse_wheel_platform_tags,
@@ -75,10 +75,9 @@ def extract_wheels(wheelhouse: Path, output: Path) -> None:
     if not wheels:
         raise SystemExit(f"No .whl files found in {wheelhouse}")
 
-    # Map: runtime_tag -> {module_name: source_path}
-    extracted: dict[str, dict[str, Path]] = {
-        spec.runtime_tag: {} for spec in RUNTIME_ARTIFACT_SPECS
-    }
+    output.mkdir(parents=True, exist_ok=True)
+    written = 0
+    seen_tags: set[str] = set()
 
     for wheel_path in wheels:
         wheel_tags = parse_wheel_platform_tags(wheel_path.name)
@@ -102,30 +101,24 @@ def extract_wheels(wheelhouse: Path, output: Path) -> None:
                 print(f"  [SKIP] {wheel_path.name} — no managed native modules found")
                 continue
 
+            # Copy files immediately while temp dir still exists
             for rt_tag in runtime_tags:
-                if rt_tag not in extracted:
+                spec = RUNTIME_TAG_MAP.get(rt_tag)
+                if spec is None:
                     print(f"  [WARN] {wheel_path.name} → unknown runtime tag '{rt_tag}', skipping")
                     continue
-                extracted[rt_tag].update(native_files)
-                print(f"  {wheel_path.name} → {rt_tag} ({len(native_files)} modules)")
+                tag_dir = output / rt_tag
+                tag_dir.mkdir(parents=True, exist_ok=True)
+                seen_tags.add(rt_tag)
 
-    # Write output
-    output.mkdir(parents=True, exist_ok=True)
-    written = 0
-    for rt_tag, modules in sorted(extracted.items()):
-        if not modules:
-            print(f"  [WARN] No modules for runtime tag '{rt_tag}'")
-            continue
-        tag_dir = output / rt_tag
-        tag_dir.mkdir(parents=True, exist_ok=True)
-        for mod_name, src_path in sorted(modules.items()):
-            # Preserve the original filename (with .abi3. if present)
-            dest = tag_dir / src_path.name
-            shutil.copy2(src_path, dest)
-            written += 1
-            print(f"  {src_path.name} → {rt_tag}/")
+                for mod_name, src_path in sorted(native_files.items()):
+                    dest = tag_dir / src_path.name
+                    shutil.copy2(src_path, dest)
+                    written += 1
 
-    print(f"\nExtracted {written} native modules across {len(extracted)} runtime tags.")
+            print(f"  {wheel_path.name} → {', '.join(runtime_tags)} ({len(native_files)} modules)")
+
+    print(f"\nExtracted {written} native modules across {len(seen_tags)} runtime tags.")
 
 
 def parse_args() -> argparse.Namespace:
