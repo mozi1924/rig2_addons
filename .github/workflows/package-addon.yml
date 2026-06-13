@@ -3,7 +3,7 @@ name: Package Blender Addon
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "master", "no_licenses"]
+    branches: ["main", "master"]
     paths:
       - "__init__.py"
       - "blender_manifest.toml"

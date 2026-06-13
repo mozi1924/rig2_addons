@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: ["no_licenses"]
+    tags: ["v*"]
     paths:
       - "__init__.py"
       - "blender_manifest.toml"
@@ -103,6 +104,8 @@ jobs:
     name: Package Addon (All Platforms)
     runs-on: ubuntu-22.04
     needs: build-wheels
+    outputs:
+      version: ${{ steps.version.outputs.semver }}
 
     steps:
       - name: Checkout
@@ -170,3 +173,91 @@ jobs:
           name: rig2-repository-index-${{ steps.version.outputs.semver }}
           path: dist/repository/
           if-no-files-found: error
+
+  # ── GitHub Release ─────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-22.04
+    needs: package-addon
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download addon artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rig2-addon-${{ needs.package-addon.outputs.version }}
+          path: dist
+
+      - name: Download repository index
+        uses: actions/download-artifact@v4
+        with:
+          name: rig2-repository-index-${{ needs.package-addon.outputs.version }}
+          path: dist/repository
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Rig2 ${{ needs.package-addon.outputs.version }}"
+          body: |
+            ## Rig2 Blender Addon ${{ needs.package-addon.outputs.version }}
+
+            Open-source release with bundled native binaries for all platforms.
+
+            ### Supported Platforms
+            - macOS (ARM64 / x86_64)
+            - Windows (x86_64 / ARM64)
+            - Linux (x86_64 / ARM64)
+
+            ### Installation
+            Install via Blender Extensions repository or download the zip below.
+          files: |
+            dist/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  # ── R2 Upload (latest + versioned) ─────────────────────────────────
+  upload-r2:
+    name: Upload to Cloudflare R2
+    runs-on: ubuntu-22.04
+    needs: package-addon
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download addon artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rig2-addon-${{ needs.package-addon.outputs.version }}
+          path: dist
+
+      - name: Download repository index
+        uses: actions/download-artifact@v4
+        with:
+          name: rig2-repository-index-${{ needs.package-addon.outputs.version }}
+          path: dist/repository
+
+      - name: Install upload dependencies
+        run: pip install boto3
+
+      - name: Upload to R2
+        env:
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_PUBLIC_BUCKET_NAME: public-assets
+        run: |
+          python scripts/upload_addon_to_r2.py \
+            --artifact "dist/rig2_extension-${{ needs.package-addon.outputs.version }}.zip" \
+            --addon-version "${{ needs.package-addon.outputs.version }}" \
+            --storage-prefix rig2 \
+            --latest-key rig2/latest.zip \
+            --index-file dist/repository/index.json \
+            --index-key rig2/index.json
