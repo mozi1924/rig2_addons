@@ -70,8 +70,6 @@ Use the [mi2bl](https://github.com/mozi1924/mi2bl) add-on to import `.miframes` 
 | **Advanced Facial Expression System (52 Blendshapes)** | ✅ |
 | **MIFrames Animation Import (.miframes)** | ✅ |
 | **R2BB GeckoLib Export (.animation.json)** | ✅ |
-| **Commercial Use License** | ✅ |
-| **Priority Tech Support & Update Channel** | ✅ |
 
 ---
 
