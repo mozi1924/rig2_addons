@@ -87,7 +87,7 @@ def upload(args: argparse.Namespace) -> None:
         raise SystemExit(f"Addon artifact not found: {artifact_path}")
 
     # 1. Versioned addon zip
-    versioned_key = f"{storage_prefix}/{addon_version}/{artifact_path.name}"
+    versioned_key = f"{storage_prefix}/{artifact_path.name}"
     _upload_file(s3, bucket, versioned_key, artifact_path, "application/zip")
     _log.info("✓ Versioned addon: s3://%s/%s", bucket, versioned_key)
 
