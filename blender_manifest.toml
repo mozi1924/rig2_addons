@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "rig2_addons"
-version = "1.1.8"
+version = "1.1.9"
 name = "Rig2"
 tagline = "Modular Rig2 binding and Face/MoCap workflow tools"
 maintainer = "mozi1924"
